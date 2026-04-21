@@ -1,0 +1,24 @@
+---
+# Apply timeout. nmstate rolls back if it doesn't receive confirmation within
+# this many seconds — e.g. when we broke our own SSH connection.
+nmstate_apply_timeout: 60
+
+# Disable STP on VM-facing bridges. field deployment April 15: STP churn on br-mgmt (driven
+# by guest vnet* interfaces thrashing) starved corosync heartbeats. We don't
+# need STP for this topology.
+networking_disable_stp: true
+
+# Skip the heartbeat interface if the inventory doesn't declare one. Used in
+# the lab before a 4th NIC is added. Preflight warns; pacemaker will refuse.
+networking_skip_heartbeat: "{{ (networking_defaults.heartbeat_nic | default('')) | length == 0 }}"
+
+# Skip the PTP NIC section the same way. Lab has no dedicated PTP NIC yet.
+# When skipped, ptp_timesync will fail preflight — intentional gate.
+networking_skip_ptp: "{{ (networking_defaults.ptp_nic | default('')) | length == 0 }}"
+
+# Firewalld zones for declared interfaces
+networking_mgmt_zone: "{{ firewalld_default_zone | default('public') }}"
+networking_storage_zone: "trusted"
+networking_station_zone: "internal"
+networking_heartbeat_zone: "trusted"
+networking_ptp_zone: "trusted"

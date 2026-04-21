@@ -1,0 +1,8 @@
+---
+# RT tuning: sched_rt_runtime_us, cpufreq governor, RT chrony (rt_hosts only).
+
+- name: RT tuning
+  hosts: vpac_cluster
+  gather_facts: true
+  roles:
+    - role: rt_tuning

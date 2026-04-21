@@ -1,0 +1,20 @@
+---
+- name: "Ensure persistent journal directory exists"
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+
+- name: "Set journald storage parameters"
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+  loop:
+    - { key: "Storage", value: "persistent" }
+    - { key: "SystemMaxUse", value: "{{ journald_max_use_mb }}M" }
+    - { key: "SystemKeepFree", value: "500M" }
+  notify: "restart journald"

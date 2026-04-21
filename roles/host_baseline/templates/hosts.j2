@@ -1,0 +1,19 @@
+# Managed by ansible-vpac / host_baseline role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags baseline-hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+# Cluster nodes — management network
+{% for n in vpac_nodes %}
+{{ n.mgmt_ip }}    {{ n.hostname }}.{{ site_domain }} {{ n.hostname }}
+{% endfor %}
+
+# Cluster nodes — storage network (Ceph public + cluster, L2-only)
+{% for n in vpac_nodes %}
+{{ n.storage_ip }}    {{ n.hostname }}-storage.{{ site_domain }} {{ n.hostname }}-storage
+{% endfor %}
+
+# Cluster nodes — heartbeat network (Corosync)
+{% for n in vpac_nodes %}
+{{ n.heartbeat_ip }}    {{ n.hostname }}-hb.{{ site_domain }} {{ n.hostname }}-hb
+{% endfor %}

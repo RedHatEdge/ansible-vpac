@@ -1,0 +1,12 @@
+---
+# Validate: cyclictest on RT hosts, pcs status, ceph -s, PTP offset,
+# corosync link health, STONITH dry-run on a drained node.
+#
+# Produces a report under /var/log/vpac-validate-<timestamp>.txt on the
+# control node.
+
+- name: Validate
+  hosts: vpac_cluster
+  gather_facts: true
+  roles:
+    - role: validate

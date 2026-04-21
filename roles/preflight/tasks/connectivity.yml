@@ -1,0 +1,67 @@
+---
+- name: "Confirm passwordless sudo works"
+  ansible.builtin.command: /usr/bin/id -u
+  become: true
+  changed_when: false
+  register: _preflight_sudo
+
+- name: "Assert we ended up root via sudo"
+  ansible.builtin.assert:
+    that: _preflight_sudo.stdout == "0"
+    fail_msg: "sudo did not elevate to uid 0 — check sudoers"
+    success_msg: "sudo OK"
+
+- name: "Assert OS family is Red Hat / RHEL"
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == "RedHat"
+      - ansible_facts['distribution'] in ["RedHat", "CentOS", "Rocky", "AlmaLinux"]
+    fail_msg: "Preflight expects RHEL 9.x or a compatible rebuild; found {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+
+- name: "Assert RHEL major version"
+  ansible.builtin.assert:
+    that: ansible_facts['distribution_major_version'] | int == preflight_required_rhel_major
+    fail_msg: "RHEL {{ preflight_required_rhel_major }}.x required; found {{ ansible_facts['distribution_version'] }}"
+
+- name: "Assert RHEL minor version floor"
+  ansible.builtin.assert:
+    that: (ansible_facts['distribution_version'].split('.')[1] | int) >= preflight_required_rhel_minor_min
+    fail_msg: "RHEL 9.{{ preflight_required_rhel_minor_min }} or newer required; found {{ ansible_facts['distribution_version'] }}"
+  when: "'.' in ansible_facts['distribution_version']"
+
+- name: "Check free space on / and /var"
+  ansible.builtin.set_fact:
+    _preflight_mounts: "{{ ansible_facts['mounts'] | items2dict(key_name='mount', value_name='size_available') }}"
+
+- name: "Assert / has enough free space"
+  ansible.builtin.assert:
+    that: (_preflight_mounts['/'] | int) >= (preflight_min_root_gb * 1024 * 1024 * 1024)
+    fail_msg: "/ has {{ (_preflight_mounts['/'] | int) // (1024**3) }} GB free; need {{ preflight_min_root_gb }} GB"
+
+- name: "Assert /var has enough free space"
+  ansible.builtin.assert:
+    that:
+      - ('/var' in _preflight_mounts) or (_preflight_mounts['/'] | int) >= (preflight_min_var_gb * 1024 * 1024 * 1024)
+      - not ('/var' in _preflight_mounts) or (_preflight_mounts['/var'] | int) >= (preflight_min_var_gb * 1024 * 1024 * 1024)
+    fail_msg: "/var needs {{ preflight_min_var_gb }} GB free for libvirt images and Ceph data"
+
+- name: "Capture node epoch (for clock-skew check)"
+  ansible.builtin.command: /usr/bin/date +%s
+  changed_when: false
+  register: _preflight_node_epoch
+
+- name: "Capture control-host epoch"
+  ansible.builtin.command: /usr/bin/date +%s
+  changed_when: false
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: _preflight_control_epoch
+
+- name: "Assert cluster clock skew is tolerable"
+  ansible.builtin.assert:
+    that: (_preflight_node_epoch.stdout | int - _preflight_control_epoch.stdout | int) | abs <= preflight_max_clock_skew_s
+    fail_msg: >-
+      Clock skew between this node and the control host is
+      {{ (_preflight_node_epoch.stdout | int - _preflight_control_epoch.stdout | int) | abs }}s
+      (max {{ preflight_max_clock_skew_s }}s). Fix NTP/PTP before proceeding — Ceph and Pacemaker both depend on consistent time.

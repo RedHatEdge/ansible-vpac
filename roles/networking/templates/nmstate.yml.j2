@@ -1,0 +1,205 @@
+---
+# Managed by ansible-vpac / networking role — do not edit by hand.
+# Rendered from inventory. Regenerate:
+#   ansible-playbook -i inventory/<site> site.yml --tags networking-apply
+#
+# Applied by `nmstatectl apply --timeout {{ nmstate_apply_timeout }} /etc/vpac-nmstate.yml`.
+
+{% set mgmt_prefix = networks.mgmt.cidr.split('/')[1] %}
+{% set storage_prefix = networks.storage.cidr.split('/')[1] %}
+{% set station_prefix = networks.station.cidr.split('/')[1] %}
+{% set heartbeat_prefix = (networks.heartbeat.cidr.split('/')[1]) if (networks.heartbeat.cidr | length > 0) else '24' %}
+
+{% set mgmt_bond_attach = (networking_defaults.mgmt_bond.name ~ '.' ~ (networks.mgmt.vlan | string)) if networks.mgmt.vlan else networking_defaults.mgmt_bond.name %}
+{% set station_bond_attach = (networking_defaults.station_bond.name ~ '.' ~ (networks.station.vlan | string)) if networks.station.vlan else networking_defaults.station_bond.name %}
+
+interfaces:
+
+  # ----- Physical ports (flattened, no IP config; belong to bonds) -----
+{% for p in (networking_defaults.mgmt_bond.members + networking_defaults.storage_bond.members + networking_defaults.station_bond.members) | unique %}
+  - name: {{ p }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+{% endfor %}
+
+{% if not (networking_skip_ptp | bool) %}
+  # ----- PTP NIC — UP, no IP, no bridge, no bond -----
+  - name: {{ networking_defaults.ptp_nic }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+{% endif %}
+
+{% if not (networking_skip_heartbeat | bool) %}
+  # ----- Heartbeat NIC — raw IP, not a bridge, not a bond slave -----
+  - name: {{ networking_defaults.heartbeat_nic }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ _net_node.heartbeat_ip }}
+          prefix-length: {{ heartbeat_prefix }}
+    ipv6:
+      enabled: false
+{% endif %}
+
+  # ----- Management bond -----
+  - name: {{ networking_defaults.mgmt_bond.name }}
+    type: bond
+    state: up
+    link-aggregation:
+      mode: {{ networking_defaults.mgmt_bond.mode }}
+      port:
+{% for p in networking_defaults.mgmt_bond.members %}
+        - {{ p }}
+{% endfor %}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% if networks.mgmt.vlan %}
+  - name: {{ networking_defaults.mgmt_bond.name }}.{{ networks.mgmt.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ networking_defaults.mgmt_bond.name }}
+      id: {{ networks.mgmt.vlan }}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+{% endif %}
+
+  # ----- Management bridge (VMs attach here for mgmt network) -----
+  - name: {{ bridges.mgmt }}
+    type: linux-bridge
+    state: up
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ _net_node.mgmt_ip }}
+          prefix-length: {{ mgmt_prefix }}
+    ipv6:
+      enabled: false
+    bridge:
+      options:
+        stp:
+          enabled: {{ not networking_disable_stp | bool | lower }}
+      port:
+        - name: {{ mgmt_bond_attach }}
+
+  # ----- Storage bond (raw IP, no bridge — no VMs on storage network) -----
+  - name: {{ networking_defaults.storage_bond.name }}
+    type: bond
+    state: up
+    link-aggregation:
+      mode: {{ networking_defaults.storage_bond.mode }}
+      port:
+{% for p in networking_defaults.storage_bond.members %}
+        - {{ p }}
+{% endfor %}
+{% if not networks.storage.vlan %}
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ _net_node.storage_ip }}
+          prefix-length: {{ storage_prefix }}
+    ipv6:
+      enabled: false
+{% else %}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+  - name: {{ networking_defaults.storage_bond.name }}.{{ networks.storage.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ networking_defaults.storage_bond.name }}
+      id: {{ networks.storage.vlan }}
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ _net_node.storage_ip }}
+          prefix-length: {{ storage_prefix }}
+    ipv6:
+      enabled: false
+{% endif %}
+
+  # ----- Station bond -----
+  - name: {{ networking_defaults.station_bond.name }}
+    type: bond
+    state: up
+    link-aggregation:
+      mode: {{ networking_defaults.station_bond.mode }}
+      port:
+{% for p in networking_defaults.station_bond.members %}
+        - {{ p }}
+{% endfor %}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% if networks.station.vlan %}
+  - name: {{ networking_defaults.station_bond.name }}.{{ networks.station.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ networking_defaults.station_bond.name }}
+      id: {{ networks.station.vlan }}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+{% endif %}
+
+  # ----- Station bridge (relay VMs attach here for IEC 61850 traffic) -----
+  - name: {{ bridges.station }}
+    type: linux-bridge
+    state: up
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ _net_node.station_ip }}
+          prefix-length: {{ station_prefix }}
+    ipv6:
+      enabled: false
+    bridge:
+      options:
+        stp:
+          enabled: {{ not networking_disable_stp | bool | lower }}
+      port:
+        - name: {{ station_bond_attach }}
+
+routes:
+  config:
+{% if networks.mgmt.gateway | default('') | length > 0 %}
+    - destination: 0.0.0.0/0
+      next-hop-address: {{ networks.mgmt.gateway }}
+      next-hop-interface: {{ bridges.mgmt }}
+{% endif %}
+
+dns-resolver:
+  config:
+    search:
+      - {{ site_domain }}
+    server:
+{% for dns in site_dns_servers %}
+      - {{ dns }}
+{% endfor %}

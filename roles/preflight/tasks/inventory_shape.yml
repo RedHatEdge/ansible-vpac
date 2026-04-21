@@ -1,0 +1,69 @@
+---
+# Inventory-shape checks run once per play — the values are the same
+# across every host in the play.
+
+- name: "Assert vpac_nodes is defined and non-empty"
+  ansible.builtin.assert:
+    that:
+      - vpac_nodes is defined
+      - vpac_nodes | length >= 1
+    fail_msg: "vpac_nodes must contain at least one node entry"
+  run_once: true
+
+- name: "Assert vpac_nodes entries have required keys"
+  ansible.builtin.assert:
+    that:
+      - item.hostname is defined
+      - item.mgmt_ip is defined
+      - item.storage_ip is defined
+      - item.heartbeat_ip is defined
+      - item.bmc_type is defined
+    fail_msg: "vpac_nodes entry missing required key: {{ item }}"
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname | default('?') }}"
+  run_once: true
+
+- name: "Assert each vpac_nodes hostname is present in the vpac_cluster group"
+  ansible.builtin.assert:
+    that: item.hostname in groups['vpac_cluster']
+    fail_msg: "vpac_nodes lists {{ item.hostname }} but it is not in the vpac_cluster inventory group"
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  run_once: true
+
+- name: "Warn if the cluster is under 3 nodes (Pacemaker + Ceph will be skipped)"
+  ansible.builtin.debug:
+    msg: >-
+      vpac_nodes has {{ vpac_nodes | length }} node(s). Single-node mode is supported
+      but Pacemaker, Ceph, and STONITH stages will be skipped. VMs will run as
+      standalone libvirt domains.
+  when: vpac_nodes | length < 3
+  run_once: true
+
+- name: "Assert deployment_mode is set to a known value"
+  ansible.builtin.assert:
+    that: deployment_mode in ["connected", "airgapped"]
+    fail_msg: "deployment_mode must be 'connected' or 'airgapped' (got: {{ deployment_mode | default('undefined') }})"
+  run_once: true
+
+- name: "Assert sources.repo_source is valid"
+  ansible.builtin.assert:
+    that: sources.repo_source in ["rhsm", "satellite", "local_mirror"]
+    fail_msg: "sources.repo_source must be rhsm | satellite | local_mirror (got: {{ sources.repo_source | default('undefined') }})"
+  run_once: true
+
+- name: "Assert Satellite URL is set when repo_source is satellite"
+  ansible.builtin.assert:
+    that: sources.satellite_url | default("") | length > 0
+    fail_msg: "sources.satellite_url must be set when sources.repo_source is 'satellite'"
+  when: sources.repo_source == "satellite"
+  run_once: true
+
+- name: "Assert local_mirror URL is set when repo_source is local_mirror"
+  ansible.builtin.assert:
+    that: sources.local_mirror_url | default("") | length > 0
+    fail_msg: "sources.local_mirror_url must be set when sources.repo_source is 'local_mirror'"
+  when: sources.repo_source == "local_mirror"
+  run_once: true

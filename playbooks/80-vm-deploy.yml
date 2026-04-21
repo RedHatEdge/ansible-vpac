@@ -1,0 +1,16 @@
+---
+# VM deploy: render libvirt XML from jinja templates (per-VM pinning,
+# hugepages, virtio, MAC preservation), define the VMs, create as Pacemaker
+# resources with location constraints from vm_catalog.allowed_hosts.
+
+- name: VM templates
+  hosts: vpac_cluster
+  gather_facts: true
+  roles:
+    - role: vm_templates
+
+- name: VM deploy
+  hosts: pacemaker_cluster
+  gather_facts: true
+  roles:
+    - role: vm_deploy

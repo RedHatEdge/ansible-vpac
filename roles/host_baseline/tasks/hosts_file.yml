@@ -1,0 +1,12 @@
+---
+# Write /etc/hosts from vpac_nodes. Ceph bootstrap and Pacemaker both rely on
+# every node resolving every other node by shortname, and storage-network
+# addresses typically have no DNS at all (L2-only). We own /etc/hosts here.
+
+- name: "Render /etc/hosts"
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: "0644"

@@ -1,0 +1,9 @@
+---
+- name: "Find this node's entry in vpac_nodes"
+  ansible.builtin.set_fact:
+    _baseline_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"
+
+- name: "Set hostname"
+  ansible.builtin.hostname:
+    name: "{{ _baseline_node.hostname }}.{{ site_domain }}"
+    use: systemd

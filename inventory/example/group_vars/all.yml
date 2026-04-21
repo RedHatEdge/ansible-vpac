@@ -1,0 +1,426 @@
+---
+# ====================================================================
+# vPAC cluster — site variables (EDIT THIS FILE FOR YOUR DEPLOYMENT)
+# ====================================================================
+#
+# This file is the contract between you and the playbooks. Every value
+# a role needs at runtime is declared here with an example. If a playbook
+# references a variable that is not in this file, that is a bug — please
+# file an issue.
+#
+# Fill in the values below, then run:
+#   ansible-playbook -i inventory/<your-site> site.yml --tags preflight
+# to validate your settings before committing to a full deploy.
+
+# --------------------------------------------------------------------
+# 1. Site identity
+# --------------------------------------------------------------------
+site_name: "site1"                       # short identifier, used in logs/prompts
+site_domain: "example.utility.local"     # DNS domain for cluster nodes
+site_timezone: "America/Phoenix"         # IANA tz
+site_dns_servers:
+  - 10.0.0.1
+  - 10.0.0.2
+
+# --------------------------------------------------------------------
+# 2. Deployment mode
+# --------------------------------------------------------------------
+# Two first-class paths:
+#   connected — nodes have outbound internet; install RHEL yourself or by any
+#               standard method; site.yml pulls from RHSM and quay.io.
+#   airgapped — utility POC / substation default; run build-installer.yml first
+#               to produce a custom installer ISO; site.yml pulls from a local
+#               Satellite / mirror / registry you operate.
+#
+# Each of the two deployment guides under docs/ walks through the full workflow
+# for its path. This variable selects defaults for everything in section 3;
+# override individual entries there to mix (e.g. Satellite RPMs + quay.io
+# images) when egress is selective.
+deployment_mode: "connected"             # connected | airgapped
+
+# --------------------------------------------------------------------
+# 3. Sources (where packages, images, and collections come from)
+# --------------------------------------------------------------------
+# Every role that fetches an RPM, pulls a container image, or installs an
+# Ansible collection reads from this subtree. No role hardcodes a URL or
+# registry. Defaults are picked by deployment_mode; override below if needed.
+sources:
+
+  # RPM source. rhsm = Red Hat Subscription Manager CDN; satellite = your
+  # Satellite/capsule; local_mirror = a local reposync'd mirror (air-gapped).
+  repo_source: "rhsm"                    # rhsm | satellite | local_mirror
+
+  # Required when repo_source == satellite
+  satellite_url: ""                      # e.g. https://satellite.example.local
+
+  # Required when repo_source == local_mirror
+  local_mirror_url: ""                   # e.g. http://builder.example.local/mirror
+
+  # Container registry for Ceph and any other pulled images. Default quay.io
+  # for connected deployments; a local registry hostname for air-gapped.
+  container_registry: "quay.io"          # e.g. registry.example.local:5000
+
+  # Where the Ansible control node pulls collection dependencies. galaxy for
+  # connected, local_tarball for air-gapped (tarball produced by the builder).
+  ansible_collections_source: "galaxy"   # galaxy | local_tarball
+  ansible_collections_local_path: ""     # e.g. /opt/ansible-collections.tar.gz
+
+# --------------------------------------------------------------------
+# 4. RHEL subscription (used only when sources.repo_source is rhsm or satellite)
+# --------------------------------------------------------------------
+rhsm_activation_key: "CHANGEME"          # activation key on RHN or Satellite
+rhsm_org_id: "CHANGEME"
+rhsm_server_url: "subscription.rhsm.redhat.com"
+rhsm_pool: ""                            # optional pool override
+
+# Repos enabled on each node beyond BaseOS/AppStream. Needed for HA,
+# resilient-storage (Ceph tooling), and the NFV repo for RT kernel.
+rhsm_repos:
+  - rhel-9-for-x86_64-baseos-rpms
+  - rhel-9-for-x86_64-appstream-rpms
+  - rhel-9-for-x86_64-highavailability-rpms
+  - rhel-9-for-x86_64-resilient-storage-rpms
+  - rhel-9-for-x86_64-nfv-rpms
+
+# --------------------------------------------------------------------
+# 5. Node topology
+# --------------------------------------------------------------------
+# One entry per cluster node. hostname must match inventory/hosts.yml.
+# Interface names can also be overridden per-node in host_vars/<node>.yml
+# (recommended when nodes are not hardware-identical).
+vpac_nodes:
+  - hostname: "site1-node-a"
+    mgmt_ip: "10.0.0.11"                 # management network (Ansible reachability)
+    storage_ip: "10.0.10.11"             # Ceph public + cluster network
+    station_ip: "10.0.20.11"             # station bus (IEC 61850 traffic)
+    heartbeat_ip: "10.0.30.11"           # dedicated corosync/pacemaker network
+    bmc_ip: "10.0.100.11"                # iDRAC/IPMI for STONITH
+    bmc_type: "idrac9"                   # idrac9 | idrac8 | supermicro_ipmi | generic_ipmilan
+    bmc_user: "admin"
+    bmc_password: "{{ vault_bmc_password_node_a }}"  # use ansible-vault
+  - hostname: "site1-node-b"
+    mgmt_ip: "10.0.0.12"
+    storage_ip: "10.0.10.12"
+    station_ip: "10.0.20.12"
+    heartbeat_ip: "10.0.30.12"
+    bmc_ip: "10.0.100.12"
+    bmc_type: "idrac9"
+    bmc_user: "admin"
+    bmc_password: "{{ vault_bmc_password_node_b }}"
+  - hostname: "site1-node-c"
+    mgmt_ip: "10.0.0.13"
+    storage_ip: "10.0.10.13"
+    station_ip: "10.0.20.13"
+    heartbeat_ip: "10.0.30.13"
+    bmc_ip: "10.0.100.13"
+    bmc_type: "supermicro_ipmi"
+    bmc_user: "admin"
+    bmc_password: "{{ vault_bmc_password_node_c }}"
+
+# --------------------------------------------------------------------
+# 6. Networking
+# --------------------------------------------------------------------
+# The playbooks assume five logical networks. They MAY share physical NICs
+# via VLANs, but some combinations are hazardous (see below). Defaults are
+# dedicated NICs where it matters.
+
+networks:
+
+  # Management: Ansible reachability, sysadmin SSH, libvirt mgmt
+  mgmt:
+    cidr: "10.0.0.0/24"
+    gateway: "10.0.0.1"
+    vlan: null                           # null = untagged, otherwise integer VLAN ID
+
+  # Storage: Ceph public + cluster network. Dedicated bond recommended.
+  storage:
+    cidr: "10.0.10.0/24"
+    gateway: null                        # typically no gateway (L2-only)
+    vlan: 10
+
+  # Station bus: IEC 61850 GOOSE/SV, relay-to-process traffic. Often L2 trunk.
+  station:
+    cidr: "10.0.20.0/24"
+    gateway: null
+    vlan: 20
+
+  # Cluster heartbeat: corosync ring, separate from VM mgmt bridge.
+  # DO NOT collapse this onto mgmt if mgmt also hosts VM libvirt networks —
+  # bridge churn from guest VMs will starve corosync heartbeats.
+  heartbeat:
+    cidr: "10.0.30.0/24"
+    gateway: null
+    vlan: 30
+
+  # BMC / IPMI: usually a separate physical network, accessed by STONITH agent.
+  bmc:
+    cidr: "10.0.100.0/24"
+    gateway: "10.0.100.1"
+    vlan: null
+
+# Per-host physical layout. Override in host_vars/<node>.yml when a node
+# doesn't match the default hardware.
+networking_defaults:
+
+  # The NIC dedicated to PTP. MUST NOT be a bridge member, bond slave, or
+  # macvtap target. Verified by the ptp_isolation role.
+  ptp_nic: "ens4f2"
+
+  # Bond for management bridge (br-mgmt)
+  mgmt_bond:
+    name: "bond0"
+    mode: "active-backup"
+    members: ["eno1", "eno2"]
+
+  # Bond for storage (no bridge — raw IP on the bond)
+  storage_bond:
+    name: "bond1"
+    mode: "802.3ad"                      # LACP when ToR supports it
+    members: ["ens1f0", "ens1f1"]
+
+  # Bond for station bus bridge (br-station)
+  station_bond:
+    name: "bond2"
+    mode: "active-backup"
+    members: ["ens2f0", "ens2f1"]
+
+  # Dedicated NIC for cluster heartbeat — NOT a bridge member
+  heartbeat_nic: "ens3f0"
+
+# Bridge names presented to VMs. Kept simple and stable across nodes.
+bridges:
+  mgmt: "br-mgmt"
+  station: "br-station"
+
+# --------------------------------------------------------------------
+# 7. PTP
+# --------------------------------------------------------------------
+# Is PTP the authoritative clock source? If yes, NTP sources are stripped
+# from chrony. If no, chrony retains NTP as fallback.
+ptp_is_authoritative: true
+
+ptp_domain: 0
+ptp_transport: "L2"                      # L2 | UDPv4
+ptp_delay_mechanism: "P2P"               # P2P | E2E — relay domains usually P2P
+ptp_profile: "default"                   # default | G.8275.1 | G.8275.2
+
+# --------------------------------------------------------------------
+# 8. Real-time tuning
+# --------------------------------------------------------------------
+# Kernel cmdline knobs: isolcpus, hugepage size, nohz_full, rcu_nocbs.
+# isolated_cpus is a string passed to isolcpus= and nohz_full=.
+# Compute this from the RT VM layout — isolate the CPUs the VMs will pin to.
+rt_tuning:
+  isolated_cpus: "4-11,28-35"
+  hugepage_size: "1G"                    # 1G | 2M
+  # nr_hugepages is computed by the virtualization role from the VM catalog
+  # unless overridden here. If set, must satisfy:
+  #   nr_hugepages * hugepage_size_bytes <= 0.9 * node_ram_bytes
+  nr_hugepages_override: null
+  cpu_governor: "performance"
+  sched_rt_runtime_us: -1                # -1 disables throttling for RT tasks
+
+# RT chrony overrides applied ONLY on hosts in the rt_hosts group.
+# Values come from vendor (ABB) guidance for relay timing.
+rt_chrony:
+  lock_all: true
+  sched_priority: 60
+  combinelimit: 0
+
+# --------------------------------------------------------------------
+# 9. Ceph
+# --------------------------------------------------------------------
+# FSID is generated by cephadm bootstrap on first run and captured into
+# a fact; leave null unless you are re-deploying onto an existing cluster.
+# Container image defaults to "{{ sources.container_registry }}/ceph/ceph:<tag>"
+# matching ceph.release. Override ceph.container_image if your local registry
+# uses a different path.
+ceph:
+  fsid: null
+  public_network: "10.0.10.0/24"         # must match networks.storage.cidr
+  cluster_network: "10.0.10.0/24"        # typically same subnet as public
+  release: "reef"                        # reef | squid | quincy
+  container_image: null                  # null → derived from sources.container_registry + release
+  bootstrap_node: "site1-node-a"
+
+  # Per-node OSD devices. Must be empty block devices. No auto-discovery.
+  osd_devices:
+    site1-node-a:
+      - "/dev/nvme0n1"
+      - "/dev/nvme1n1"
+      - "/dev/nvme2n1"
+    site1-node-b:
+      - "/dev/nvme0n1"
+      - "/dev/nvme1n1"
+      - "/dev/nvme2n1"
+    site1-node-c:
+      - "/dev/nvme0n1"
+      - "/dev/nvme1n1"
+      - "/dev/nvme2n1"
+
+  pools:
+    - name: "vms"
+      type: "cephfs"
+      data_pg_num: 128
+      metadata_pg_num: 32
+
+  cephfs_mountpoint: "/vms"
+
+# --------------------------------------------------------------------
+# 10. Pacemaker / Corosync
+# --------------------------------------------------------------------
+# Pacemaker + Corosync require at least 3 nodes. When len(vpac_nodes) < 3
+# the pacemaker and stonith roles skip and VMs are defined as standalone
+# libvirt domains on the single node.
+pacemaker:
+  cluster_name: "vpac-{{ site_name }}"
+
+  # Corosync uses the heartbeat network ONLY. Not mgmt.
+  transport: "knet"
+  ring_interface: "{{ networks.heartbeat.cidr }}"
+
+  # hacluster user password (for pcs auth). Use vault.
+  hacluster_password: "{{ vault_hacluster_password }}"
+
+  # Resource stickiness — higher = VMs tend to stay put
+  default_resource_stickiness: 100
+
+# --------------------------------------------------------------------
+# 11. STONITH
+# --------------------------------------------------------------------
+# One entry per node. Devices are created with name "fence-<hostname>".
+# Pre-requisite (real hardware): IPMI-over-LAN enabled in the BMC (BIOS/
+# iDRAC setting). Preflight verifies reachability.
+stonith:
+  enabled: true
+
+  # Fence agent. fence_ipmilan for real BMCs (iDRAC, Supermicro IPMI);
+  # fence_virsh for libvirt-based test clusters where there is no BMC.
+  fence_agent: "fence_ipmilan"           # fence_ipmilan | fence_virsh
+
+  # fence_ipmilan defaults — override per-node via bmc_type on vpac_nodes
+  default_lanplus: true
+  default_cipher: 3
+  default_delay: 0
+
+  # Location constraints: each fence device avoids its own node (a node
+  # can't fence itself). Role handles this automatically from vpac_nodes.
+
+# --------------------------------------------------------------------
+# 12. VM catalog
+# --------------------------------------------------------------------
+# The VMs to create on this cluster. Each entry references a profile
+# under roles/vm_templates/vars/profiles/. Add new profiles for new
+# relay or workstation types.
+
+vm_catalog:
+
+  # Example relay VM (ABB SSC600 pattern)
+  - name: "ssc600-01"
+    profile: "ssc600"
+    target_host: "site1-node-a"          # null = let Pacemaker choose
+    allowed_hosts: ["site1-node-a", "site1-node-b"]
+    vcpus: 4
+    pinned_cpus: [4, 5, 6, 7]
+    emulator_cpus: [8, 9]
+    memory_gb: 8
+    hugepages: true
+    rt_priority: 50
+    preserve_mac: false
+    nics:
+      - bridge: "br-station"
+        model: "virtio"
+    disks:
+      - source: "cephfs:/vms/ssc600-01.qcow2"
+        size_gb: 40
+        bus: "virtio"
+
+  # Example VPR / RTAC VM
+  - name: "vpr-01"
+    profile: "vpr"
+    target_host: "site1-node-b"
+    allowed_hosts: ["site1-node-a", "site1-node-b"]
+    vcpus: 2
+    pinned_cpus: [10, 11]
+    emulator_cpus: [2, 3]
+    memory_gb: 2
+    hugepages: true
+    rt_priority: 40
+    preserve_mac: true
+    mac_address: "52:54:00:00:00:01"
+    nics:
+      - bridge: "br-station"
+        model: "virtio"
+    disks:
+      - source: "cephfs:/vms/vpr-01.qcow2"
+        size_gb: 20
+        bus: "virtio"
+
+  # Example Windows engineering VM with passthrough
+  - name: "winws-01"
+    profile: "windows_passthrough"
+    target_host: "site1-node-c"
+    allowed_hosts: ["site1-node-c"]
+    vcpus: 8
+    memory_gb: 16
+    hugepages: false                     # Windows does not need 1G pages here
+    nics:
+      - bridge: "br-mgmt"
+        model: "virtio"
+    pci_passthrough:
+      - "0000:18:00.0"                   # example NIC for Wireshark
+    disks:
+      - source: "cephfs:/vms/winws-01.qcow2"
+        size_gb: 120
+        bus: "virtio"
+
+# --------------------------------------------------------------------
+# 13. Image builder (air-gapped path)
+# --------------------------------------------------------------------
+# Run via build-installer.yml BEFORE site.yml. Produces a custom RHEL 9.7
+# installer ISO with packages pre-baked + kickstart injected, plus one
+# cloud-init seed ISO per node listed in vpac_nodes.
+#
+# Default behavior:
+#   deployment_mode: airgapped → imagebuilder.enabled = true
+#   deployment_mode: connected → imagebuilder.enabled = false
+# Override below if you want the ISO produced for a connected deployment
+# (some operators prefer consistent installs regardless of connectivity).
+imagebuilder:
+  enabled: "{{ deployment_mode == 'airgapped' }}"
+  location: "node_a"                     # node_a | external_host
+  rhel_version: "9.7"
+  output_dir: "/var/lib/imagebuilder"
+  blueprint_name: "vpac-rhel-9-7"
+  iso_label: "vpac-installer"
+  # Packages baked into the ISO. The default set covers everything site.yml
+  # needs so air-gapped nodes never reach out. Extend for site-specific tools.
+  compose_packages:
+    - ansible-core
+    - kernel-rt
+    - tuned-profiles-nfv
+    - tuned-profiles-realtime
+    - pacemaker
+    - corosync
+    - pcs
+    - fence-agents-ipmilan
+    - qemu-kvm
+    - libvirt
+    - virt-install
+    - swtpm
+    - edk2-ovmf
+    - cloud-init
+    - chrony
+    - linuxptp
+    - cockpit
+    - firewalld
+    - ceph-common
+
+# --------------------------------------------------------------------
+# 14. Validation thresholds
+# --------------------------------------------------------------------
+validate:
+  cyclictest_duration_s: 300
+  cyclictest_max_latency_us: 120         # alert if tail > this on RT hosts
+  ptp_max_offset_ns: 1000
+  ceph_require_health_ok: true

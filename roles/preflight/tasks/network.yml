@@ -1,0 +1,69 @@
+---
+# Network checks: mix of per-host (NIC existence) and run_once (CIDR overlaps).
+
+- name: "Assert mgmt and heartbeat CIDRs do not overlap (3+ node clusters)"
+  ansible.builtin.assert:
+    that: networks.mgmt.cidr != networks.heartbeat.cidr
+    fail_msg: >-
+      networks.mgmt.cidr and networks.heartbeat.cidr are identical ({{ networks.mgmt.cidr }}).
+      Corosync heartbeats must not share a bridge with VM management traffic — see
+      LEARNED-FIXES: bridge churn from guest VMs starves corosync under load.
+      Assign a dedicated CIDR to networks.heartbeat.
+  when: vpac_nodes | length >= 3
+  run_once: true
+
+- name: "Warn if heartbeat and storage CIDRs overlap (acceptable but not ideal)"
+  ansible.builtin.debug:
+    msg: >-
+      networks.heartbeat.cidr and networks.storage.cidr are both {{ networks.heartbeat.cidr }}.
+      Acceptable — storage is L2-only and not subject to guest bridge churn — but a
+      dedicated heartbeat network is preferred for production.
+  when:
+    - networks.heartbeat.cidr == networks.storage.cidr
+    - vpac_nodes | length >= 3
+  run_once: true
+
+- name: "Assert mgmt bond members exist on this host"
+  ansible.builtin.assert:
+    that: item in ansible_facts['interfaces']
+    fail_msg: >-
+      mgmt_bond member {{ item }} is not an interface on {{ inventory_hostname }}.
+      Known interfaces: {{ ansible_facts['interfaces'] | sort | join(', ') }}
+  loop: "{{ networking_defaults.mgmt_bond.members }}"
+
+- name: "Assert storage bond members exist on this host"
+  ansible.builtin.assert:
+    that: item in ansible_facts['interfaces']
+    fail_msg: >-
+      storage_bond member {{ item }} is not an interface on {{ inventory_hostname }}.
+      Known interfaces: {{ ansible_facts['interfaces'] | sort | join(', ') }}
+  loop: "{{ networking_defaults.storage_bond.members }}"
+
+- name: "Assert station bond members exist on this host"
+  ansible.builtin.assert:
+    that: item in ansible_facts['interfaces']
+    fail_msg: >-
+      station_bond member {{ item }} is not an interface on {{ inventory_hostname }}.
+      Known interfaces: {{ ansible_facts['interfaces'] | sort | join(', ') }}
+  loop: "{{ networking_defaults.station_bond.members }}"
+
+- name: "Assert declared heartbeat NIC exists on this host"
+  ansible.builtin.assert:
+    that: networking_defaults.heartbeat_nic in ansible_facts['interfaces']
+    fail_msg: >-
+      networking_defaults.heartbeat_nic ({{ networking_defaults.heartbeat_nic }}) is not
+      an interface on {{ inventory_hostname }}. Known interfaces:
+      {{ ansible_facts['interfaces'] | sort | join(', ') }}
+  when:
+    - vpac_nodes | length >= 3
+    - (networking_defaults.heartbeat_nic | default('')) | length > 0
+
+- name: "Warn when heartbeat NIC is unset (3+ node cluster)"
+  ansible.builtin.debug:
+    msg: >-
+      networking_defaults.heartbeat_nic is empty. The pacemaker role will
+      refuse to proceed until a dedicated heartbeat NIC is declared. OK for
+      lab bring-up of stages 10–60; must be set before stage 70.
+  when:
+    - vpac_nodes | length >= 3
+    - (networking_defaults.heartbeat_nic | default('')) | length == 0

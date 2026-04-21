@@ -1,0 +1,36 @@
+---
+# preflight role defaults — override in group_vars if needed.
+
+# Turn failures into warnings. Useful during lab bring-up; never in production.
+preflight_warn_only: false
+
+# RHEL version bounds
+preflight_required_rhel_major: 9
+preflight_required_rhel_minor_min: 5
+
+# Disk space minimums (GB)
+preflight_min_root_gb: 20
+preflight_min_var_gb: 40
+
+# Clock skew tolerance (seconds) — cluster nodes vs control host
+preflight_max_clock_skew_s: 30
+
+# Hugepage safety margin — role fails if declared hugepages would consume
+# more than this fraction of total RAM.
+preflight_max_hugepage_ram_fraction: 0.9
+
+# Per-check toggles. Set to false to skip a specific check group.
+preflight_check_connectivity: true
+preflight_check_inventory: true
+preflight_check_network: true
+preflight_check_ptp: true
+preflight_check_hugepages: true
+preflight_check_stonith: true
+preflight_check_mode: true
+
+# Mode-specific endpoints (connected path)
+preflight_rhsm_probe_url: "https://subscription.rhsm.redhat.com"
+preflight_container_registry_probe_url: "https://quay.io/v2/"
+
+# Mode-specific probes (airgapped path)
+preflight_installer_tag_path: "/etc/vpac-installer-tag"

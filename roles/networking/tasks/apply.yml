@@ -1,0 +1,20 @@
+---
+- name: "Find this node's entry in vpac_nodes"
+  ansible.builtin.set_fact:
+    _net_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"
+
+- name: "Render the nmstate document"
+  ansible.builtin.template:
+    src: nmstate.yml.j2
+    dest: "/etc/vpac-nmstate.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  register: _net_nmstate_rendered
+
+- name: "Apply nmstate (with rollback on failure)"
+  ansible.builtin.command: >-
+    nmstatectl apply --timeout {{ nmstate_apply_timeout }} /etc/vpac-nmstate.yml
+  register: _net_apply
+  changed_when: "'0 desired interface(s) differ' not in _net_apply.stdout"
+  # nmstatectl exits non-zero on failure; failed_when defaults to rc != 0.

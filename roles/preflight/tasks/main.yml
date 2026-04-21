@@ -1,0 +1,43 @@
+---
+# Orchestrator. Each sub-task file is tag-addressable.
+
+- name: "Connectivity, RHEL version, disk space, clock"
+  ansible.builtin.import_tasks: connectivity.yml
+  when: preflight_check_connectivity | bool
+  tags: [preflight, preflight-connectivity]
+
+- name: "Inventory shape (vpac_nodes, hostnames)"
+  ansible.builtin.import_tasks: inventory_shape.yml
+  when: preflight_check_inventory | bool
+  tags: [preflight, preflight-inventory]
+
+- name: "Network declarations (CIDR overlap, NIC existence)"
+  ansible.builtin.import_tasks: network.yml
+  when: preflight_check_network | bool
+  tags: [preflight, preflight-network]
+
+- name: "PTP NIC isolation (no bridge/bond/macvtap)"
+  ansible.builtin.import_tasks: ptp_isolation.yml
+  when:
+    - preflight_check_ptp | bool
+    - (networking_defaults.ptp_nic | default('')) | length > 0
+  tags: [preflight, preflight-ptp]
+
+- name: "Hugepage math (won't exceed RAM)"
+  ansible.builtin.import_tasks: hugepages.yml
+  when:
+    - preflight_check_hugepages | bool
+    - rt_tuning.nr_hugepages_override is not none
+  tags: [preflight, preflight-hugepages]
+
+- name: "STONITH reachability (BMC or virsh endpoint)"
+  ansible.builtin.import_tasks: stonith.yml
+  when:
+    - preflight_check_stonith | bool
+    - stonith.enabled | default(true) | bool
+  tags: [preflight, preflight-stonith]
+
+- name: "Mode-specific source reachability"
+  ansible.builtin.include_tasks: "mode_{{ deployment_mode }}.yml"
+  when: preflight_check_mode | bool
+  tags: [preflight, preflight-mode]

@@ -1,0 +1,21 @@
+---
+- name: "Install Satellite CA certificate"
+  ansible.builtin.dnf:
+    name: "{{ sources.satellite_url }}/pub/katello-ca-consumer-latest.noarch.rpm"
+    state: present
+    disable_gpg_check: true
+  when: sources.satellite_url | length > 0
+
+- name: "Register with Satellite"
+  community.general.redhat_subscription:
+    state: present
+    activationkey: "{{ rhsm_activation_key }}"
+    org_id: "{{ rhsm_org_id }}"
+    server_hostname: "{{ sources.satellite_url | urlsplit('hostname') }}"
+    force_register: false
+  no_log: true
+
+- name: "Enable required repos via Satellite"
+  community.general.rhsm_repository:
+    name: "{{ rhsm_repos }}"
+    state: enabled

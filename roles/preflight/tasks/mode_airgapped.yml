@@ -1,0 +1,105 @@
+---
+# Airgapped-path checks: verify the local mirror, local registry, and
+# installer-ISO fingerprint on the nodes.
+
+- name: "Assert sources.repo_source is not rhsm for airgapped deployments"
+  ansible.builtin.assert:
+    that: sources.repo_source != "rhsm"
+    fail_msg: >-
+      deployment_mode is airgapped but sources.repo_source is 'rhsm'. Airgapped sites must use
+      'satellite' (local Satellite capsule) or 'local_mirror' (local reposync).
+  run_once: true
+
+- name: "Probe local RPM mirror"
+  ansible.builtin.uri:
+    url: "{{ sources.local_mirror_url }}"
+    method: HEAD
+    status_code: [200, 301, 302, 403]
+    timeout: 10
+    validate_certs: false
+  register: _preflight_mirror
+  failed_when: false
+  when: sources.repo_source == "local_mirror"
+  run_once: true
+  delegate_to: "{{ groups['vpac_cluster'] | first }}"
+
+- name: "Assert local RPM mirror is reachable"
+  ansible.builtin.assert:
+    that: _preflight_mirror.status is defined
+    fail_msg: >-
+      Could not reach local mirror at {{ sources.local_mirror_url }}. Confirm the builder host is
+      running and its httpd is serving /mirror.
+  when: sources.repo_source == "local_mirror"
+  run_once: true
+
+- name: "Probe Satellite URL (airgapped Satellite case)"
+  ansible.builtin.uri:
+    url: "{{ sources.satellite_url }}"
+    method: HEAD
+    status_code: [200, 301, 302, 401, 403]
+    timeout: 10
+    validate_certs: false
+  register: _preflight_satellite
+  failed_when: false
+  when: sources.repo_source == "satellite"
+  run_once: true
+  delegate_to: "{{ groups['vpac_cluster'] | first }}"
+
+- name: "Assert Satellite is reachable"
+  ansible.builtin.assert:
+    that: _preflight_satellite.status is defined
+    fail_msg: "Could not reach Satellite at {{ sources.satellite_url }}"
+  when: sources.repo_source == "satellite"
+  run_once: true
+
+- name: "Probe local container registry"
+  ansible.builtin.uri:
+    url: "https://{{ sources.container_registry }}/v2/"
+    method: GET
+    status_code: [200, 401, 404]
+    timeout: 10
+    validate_certs: false
+  register: _preflight_local_registry
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ groups['vpac_cluster'] | first }}"
+
+- name: "Assert local container registry responds"
+  ansible.builtin.assert:
+    that: _preflight_local_registry.status is defined
+    fail_msg: >-
+      Local container registry at {{ sources.container_registry }} did not respond. Ceph bootstrap
+      will fail without reachable images. Start the registry on the builder host.
+  run_once: true
+
+- name: "Confirm this node was installed from the custom ISO"
+  ansible.builtin.stat:
+    path: "{{ preflight_installer_tag_path }}"
+  register: _preflight_installer_tag
+
+- name: "Warn if installer-ISO fingerprint is missing"
+  ansible.builtin.debug:
+    msg: >-
+      {{ preflight_installer_tag_path }} not found on {{ inventory_hostname }}. The kickstart in
+      build-installer.yml writes this file; its absence suggests the node was installed from
+      something other than the custom ISO. Packages may be missing when site.yml runs.
+  when: not _preflight_installer_tag.stat.exists
+
+- name: "Assert local ansible collection tarball exists (on control host) when required"
+  ansible.builtin.stat:
+    path: "{{ sources.ansible_collections_local_path }}"
+  register: _preflight_collections_tarball
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: sources.ansible_collections_source == "local_tarball"
+
+- name: "Assert the ansible collection tarball exists"
+  ansible.builtin.assert:
+    that: _preflight_collections_tarball.stat.exists
+    fail_msg: >-
+      sources.ansible_collections_source is 'local_tarball' but
+      {{ sources.ansible_collections_local_path }} does not exist on the control host.
+      Create it with: ansible-galaxy collection download -r requirements.yml -p <path>
+  when: sources.ansible_collections_source == "local_tarball"
+  run_once: true

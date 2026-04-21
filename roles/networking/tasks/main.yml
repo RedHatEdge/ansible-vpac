@@ -1,0 +1,16 @@
+---
+- name: "Install nmstate + NetworkManager packages"
+  ansible.builtin.import_tasks: packages.yml
+  tags: [networking, networking-packages]
+
+- name: "Apply nmstate configuration"
+  ansible.builtin.import_tasks: apply.yml
+  tags: [networking, networking-apply]
+
+- name: "Assign interfaces to firewalld zones"
+  ansible.builtin.import_tasks: firewalld_zones.yml
+  tags: [networking, networking-firewall]
+
+- name: "Verify post-apply state"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [networking, networking-verify]

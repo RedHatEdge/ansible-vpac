@@ -1,0 +1,55 @@
+---
+# vPAC site deployment — runs stages in strict dependency order.
+#
+# Stage numbering reflects dependencies:
+#   - Host baseline (10) must finish before networking (20)
+#   - Networking (20) must finish before virtualization (30)
+#   - PTP (40) and RT tuning (50) depend on virtualization
+#   - Ceph (60) depends on host baseline + networking (storage net up, hostnames resolving)
+#   - Pacemaker (70) and STONITH (75) depend on networking (cluster heartbeat net up)
+#   - VM deploy (80) depends on Ceph (shared storage) AND STONITH (safety)
+#   - Validate (90) runs last
+
+- name: "Stage 00 — Preflight"
+  import_playbook: playbooks/00-preflight.yml
+  tags: [always, preflight]
+
+- name: "Stage 10 — Host baseline"
+  import_playbook: playbooks/10-host-baseline.yml
+  tags: [baseline]
+
+- name: "Stage 20 — Networking"
+  import_playbook: playbooks/20-networking.yml
+  tags: [networking]
+
+- name: "Stage 30 — Virtualization"
+  import_playbook: playbooks/30-virtualization.yml
+  tags: [virt]
+
+- name: "Stage 40 — PTP"
+  import_playbook: playbooks/40-ptp.yml
+  tags: [ptp]
+
+- name: "Stage 50 — RT tuning"
+  import_playbook: playbooks/50-rt-tuning.yml
+  tags: [rt]
+
+- name: "Stage 60 — Ceph"
+  import_playbook: playbooks/60-ceph.yml
+  tags: [ceph]
+
+- name: "Stage 70 — Pacemaker base"
+  import_playbook: playbooks/70-pacemaker.yml
+  tags: [pacemaker]
+
+- name: "Stage 75 — STONITH"
+  import_playbook: playbooks/75-stonith.yml
+  tags: [stonith]
+
+- name: "Stage 80 — VM deploy"
+  import_playbook: playbooks/80-vm-deploy.yml
+  tags: [vm]
+
+- name: "Stage 90 — Validate"
+  import_playbook: playbooks/90-validate.yml
+  tags: [validate]

@@ -1,0 +1,12 @@
+---
+# Per-node overrides. Use this file when Node A differs from the defaults
+# in group_vars/all.yml (different NIC names, different OSD devices, etc.).
+#
+# Typical overrides:
+#
+# networking_overrides:
+#   ptp_nic: "ens5f2"
+#   mgmt_bond:
+#     members: ["eno3", "eno4"]
+#
+# For a homogeneous 3-node cluster, this file can be empty.

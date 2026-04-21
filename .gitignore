@@ -1,0 +1,18 @@
+.ansible_facts/
+*.retry
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+.DS_Store
+
+# Site-specific inventories — only the example is tracked
+inventory/*/
+!inventory/example/
+
+# Vault-encrypted files
+*.vault
+vault_password
+
+# Collection install target
+collections/

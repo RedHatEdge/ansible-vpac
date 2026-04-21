@@ -1,0 +1,13 @@
+# Managed by ansible-vpac / host_baseline role — do not edit by hand.
+# Points at the locally-operated RPM mirror configured in group_vars.
+{% for repo in rhsm_repos %}
+[{{ repo }}]
+name={{ repo }} (local mirror)
+baseurl={{ sources.local_mirror_url }}/{{ repo }}/
+enabled=1
+gpgcheck={{ 1 if local_mirror_gpgcheck else 0 }}
+{% if local_mirror_gpgcheck and local_mirror_gpgkey_url | length > 0 %}
+gpgkey={{ local_mirror_gpgkey_url }}
+{% endif %}
+
+{% endfor %}

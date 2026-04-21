@@ -1,0 +1,18 @@
+---
+- name: "Read SELinux state"
+  ansible.builtin.command: /usr/sbin/getenforce
+  register: _baseline_selinux
+  changed_when: false
+
+- name: "Warn if SELinux is not enforcing"
+  ansible.builtin.debug:
+    msg: >-
+      SELinux mode is {{ _baseline_selinux.stdout }} on {{ inventory_hostname }}.
+      The reference deployment expects 'Enforcing'. The role does not flip the mode
+      automatically — fix the node, or explicitly override by editing your site policy.
+  when: _baseline_selinux.stdout != "Enforcing"
+
+- name: "Assert SELinux is at least permissive (not disabled)"
+  ansible.builtin.assert:
+    that: _baseline_selinux.stdout in ["Enforcing", "Permissive"]
+    fail_msg: "SELinux is Disabled on {{ inventory_hostname }}. Re-enable before proceeding."

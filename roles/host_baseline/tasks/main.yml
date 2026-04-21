@@ -1,0 +1,42 @@
+---
+- name: "SELinux enabled"
+  ansible.builtin.import_tasks: selinux.yml
+  tags: [baseline, baseline-selinux]
+
+- name: "Timezone"
+  ansible.builtin.import_tasks: timezone.yml
+  tags: [baseline, baseline-timezone]
+
+- name: "Hostname"
+  ansible.builtin.import_tasks: hostname.yml
+  tags: [baseline, baseline-hostname]
+
+- name: "/etc/hosts from inventory"
+  ansible.builtin.import_tasks: hosts_file.yml
+  tags: [baseline, baseline-hosts]
+
+- name: "Repo source (mode-aware)"
+  ansible.builtin.include_tasks: "repo_{{ sources.repo_source }}.yml"
+  when: not (host_baseline_skip_repo | bool)
+  tags: [baseline, baseline-repo]
+
+- name: "Note that repo setup was skipped"
+  ansible.builtin.debug:
+    msg: >-
+      host_baseline_skip_repo is true — skipping repo setup. Packages
+      installed on this host must already be present (or served by a source
+      configured outside this role).
+  when: host_baseline_skip_repo | bool
+  tags: [baseline, baseline-repo]
+
+- name: "Baseline packages"
+  ansible.builtin.import_tasks: packages.yml
+  tags: [baseline, baseline-packages]
+
+- name: "Firewalld baseline"
+  ansible.builtin.import_tasks: firewalld.yml
+  tags: [baseline, baseline-firewall]
+
+- name: "Journald persistent"
+  ansible.builtin.import_tasks: journald.yml
+  tags: [baseline, baseline-journald]

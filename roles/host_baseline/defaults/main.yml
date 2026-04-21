@@ -1,0 +1,52 @@
+---
+# Baseline packages installed on every cluster node.
+# Extend per-site with baseline_extra_packages in group_vars.
+baseline_packages:
+  - bash-completion
+  - bind-utils
+  - chrony
+  - curl
+  - dnf-utils
+  - firewalld
+  - git
+  - iotop
+  - iperf3
+  - iputils
+  - jq
+  - less
+  - lsof
+  - net-tools
+  - nmap-ncat
+  - openssh-server
+  - policycoreutils-python-utils
+  - rsync
+  - sos
+  - strace
+  - sysstat
+  - tar
+  - tcpdump
+  - tmux
+  - tuned
+  - unzip
+  - vim-enhanced
+  - wget
+
+baseline_extra_packages: []
+
+# Journald sizing. 2 GiB is a reasonable default for cluster nodes;
+# bump for sites that want longer retention.
+journald_max_use_mb: 2048
+
+# Local mirror GPG handling. Lab default is off. Prod sites should
+# set local_mirror_gpgcheck: true and provide the key URL.
+local_mirror_gpgcheck: false
+local_mirror_gpgkey_url: ""
+
+# Firewalld zone used by default. Other roles add services to this zone.
+firewalld_default_zone: "public"
+
+# Skip the repo-source setup entirely. Useful for lab runs where the VMs were
+# installed from a DVD ISO and already have packages baked in, and you don't
+# have an RHSM activation key / Satellite / local mirror. Production deploys
+# always leave this false.
+host_baseline_skip_repo: false

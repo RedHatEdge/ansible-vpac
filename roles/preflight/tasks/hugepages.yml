@@ -1,0 +1,37 @@
+---
+# Validate that declared hugepage allocation fits in RAM with margin.
+# The field deployment bug was nr_hugepages=3072 with default_hugepagesz=1GB — which
+# asked for 3 TiB on a 128 GiB node.
+#
+# This file is only imported when rt_tuning.nr_hugepages_override is set;
+# the orchestrator gates on that.
+
+- name: "Compute hugepage size in bytes"
+  ansible.builtin.set_fact:
+    _preflight_hp_size_bytes: >-
+      {{
+        1073741824 if rt_tuning.hugepage_size == "1G"
+        else (2097152 if rt_tuning.hugepage_size == "2M" else 0)
+      }}
+
+- name: "Assert hugepage size is recognized"
+  ansible.builtin.assert:
+    that: _preflight_hp_size_bytes | int > 0
+    fail_msg: "rt_tuning.hugepage_size must be '1G' or '2M' (got: {{ rt_tuning.hugepage_size }})"
+
+- name: "Compute total hugepage allocation vs node RAM"
+  ansible.builtin.set_fact:
+    _preflight_hp_total_bytes: "{{ rt_tuning.nr_hugepages_override | int * (_preflight_hp_size_bytes | int) }}"
+    _preflight_ram_bytes: "{{ ansible_facts['memtotal_mb'] | int * 1024 * 1024 }}"
+
+- name: "Assert hugepages would not exceed safe RAM fraction"
+  ansible.builtin.assert:
+    that: (_preflight_hp_total_bytes | int) <= (_preflight_ram_bytes | int * preflight_max_hugepage_ram_fraction)
+    fail_msg: >-
+      Declared hugepages would consume {{ (_preflight_hp_total_bytes | int) // (1024**3) }} GiB
+      on a node with {{ (_preflight_ram_bytes | int) // (1024**3) }} GiB RAM (max allowed:
+      {{ ((_preflight_ram_bytes | int * preflight_max_hugepage_ram_fraction) | int) // (1024**3) }} GiB).
+      Reduce rt_tuning.nr_hugepages_override or verify rt_tuning.hugepage_size matches intent.
+    success_msg: >-
+      Hugepages {{ rt_tuning.nr_hugepages_override }} × {{ rt_tuning.hugepage_size }} =
+      {{ (_preflight_hp_total_bytes | int) // (1024**3) }} GiB on a {{ (_preflight_ram_bytes | int) // (1024**3) }} GiB node — OK.

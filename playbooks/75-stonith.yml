@@ -1,0 +1,12 @@
+---
+# STONITH: configure fence_ipmilan (or matching agent) per node, location
+# constraints, then set stonith-enabled=true.
+#
+# This runs BEFORE VM deploy — no production VM lands on a cluster without
+# fencing. Pre-req: IPMI-over-LAN enabled in BMC.
+
+- name: STONITH
+  hosts: pacemaker_cluster
+  gather_facts: true
+  roles:
+    - role: stonith

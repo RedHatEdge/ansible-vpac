@@ -1,0 +1,11 @@
+---
+# Networking: bonds, bridges, VLANs via nmstate. Verifies PTP NIC isolation
+# (the field deployment bug: PTP on a NIC that was also a macvtap target for guest VMs).
+
+- name: Networking
+  hosts: vpac_cluster
+  gather_facts: true
+  roles:
+    - role: networking
+    - role: ptp_isolation
+      when: (networking_defaults.ptp_nic | default('')) | length > 0

@@ -1,0 +1,18 @@
+---
+# Ceph: cephadm bootstrap on the bootstrap node, expand to all ceph_nodes,
+# add OSDs from per-node osd_devices lists, create CephFS pools, mount on
+# all cluster nodes at ceph.cephfs_mountpoint.
+#
+# Must run AFTER host baseline + networking + virtualization.
+
+- name: Ceph bootstrap
+  hosts: ceph_bootstrap_node
+  gather_facts: true
+  roles:
+    - role: ceph_bootstrap
+
+- name: Ceph expand
+  hosts: ceph_nodes
+  gather_facts: true
+  roles:
+    - role: ceph_expand

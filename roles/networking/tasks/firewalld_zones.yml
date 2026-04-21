@@ -1,0 +1,60 @@
+---
+# Assign interfaces to firewalld zones. Not using ansible.posix.firewalld
+# with interface= because it interacts poorly with NetworkManager-managed
+# interfaces on RHEL 9; nmcli connection modify + firewall-cmd is more reliable.
+
+- name: "Put mgmt bridge in {{ networking_mgmt_zone }} zone"
+  ansible.builtin.command: >-
+    nmcli connection modify {{ bridges.mgmt }}
+    connection.zone {{ networking_mgmt_zone }}
+  register: _net_zone_mgmt
+  changed_when: _net_zone_mgmt.rc == 0
+  failed_when:
+    - _net_zone_mgmt.rc != 0
+    - "'unknown connection' not in _net_zone_mgmt.stderr"
+
+- name: "Put storage bond in {{ networking_storage_zone }} zone"
+  ansible.builtin.command: >-
+    nmcli connection modify {{ networking_defaults.storage_bond.name }}
+    connection.zone {{ networking_storage_zone }}
+  register: _net_zone_storage
+  changed_when: _net_zone_storage.rc == 0
+  failed_when:
+    - _net_zone_storage.rc != 0
+    - "'unknown connection' not in _net_zone_storage.stderr"
+
+- name: "Put station bridge in {{ networking_station_zone }} zone"
+  ansible.builtin.command: >-
+    nmcli connection modify {{ bridges.station }}
+    connection.zone {{ networking_station_zone }}
+  register: _net_zone_station
+  changed_when: _net_zone_station.rc == 0
+  failed_when:
+    - _net_zone_station.rc != 0
+    - "'unknown connection' not in _net_zone_station.stderr"
+
+- name: "Put heartbeat NIC in {{ networking_heartbeat_zone }} zone"
+  ansible.builtin.command: >-
+    nmcli connection modify {{ networking_defaults.heartbeat_nic }}
+    connection.zone {{ networking_heartbeat_zone }}
+  register: _net_zone_hb
+  changed_when: _net_zone_hb.rc == 0
+  failed_when:
+    - _net_zone_hb.rc != 0
+    - "'unknown connection' not in _net_zone_hb.stderr"
+  when: not (networking_skip_heartbeat | bool)
+
+- name: "Put PTP NIC in {{ networking_ptp_zone }} zone"
+  ansible.builtin.command: >-
+    nmcli connection modify {{ networking_defaults.ptp_nic }}
+    connection.zone {{ networking_ptp_zone }}
+  register: _net_zone_ptp
+  changed_when: _net_zone_ptp.rc == 0
+  failed_when:
+    - _net_zone_ptp.rc != 0
+    - "'unknown connection' not in _net_zone_ptp.stderr"
+  when: not (networking_skip_ptp | bool)
+
+- name: "Reload firewalld so zone changes take effect"
+  ansible.builtin.command: /usr/bin/firewall-cmd --reload
+  changed_when: true

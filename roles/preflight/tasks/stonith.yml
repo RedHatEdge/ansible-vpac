@@ -1,0 +1,65 @@
+---
+# Verify the chosen fence agent can reach what it needs.
+# Split on stonith.fence_agent: fence_ipmilan (real BMC) vs fence_virsh (lab).
+
+- name: "Skip STONITH preflight for single-node clusters"
+  ansible.builtin.meta: end_host
+  when: vpac_nodes | length < 3
+
+- name: "Find this node's entry in vpac_nodes"
+  ansible.builtin.set_fact:
+    _preflight_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"
+
+# ---- fence_ipmilan path (real BMCs) ----
+
+- name: "fence_ipmilan: check BMC responds to chassis status"
+  ansible.builtin.command: >-
+    ipmitool -I lanplus -H {{ _preflight_node.bmc_ip }}
+    -U {{ _preflight_node.bmc_user }}
+    -P {{ _preflight_node.bmc_password }}
+    chassis status
+  register: _preflight_ipmi
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: stonith.fence_agent == "fence_ipmilan"
+
+- name: "fence_ipmilan: assert BMC answered"
+  ansible.builtin.assert:
+    that: _preflight_ipmi.rc == 0
+    fail_msg: >-
+      BMC at {{ _preflight_node.bmc_ip }} did not respond to ipmitool chassis status.
+      Check: IPMI-over-LAN enabled in BIOS/iDRAC? User/password correct? BMC network reachable
+      from {{ inventory_hostname }}? STONITH will not work until this is fixed.
+    success_msg: "BMC {{ _preflight_node.bmc_ip }} reachable"
+  when: stonith.fence_agent == "fence_ipmilan"
+
+# ---- fence_virsh path (lab) ----
+
+- name: "fence_virsh: check the libvirt host is reachable from this node"
+  ansible.builtin.command: >-
+    ssh -o BatchMode=yes
+        -o StrictHostKeyChecking=no
+        -o ConnectTimeout=5
+        -i {{ stonith.virsh_identity_file }}
+        {{ stonith.virsh_user }}@{{ stonith.virsh_host }}
+        virsh list --all --name
+  register: _preflight_virsh
+  changed_when: false
+  failed_when: false
+  when: stonith.fence_agent == "fence_virsh"
+
+- name: "fence_virsh: assert virsh list succeeded"
+  ansible.builtin.assert:
+    that: _preflight_virsh.rc == 0
+    fail_msg: >-
+      fence_virsh cannot ssh to {{ stonith.virsh_user }}@{{ stonith.virsh_host }} with identity
+      {{ stonith.virsh_identity_file }}. Check: identity file exists on the node? Key authorized
+      on the libvirt host? virsh works interactively from that user?
+    success_msg: "fence_virsh can reach libvirt on {{ stonith.virsh_host }}"
+  when: stonith.fence_agent == "fence_virsh"
+
+- name: "Reject unknown fence agents"
+  ansible.builtin.assert:
+    that: stonith.fence_agent in ["fence_ipmilan", "fence_virsh"]
+    fail_msg: "stonith.fence_agent must be fence_ipmilan or fence_virsh (got: {{ stonith.fence_agent }})"

@@ -1,0 +1,22 @@
+---
+- name: "Start + enable firewalld"
+  ansible.builtin.systemd_service:
+    name: firewalld
+    state: started
+    enabled: true
+
+- name: "Set default zone"
+  ansible.builtin.command: "firewall-cmd --set-default-zone={{ firewalld_default_zone }}"
+  register: _baseline_fw_zone
+  changed_when: "'ZONE_ALREADY_SET' not in _baseline_fw_zone.stderr and _baseline_fw_zone.rc == 0"
+  failed_when:
+    - _baseline_fw_zone.rc != 0
+    - "'ZONE_ALREADY_SET' not in _baseline_fw_zone.stderr"
+
+- name: "Allow SSH in default zone"
+  ansible.posix.firewalld:
+    zone: "{{ firewalld_default_zone }}"
+    service: ssh
+    state: enabled
+    permanent: true
+    immediate: true

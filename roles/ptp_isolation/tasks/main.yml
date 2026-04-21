@@ -1,0 +1,67 @@
+---
+# This role is imported from playbooks/20-networking.yml. The caller should
+# gate it on `(networking_defaults.ptp_nic | default('')) | length > 0` so it
+# is skipped cleanly in labs that don't have a dedicated PTP NIC yet.
+# (Using meta:end_host here would terminate the entire play for that host
+# and prevent subsequent roles/playbooks from running.)
+
+- name: "Assert PTP NIC exists on this host"
+  ansible.builtin.assert:
+    that: networking_defaults.ptp_nic in ansible_facts['interfaces']
+    fail_msg: >-
+      networking_defaults.ptp_nic ({{ networking_defaults.ptp_nic }}) is not an interface on
+      {{ inventory_hostname }}.
+  tags: [ptp-isolation]
+
+- name: "Check if PTP NIC is a bridge member"
+  ansible.builtin.command: "bridge link show"
+  register: _ptp_bridge_links
+  changed_when: false
+  failed_when: false
+  tags: [ptp-isolation]
+
+- name: "Assert PTP NIC is not enslaved to any bridge"
+  ansible.builtin.assert:
+    that: (networking_defaults.ptp_nic ~ ' ') not in _ptp_bridge_links.stdout
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} has been enslaved to a bridge after networking
+      apply. The ptp_timesync role requires a clean, unenslaved NIC. This usually means the
+      nmstate template has a bug. Run `bridge link show` on this host to identify the bridge.
+  tags: [ptp-isolation]
+
+- name: "Gather bond slaves"
+  ansible.builtin.command: "cat /proc/net/bonding/{{ item }}"
+  loop: "{{ ansible_facts['interfaces'] | select('match', '^bond') | list }}"
+  register: _ptp_bond_info
+  changed_when: false
+  failed_when: false
+  tags: [ptp-isolation]
+
+- name: "Assert PTP NIC is not a bond slave"
+  ansible.builtin.assert:
+    that: networking_defaults.ptp_nic not in (item.stdout | default(''))
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} is a slave of bond {{ item.item }}.
+      Remove it from the bond — PTP needs a dedicated, untouched NIC.
+  loop: "{{ _ptp_bond_info.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('?') }}"
+  when: _ptp_bond_info.results is defined
+  tags: [ptp-isolation]
+
+- name: "Check for macvtap children on the PTP NIC"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip link show type macvtap 2>/dev/null | grep -B1 "{{ networking_defaults.ptp_nic }}" || true
+  register: _ptp_macvtap
+  changed_when: false
+  failed_when: false
+  tags: [ptp-isolation]
+
+- name: "Assert PTP NIC has no macvtap children (field deployment March 2026 regression guard)"
+  ansible.builtin.assert:
+    that: _ptp_macvtap.stdout | length == 0
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap
+      steals PTP frames (field deployment March 2026). Move those guests to a different NIC.
+  tags: [ptp-isolation]

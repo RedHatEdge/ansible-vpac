@@ -1,0 +1,49 @@
+---
+- name: "Gather post-apply interface facts"
+  ansible.builtin.setup:
+    filter: "ansible_*"
+    gather_subset:
+      - network
+
+- name: "Assert mgmt bridge came up with the expected IP"
+  ansible.builtin.assert:
+    that:
+      - hostvars[inventory_hostname]['ansible_' ~ (bridges.mgmt | replace('-', '_'))] is defined
+      - hostvars[inventory_hostname]['ansible_' ~ (bridges.mgmt | replace('-', '_'))].ipv4.address == _net_node.mgmt_ip
+    fail_msg: >-
+      {{ bridges.mgmt }} does not have {{ _net_node.mgmt_ip }} after nmstate apply.
+      Check /etc/vpac-nmstate.yml and `nmstatectl show`.
+
+- name: "Assert storage bond has the expected IP"
+  ansible.builtin.assert:
+    that:
+      - hostvars[inventory_hostname]['ansible_' ~ (networking_defaults.storage_bond.name | replace('-', '_'))] is defined
+    fail_msg: >-
+      {{ networking_defaults.storage_bond.name }} not found after apply. Check nmstate doc.
+
+- name: "Assert station bridge has the expected IP"
+  ansible.builtin.assert:
+    that:
+      - hostvars[inventory_hostname]['ansible_' ~ (bridges.station | replace('-', '_'))] is defined
+      - hostvars[inventory_hostname]['ansible_' ~ (bridges.station | replace('-', '_'))].ipv4.address == _net_node.station_ip
+    fail_msg: >-
+      {{ bridges.station }} does not have {{ _net_node.station_ip }} after apply.
+
+- name: "Assert heartbeat NIC has the expected IP (when configured)"
+  ansible.builtin.assert:
+    that:
+      - hostvars[inventory_hostname]['ansible_' ~ (networking_defaults.heartbeat_nic | replace('-', '_'))].ipv4.address == _net_node.heartbeat_ip
+    fail_msg: >-
+      {{ networking_defaults.heartbeat_nic }} does not have {{ _net_node.heartbeat_ip }} after apply.
+  when: not (networking_skip_heartbeat | bool)
+
+- name: "Assert PTP NIC is up but unconfigured (no IP)"
+  ansible.builtin.assert:
+    that:
+      - hostvars[inventory_hostname]['ansible_' ~ (networking_defaults.ptp_nic | replace('-', '_'))] is defined
+      - hostvars[inventory_hostname]['ansible_' ~ (networking_defaults.ptp_nic | replace('-', '_'))].ipv4.address is not defined
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} is expected to be UP with no IP;
+      current state shows an IPv4 address assigned. The ptp_timesync role needs
+      an unconfigured NIC.
+  when: not (networking_skip_ptp | bool)

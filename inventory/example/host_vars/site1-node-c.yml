@@ -1,0 +1,6 @@
+---
+# Per-node overrides for Node C. See site1-node-a.yml for format.
+#
+# Node C in the reference design runs Windows engineering workstations
+# with PCI NIC passthrough for Wireshark. NICs reserved for passthrough
+# must not be attached to any bridge at the host level.

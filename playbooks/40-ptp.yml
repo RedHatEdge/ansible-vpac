@@ -1,0 +1,9 @@
+---
+# PTP: timemaster + ptp4l on the dedicated NIC. Chrony config strips NTP
+# sources when ptp_is_authoritative is true.
+
+- name: PTP time sync
+  hosts: vpac_cluster
+  gather_facts: true
+  roles:
+    - role: ptp_timesync

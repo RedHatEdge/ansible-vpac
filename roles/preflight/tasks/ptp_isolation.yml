@@ -1,0 +1,61 @@
+---
+# Verify the PTP NIC is genuinely isolated. The field deployment bug was that ptp4l ran on
+# a NIC that was also the macvtap target for guest VMs; guest traffic stole
+# PTP frames causing SYNCHRONIZATION_FAULT every ~10 seconds for days.
+#
+# This file is only imported when networking_defaults.ptp_nic is set — the
+# orchestrator gates on that, so no per-task skip here.
+
+- name: "Assert PTP NIC exists on this host"
+  ansible.builtin.assert:
+    that: networking_defaults.ptp_nic in ansible_facts['interfaces']
+    fail_msg: >-
+      networking_defaults.ptp_nic ({{ networking_defaults.ptp_nic }}) is not an interface on
+      {{ inventory_hostname }}. Known interfaces: {{ ansible_facts['interfaces'] | sort | join(', ') }}
+
+- name: "Check whether PTP NIC is a bridge member"
+  ansible.builtin.command: "bridge link show"
+  register: _preflight_bridge_links
+  changed_when: false
+  failed_when: false
+
+- name: "Assert PTP NIC is not enslaved to any bridge"
+  ansible.builtin.assert:
+    that: (networking_defaults.ptp_nic ~ ' ') not in _preflight_bridge_links.stdout
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} appears to be a bridge member. The ptp_timesync role
+      will not run ptp4l on a bridged NIC — bridges steal PTP frames. Remove it from the bridge
+      before proceeding.
+
+- name: "Check bond slaves"
+  ansible.builtin.command: "cat /proc/net/bonding/{{ item }}"
+  loop: "{{ ansible_facts['interfaces'] | select('match', '^bond') | list }}"
+  register: _preflight_bond_info
+  changed_when: false
+  failed_when: false
+
+- name: "Assert PTP NIC is not a bond slave"
+  ansible.builtin.assert:
+    that: networking_defaults.ptp_nic not in (item.stdout | default(''))
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} is a slave of bond {{ item.item }}. PTP requires
+      a dedicated, untouched NIC. Remove from the bond.
+  loop: "{{ _preflight_bond_info.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('?') }}"
+  when: _preflight_bond_info.results is defined
+
+- name: "Check for macvtap children on the PTP NIC"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip link show type macvtap 2>/dev/null | grep -B1 "{{ networking_defaults.ptp_nic }}" || true
+  register: _preflight_macvtap
+  changed_when: false
+  failed_when: false
+
+- name: "Assert PTP NIC has no macvtap children"
+  ansible.builtin.assert:
+    that: _preflight_macvtap.stdout | length == 0
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap steals
+      PTP frames (field deployment March 2026 incident). Move those guests to a different NIC before proceeding.

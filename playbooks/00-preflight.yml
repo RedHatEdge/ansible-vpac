@@ -1,0 +1,20 @@
+---
+# Preflight: verify the cluster is deployable before touching anything.
+#
+# Checks:
+#   - SSH reachability and sudo
+#   - RHEL 9.x
+#   - Disk space on /, /var
+#   - Required inventory variables present
+#   - Network separation: mgmt, storage, heartbeat are not the same CIDR
+#   - PTP NIC (from networking_defaults.ptp_nic) exists and is NOT a bridge member
+#   - BMC reachability (ipmitool chassis status) with credentials from vpac_nodes
+#   - Single PTP grandmaster on the domain (warn if multiple observed)
+#
+# Fails fast — do not proceed to stage 10 on any failure.
+
+- name: Preflight
+  hosts: vpac_cluster
+  gather_facts: true
+  roles:
+    - role: preflight

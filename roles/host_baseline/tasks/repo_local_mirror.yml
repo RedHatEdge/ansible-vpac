@@ -1,0 +1,32 @@
+---
+# Write dnf repo files pointing at a locally-operated reposync mirror. No
+# subscription-manager is involved — this is the truly-offline path.
+
+- name: "Assert GPG key URL is set when gpgcheck is on"
+  ansible.builtin.assert:
+    that: local_mirror_gpgkey_url | length > 0
+    fail_msg: "local_mirror_gpgcheck is true but local_mirror_gpgkey_url is empty"
+  when: local_mirror_gpgcheck | bool
+
+- name: "Remove any RHSM-installed repo files"
+  ansible.builtin.file:
+    path: "/etc/yum.repos.d/redhat.repo"
+    state: absent
+
+- name: "Write local-mirror repo file"
+  ansible.builtin.template:
+    src: local_mirror.repo.j2
+    dest: "/etc/yum.repos.d/vpac-local-mirror.repo"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Import GPG key (when gpgcheck is enabled)"
+  ansible.builtin.rpm_key:
+    key: "{{ local_mirror_gpgkey_url }}"
+    state: present
+  when: local_mirror_gpgcheck | bool
+
+- name: "Clean dnf caches so the new repos take effect"
+  ansible.builtin.command: /usr/bin/dnf clean all
+  changed_when: true

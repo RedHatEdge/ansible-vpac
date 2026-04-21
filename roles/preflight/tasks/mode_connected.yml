@@ -1,0 +1,65 @@
+---
+# Connected-path checks: verify the nodes can reach RHSM or Satellite and,
+# if we need container images, the registry responds.
+
+- name: "Probe RHSM server URL"
+  ansible.builtin.uri:
+    url: "{{ preflight_rhsm_probe_url }}"
+    method: HEAD
+    status_code: [200, 301, 302, 401, 403]   # any answer means network + TLS path works
+    timeout: 10
+    validate_certs: true
+  register: _preflight_rhsm
+  failed_when: false
+  when: sources.repo_source == "rhsm"
+  run_once: true
+  delegate_to: "{{ groups['vpac_cluster'] | first }}"
+
+- name: "Assert RHSM is reachable from the cluster"
+  ansible.builtin.assert:
+    that: _preflight_rhsm.status is defined
+    fail_msg: >-
+      Could not reach {{ preflight_rhsm_probe_url }} from {{ groups['vpac_cluster'] | first }}.
+      Network, DNS, or TLS issue. For offline sites switch deployment_mode to 'airgapped'.
+  when: sources.repo_source == "rhsm"
+  run_once: true
+
+- name: "Probe Satellite URL"
+  ansible.builtin.uri:
+    url: "{{ sources.satellite_url }}"
+    method: HEAD
+    status_code: [200, 301, 302, 401, 403]
+    timeout: 10
+    validate_certs: false                     # Satellite often uses an internal CA
+  register: _preflight_satellite
+  failed_when: false
+  when: sources.repo_source == "satellite"
+  run_once: true
+  delegate_to: "{{ groups['vpac_cluster'] | first }}"
+
+- name: "Assert Satellite is reachable"
+  ansible.builtin.assert:
+    that: _preflight_satellite.status is defined
+    fail_msg: "Could not reach Satellite at {{ sources.satellite_url }}"
+  when: sources.repo_source == "satellite"
+  run_once: true
+
+- name: "Probe container registry"
+  ansible.builtin.uri:
+    url: "https://{{ sources.container_registry }}/v2/"
+    method: GET
+    status_code: [200, 401, 404]
+    timeout: 10
+    validate_certs: false
+  register: _preflight_registry
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ groups['vpac_cluster'] | first }}"
+
+- name: "Assert container registry responds"
+  ansible.builtin.assert:
+    that: _preflight_registry.status is defined
+    fail_msg: >-
+      Container registry at {{ sources.container_registry }} did not respond. Ceph bootstrap will
+      fail without reachable images.
+  run_once: true
