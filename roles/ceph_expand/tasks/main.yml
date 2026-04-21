@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/ceph_expand/README.md for planned behavior.
+
+- name: "ceph_expand: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'ceph_expand' is a stub — not implemented yet.
+      See roles/ceph_expand/README.md for planned behavior.

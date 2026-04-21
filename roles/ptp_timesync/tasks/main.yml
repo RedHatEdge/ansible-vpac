@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/ptp_timesync/README.md for planned behavior.
+
+- name: "ptp_timesync: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'ptp_timesync' is a stub — not implemented yet.
+      See roles/ptp_timesync/README.md for planned behavior.

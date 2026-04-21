@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/pacemaker_base/README.md for planned behavior.
+
+- name: "pacemaker_base: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'pacemaker_base' is a stub — not implemented yet.
+      See roles/pacemaker_base/README.md for planned behavior.

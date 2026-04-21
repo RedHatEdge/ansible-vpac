@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/virtualization/README.md for planned behavior.
+
+- name: "virtualization: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'virtualization' is a stub — not implemented yet.
+      See roles/virtualization/README.md for planned behavior.

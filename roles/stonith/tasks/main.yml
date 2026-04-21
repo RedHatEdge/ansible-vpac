@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/stonith/README.md for planned behavior.
+
+- name: "stonith: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'stonith' is a stub — not implemented yet.
+      See roles/stonith/README.md for planned behavior.

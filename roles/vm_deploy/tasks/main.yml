@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/vm_deploy/README.md for planned behavior.
+
+- name: "vm_deploy: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'vm_deploy' is a stub — not implemented yet.
+      See roles/vm_deploy/README.md for planned behavior.

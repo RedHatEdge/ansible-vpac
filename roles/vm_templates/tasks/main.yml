@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/vm_templates/README.md for planned behavior.
+
+- name: "vm_templates: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'vm_templates' is a stub — not implemented yet.
+      See roles/vm_templates/README.md for planned behavior.

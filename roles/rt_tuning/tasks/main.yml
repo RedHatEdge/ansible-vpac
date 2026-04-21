@@ -1,0 +1,8 @@
+---
+# Not yet implemented. See roles/rt_tuning/README.md for planned behavior.
+
+- name: "rt_tuning: stub notice"
+  ansible.builtin.debug:
+    msg: >-
+      Role 'rt_tuning' is a stub — not implemented yet.
+      See roles/rt_tuning/README.md for planned behavior.

@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: Stephen Smith
+  description: timemaster + ptp4l on the dedicated PTP NIC; chrony config with NTP sources stripped when PTP is authoritative
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []

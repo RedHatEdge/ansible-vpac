@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: Stephen Smith
+  description: Add remaining nodes to the Ceph cluster, add OSDs from inventory, create CephFS pools and mount on all nodes
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []

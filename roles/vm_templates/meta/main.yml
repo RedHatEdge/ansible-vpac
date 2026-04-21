@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: Stephen Smith
+  description: Render libvirt XML per VM from jinja templates with CPU pinning, hugepages, virtio NICs, and per-VM MAC preservation
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []

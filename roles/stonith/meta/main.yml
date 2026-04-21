@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: Stephen Smith
+  description: Configure STONITH fence agents per node, location constraints, stonith-enabled=true, dry-run verify
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []

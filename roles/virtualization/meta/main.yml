@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: Stephen Smith
+  description: Libvirt, KVM, tuned baseline, hugepages, kernel cmdline with isolcpus
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []
