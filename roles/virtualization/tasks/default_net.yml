@@ -1,0 +1,23 @@
+---
+- name: "List defined libvirt networks"
+  ansible.builtin.command: /usr/bin/virsh net-list --all --name
+  register: _virt_nets
+  changed_when: false
+
+- name: "Destroy libvirt default network (if running)"
+  ansible.builtin.command: /usr/bin/virsh net-destroy default
+  register: _virt_destroy
+  changed_when: _virt_destroy.rc == 0
+  failed_when:
+    - _virt_destroy.rc != 0
+    - "'not active' not in _virt_destroy.stderr"
+  when: "'default' in (_virt_nets.stdout_lines | default([]))"
+
+- name: "Undefine libvirt default network (if defined)"
+  ansible.builtin.command: /usr/bin/virsh net-undefine default
+  register: _virt_undefine
+  changed_when: _virt_undefine.rc == 0
+  failed_when:
+    - _virt_undefine.rc != 0
+    - "'not found' not in _virt_undefine.stderr"
+  when: "'default' in (_virt_nets.stdout_lines | default([]))"

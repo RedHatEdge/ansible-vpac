@@ -1,0 +1,9 @@
+# Managed by ansible-vpac / virtualization role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags virt-tuned
+#
+# Consumed by tuned's cpu-partitioning profile (and by realtime-virtual-host,
+# which inherits cpu-partitioning). The profile writes kernel cmdline entries
+# for isolcpus / nohz_full / rcu_nocbs from this variable when the profile
+# is next applied.
+
+isolated_cores={{ rt_tuning.isolated_cpus }}

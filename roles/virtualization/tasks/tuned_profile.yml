@@ -1,0 +1,32 @@
+---
+- name: "Determine tuned profile for this host"
+  ansible.builtin.set_fact:
+    _virt_tuned_profile: >-
+      {{ virtualization_tuned_profile_rt
+         if (inventory_hostname in (groups.get('rt_hosts', []) | default([])))
+         else virtualization_tuned_profile_nonrt }}
+
+- name: "Render cpu-partitioning variables (isolated_cores)"
+  ansible.builtin.template:
+    src: cpu-partitioning-variables.conf.j2
+    dest: /etc/tuned/cpu-partitioning-variables.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "reboot after kernel cmdline change"
+
+- name: "Ensure tuned is running"
+  ansible.builtin.systemd_service:
+    name: tuned
+    state: started
+    enabled: true
+
+- name: "Get active tuned profile"
+  ansible.builtin.command: /usr/sbin/tuned-adm active
+  register: _virt_tuned_active
+  changed_when: false
+
+- name: "Apply tuned profile if not already active"
+  ansible.builtin.command: "/usr/sbin/tuned-adm profile {{ _virt_tuned_profile }}"
+  when: _virt_tuned_profile not in _virt_tuned_active.stdout
+  notify: "reboot after kernel cmdline change"

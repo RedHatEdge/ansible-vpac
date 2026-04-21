@@ -1,0 +1,22 @@
+---
+- name: "Enable + start libvirtd"
+  ansible.builtin.systemd_service:
+    name: libvirtd
+    state: started
+    enabled: true
+
+# Modular libvirt on RHEL 9 splits the monolithic daemon into per-driver
+# sockets. Starting libvirtd.socket covers the case where the unified
+# daemon is still default; starting the per-driver sockets covers the
+# modular mode. Any that don't apply get ignored.
+- name: "Enable + start libvirt socket units"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - libvirtd.socket
+    - libvirtd-ro.socket
+    - libvirtd-admin.socket
+  failed_when: false
+  register: _virt_sockets

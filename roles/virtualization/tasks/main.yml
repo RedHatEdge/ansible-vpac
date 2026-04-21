@@ -1,8 +1,21 @@
 ---
-# Not yet implemented. See roles/virtualization/README.md for planned behavior.
+- name: "Install virtualization + tuned packages"
+  ansible.builtin.import_tasks: packages.yml
+  tags: [virt, virt-packages]
 
-- name: "virtualization: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'virtualization' is a stub — not implemented yet.
-      See roles/virtualization/README.md for planned behavior.
+- name: "Enable libvirtd"
+  ansible.builtin.import_tasks: libvirtd.yml
+  tags: [virt, virt-libvirtd]
+
+- name: "Remove libvirt's default NAT network"
+  ansible.builtin.import_tasks: default_net.yml
+  when: virtualization_remove_default_network | bool
+  tags: [virt, virt-default-net]
+
+- name: "Configure tuned profile (cpu-partitioning / realtime-virtual-host)"
+  ansible.builtin.import_tasks: tuned_profile.yml
+  tags: [virt, virt-tuned]
+
+- name: "Verify"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [virt, virt-verify]

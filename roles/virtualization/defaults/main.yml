@@ -1,0 +1,30 @@
+---
+# Packages needed for KVM virtualization + tuned base profiles. RT-specific
+# packages (kernel-rt, tuned-profiles-realtime, tuned-profiles-nfv-host) land
+# in the rt_tuning role to keep concerns separated — those come from the
+# rhel-9-for-x86_64-nfv-rpms repo, which the rt_tuning role enables.
+virtualization_packages:
+  - libvirt
+  - libvirt-client
+  - qemu-kvm
+  - qemu-img
+  - virt-install
+  - swtpm
+  - edk2-ovmf
+  - tuned
+  - tuned-profiles-cpu-partitioning
+
+# Tuned profile by host role. Everyone gets `virtual-host` out of the box.
+# The rt_tuning role (stage 50) installs the RT-specific tuned profiles
+# and swaps hosts in the rt_hosts group to `realtime-virtual-host`.
+virtualization_tuned_profile_rt: "virtual-host"
+virtualization_tuned_profile_nonrt: "virtual-host"
+
+# Reboot after tuned changes the kernel cmdline. Production deploys leave
+# this false and reboot nodes on a controlled schedule; labs and CI may
+# set it true to drive the role unattended.
+virtualization_auto_reboot: false
+
+# Remove libvirt's built-in default NAT network. vPAC VMs attach to
+# br-mgmt / br-station from the networking role — never to default.
+virtualization_remove_default_network: true

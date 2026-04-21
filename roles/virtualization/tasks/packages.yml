@@ -1,0 +1,5 @@
+---
+- name: "Install virtualization + tuned packages"
+  ansible.builtin.dnf:
+    name: "{{ virtualization_packages }}"
+    state: present

@@ -1,0 +1,14 @@
+---
+- name: "restart libvirtd"
+  ansible.builtin.systemd_service:
+    name: libvirtd
+    state: restarted
+    daemon_reload: true
+
+- name: "reboot after kernel cmdline change"
+  ansible.builtin.reboot:
+    msg: "Rebooting to apply tuned kernel cmdline changes"
+    connect_timeout: 5
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: virtualization_auto_reboot | bool

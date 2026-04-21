@@ -1,0 +1,28 @@
+---
+- name: "Verify libvirtd is active"
+  ansible.builtin.systemd_service:
+    name: libvirtd
+  register: _virt_libvirtd
+
+- name: "Assert libvirtd is active"
+  ansible.builtin.assert:
+    that: _virt_libvirtd.status.ActiveState == "active"
+    fail_msg: "libvirtd ActiveState is {{ _virt_libvirtd.status.ActiveState }}, expected 'active'"
+
+- name: "Verify virsh responds"
+  ansible.builtin.command: /usr/bin/virsh list --all
+  register: _virt_virsh
+  changed_when: false
+
+- name: "Get active tuned profile"
+  ansible.builtin.command: /usr/sbin/tuned-adm active
+  register: _virt_tuned_check
+  changed_when: false
+
+- name: "Assert expected tuned profile is active"
+  ansible.builtin.assert:
+    that: _virt_tuned_profile in _virt_tuned_check.stdout
+    fail_msg: >-
+      Tuned profile '{{ _virt_tuned_profile }}' not active.
+      Current: {{ _virt_tuned_check.stdout | trim }}
+    success_msg: "Tuned profile '{{ _virt_tuned_profile }}' active"
