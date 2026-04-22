@@ -468,53 +468,45 @@ vm_catalog:
         bus: "virtio"
 
 # --------------------------------------------------------------------
-# 13. Builder / image builder (air-gapped path)
+# 13. Builder ISO minting (air-gapped path)
 # --------------------------------------------------------------------
-# The builder host serves two purposes on the air-gapped path:
-#   1. Local mirror + container registry for the cluster nodes (roles
-#      builder_rhsm, builder_mirror, builder_registry — run by
-#      playbooks/01-build-builder.yml).
-#   2. ISO minting for the cluster nodes' kickstart-driven installs
-#      (handled by the tooling-container-based role landing in a
-#      follow-up — see docs/IMAGE-BUILDER.md).
+# Variables consumed by roles/builder_iso_mint via
+# playbooks/00-mint-builder-iso.yml. Runs on the SA's workstation (any OS
+# with podman or docker) and produces a bootable RHEL 9 installer ISO
+# with a kickstart baked in that installs the builder unattended.
 #
-# Vars below are read by the ISO-minting side. The mirror + registry side
-# reads from the top-level rhsm_repos / redhat_registry_* / sources.*.
+# Every value here has a sensible default in
+# roles/builder_iso_mint/defaults/main.yml — only set here what needs
+# overriding for your site.
 #
-# Default behavior:
-#   deployment_mode: airgapped → imagebuilder.enabled = true
-#   deployment_mode: connected → imagebuilder.enabled = false
-# Override below if you want ISOs produced for a connected deployment
-# (some operators prefer consistent installs regardless of connectivity).
-imagebuilder:
-  enabled: "{{ deployment_mode == 'airgapped' }}"
-  location: "builder"                    # builder host runs the minting tooling
-  rhel_version: "9.7"
-  output_dir: "/var/lib/imagebuilder"
-  blueprint_name: "vpac-rhel-9-7"
-  iso_label: "vpac-installer"
-  # Packages baked into the ISO. The default set covers everything site.yml
-  # needs so air-gapped nodes never reach out. Extend for site-specific tools.
-  compose_packages:
-    - ansible-core
-    - kernel-rt
-    - tuned-profiles-nfv
-    - tuned-profiles-realtime
-    - pacemaker
-    - corosync
-    - pcs
-    - fence-agents-ipmilan
-    - qemu-kvm
-    - libvirt
-    - virt-install
-    - swtpm
-    - edk2-ovmf
-    - cloud-init
-    - chrony
-    - linuxptp
-    - cockpit
-    - firewalld
-    - ceph-common
+# Cluster-node ISO minting (per-node installers) uses the same tooling
+# container and is slated for a follow-up commit — see docs/IMAGE-BUILDER.md.
+
+# Path on the SA's workstation to the stock RHEL 9.x DVD ISO downloaded
+# from access.redhat.com. Must be the full DVD (~13 GB), not the
+# boot-only ISO — the minted installer needs every package offline.
+builder_iso_input: "~/Downloads/rhel-9.7-x86_64-dvd.iso"
+
+# Where the minted ISO lands. Repo-local build/ by default.
+builder_iso_output: "{{ playbook_dir }}/../build/vpac-builder-installer.iso"
+
+# Target disk for the builder's OS install:
+#   sda     — typical BIOS/UEFI servers with SATA/SAS
+#   vda     — virtio disks on KVM/libvirt VMs
+#   nvme0n1 — servers with NVMe OS disks
+builder_iso_os_disk: "sda"
+
+# SSH public key authorized on the minted builder for the admin user.
+builder_iso_ssh_pubkey_path: "~/.ssh/id_ed25519.pub"
+
+# Optional sha512crypt hash for the admin user's password (console
+# login). Empty string = SSH-key-only (locked password). Generate with:
+#   python3 -c "import crypt; print(crypt.crypt('mypass', crypt.mksalt(crypt.METHOD_SHA512)))"
+builder_iso_admin_password_hash: ""
+
+# Container CLI to use on your workstation. Set to "docker" if you use
+# Docker Desktop (macOS/Windows).
+builder_iso_container_cli: "podman"
 
 # --------------------------------------------------------------------
 # 14. Validation thresholds

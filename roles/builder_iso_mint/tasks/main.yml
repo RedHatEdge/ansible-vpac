@@ -1,0 +1,151 @@
+---
+# Produce a bootable RHEL 9 installer ISO for the builder host.
+# Runs on the SA's workstation (connection: local). After this succeeds,
+# the SA boots the builder from the minted ISO, then runs
+# 01-build-builder.yml against that same host.
+#
+# Needs the SA's workstation to have:
+#   - podman or docker (for the tooling container)
+#   - ansible-core 2.15+
+#   - the ansible.utils collection (for the netmask filter)
+#   - an unmodified RHEL 9 DVD ISO downloaded from access.redhat.com
+
+- name: "Resolve input ISO path"
+  ansible.builtin.set_fact:
+    _iso_input_resolved: "{{ builder_iso_input | expanduser }}"
+
+- name: "Resolve output ISO path"
+  ansible.builtin.set_fact:
+    _iso_output_resolved: "{{ builder_iso_output | expanduser }}"
+
+- name: "Resolve SSH pubkey path"
+  ansible.builtin.set_fact:
+    _iso_pubkey_resolved: "{{ builder_iso_ssh_pubkey_path | expanduser }}"
+
+- name: "Canonicalize input ISO path (resolve symlinks)"
+  # podman -v with a symlink source mounts the symlink, not the target —
+  # inside the container the path is a dangling link. Resolve to the real
+  # file so the bind mount actually exposes the ISO.
+  ansible.builtin.command: "/usr/bin/readlink -f {{ _iso_input_resolved | quote }}"
+  register: _iso_input_realpath
+  changed_when: false
+
+- name: "Update input path to the resolved target"
+  ansible.builtin.set_fact:
+    _iso_input_resolved: "{{ _iso_input_realpath.stdout | trim }}"
+
+- name: "Sanity — input RHEL ISO exists"
+  ansible.builtin.stat:
+    path: "{{ _iso_input_resolved }}"
+  register: _iso_input_stat
+
+- name: "Assert input ISO is present and is a full DVD"
+  # The boot-only ISO (~800 MB) does not contain package payloads, so the
+  # minted installer would fail partway through on an air-gapped install.
+  # Require ≥1 GB as a rough "yes this is the full DVD" check.
+  ansible.builtin.assert:
+    that:
+      - _iso_input_stat.stat.exists
+      - _iso_input_stat.stat.size > 1073741824
+    fail_msg: >-
+      builder_iso_input ({{ _iso_input_resolved }}) not found or not a
+      full RHEL 9 DVD ISO (≥1 GB). Download the full DVD from
+      access.redhat.com/downloads and set builder_iso_input to its path.
+
+- name: "Sanity — SSH pubkey exists"
+  ansible.builtin.stat:
+    path: "{{ _iso_pubkey_resolved }}"
+  register: _iso_pubkey_stat
+
+- name: "Assert SSH pubkey is present"
+  ansible.builtin.assert:
+    that: _iso_pubkey_stat.stat.exists
+    fail_msg: >-
+      builder_iso_ssh_pubkey_path ({{ _iso_pubkey_resolved }}) not found.
+      Generate one with `ssh-keygen -t ed25519` or point at an existing
+      pubkey file in group_vars/all.yml.
+
+- name: "Read SSH pubkey"
+  ansible.builtin.slurp:
+    src: "{{ _iso_pubkey_resolved }}"
+  register: _iso_pubkey_b64
+
+- name: "Stage SSH pubkey content"
+  ansible.builtin.set_fact:
+    builder_iso_ssh_pubkey: "{{ _iso_pubkey_b64.content | b64decode | trim }}"
+
+- name: "Ensure output dir exists"
+  ansible.builtin.file:
+    path: "{{ _iso_output_resolved | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: "Build the iso-builder tooling container"
+  # Safe to re-run — {{ builder_iso_container_cli }} build reuses cached
+  # layers, so the second build is near-instant unless the Containerfile
+  # or entrypoint.sh changed.
+  ansible.builtin.command:
+    argv:
+      - "{{ builder_iso_container_cli }}"
+      - build
+      - -t
+      - "{{ builder_iso_tooling_image }}"
+      - "{{ builder_iso_tooling_dir }}"
+  register: _iso_build
+  changed_when: true
+
+- name: "Resolve builder host hostvars"
+  ansible.builtin.set_fact:
+    _bh: "{{ hostvars[groups['builder'][0]] }}"
+    builder_host: "{{ groups['builder'][0] }}"
+
+- name: "Render builder kickstart"
+  ansible.builtin.template:
+    src: builder-ks.cfg.j2
+    dest: "{{ builder_iso_kickstart_path }}"
+    mode: "0644"
+
+- name: "Mint the builder installer ISO"
+  # Volumes use :Z for SELinux relabeling on Fedora/Bazzite/RHEL hosts;
+  # harmless on Mac/Windows where SELinux is absent.
+  ansible.builtin.command:
+    argv:
+      - "{{ builder_iso_container_cli }}"
+      - run
+      - --rm
+      - -v
+      - "{{ _iso_input_resolved }}:/in/rhel.iso:ro,Z"
+      - -v
+      - "{{ builder_iso_kickstart_path }}:/in/ks.cfg:ro,Z"
+      - -v
+      - "{{ _iso_output_resolved | dirname }}:/out:rw,Z"
+      - -e
+      - "INPUT_ISO=/in/rhel.iso"
+      - -e
+      - "KICKSTART=/in/ks.cfg"
+      - -e
+      - "OUTPUT_ISO=/out/{{ _iso_output_resolved | basename }}"
+      - "{{ builder_iso_tooling_image }}"
+  register: _iso_mint
+  changed_when: true
+
+- name: "Remove the staged kickstart"
+  # The kickstart embeds the SSH pubkey (already public) and the password
+  # hash if one was set. Removing it keeps /tmp tidy; the injected copy
+  # inside the ISO is what actually drives the install.
+  ansible.builtin.file:
+    path: "{{ builder_iso_kickstart_path }}"
+    state: absent
+
+- name: "Report the minted ISO"
+  ansible.builtin.debug:
+    msg: |-
+      Builder installer ISO ready:
+        {{ _iso_output_resolved }}
+      ({{ _iso_mint.stdout_lines | last | default('see podman stdout') }})
+
+      Boot the builder host from this ISO — it will install unattended
+      and come up at {{ _bh.ansible_host }} (SSH as {{ _bh.ansible_user }}).
+      Then run:
+        ansible-playbook -i <inventory> playbooks/01-build-builder.yml \
+            --ask-vault-pass

@@ -21,12 +21,17 @@ After that playbook finishes, the builder is disconnected from the internet (phy
 
 You need:
 
-- 3 × target servers (BMCs reachable, hard disks empty, IPMI-over-LAN enabled)
-- **A builder host** — can be a dedicated NUC/laptop/VM, or one of your cluster nodes before it gets provisioned. Needs: RHEL 9.x, ~50 GB free disk for the mirror + registry data, outbound HTTPS to `subscription.rhsm.redhat.com` and `registry.redhat.io` **for the duration of step 2 only**.
-- BMC credentials for each cluster node (used by STONITH)
+- **Your workstation** (any OS — Bazzite, Fedora, RHEL, macOS, Windows) with:
+  - `podman` or `docker` (for the ISO-minting tooling container)
+  - `ansible-core` 2.15+ and the `ansible.utils` collection
+  - ~30 GB free disk space (the minted ISOs are ~13 GB each)
+  - An SSH keypair (`~/.ssh/id_ed25519` by default)
+- **A stock RHEL 9.x DVD ISO** downloaded from [access.redhat.com](https://access.redhat.com/downloads/content/rhel) (the full DVD — ~13 GB; the boot-only ISO won't work)
 - **An RHSM activation key + org ID** — create one at [access.redhat.com → Subscriptions → Activation Keys](https://access.redhat.com/management/activation_keys) with a subscription that includes RHEL 9 + Red Hat Ceph Storage entitlements
 - **A Red Hat registry service account** — create at [access.redhat.com/terms-based-registry](https://access.redhat.com/terms-based-registry/); save the username (shape `<org-id>|<token-name>`) + password, you'll paste them into the vault below. (Not the same as the IAM/API service accounts at `console.redhat.com/iam` — those don't authenticate to `registry.redhat.io`.)
-- An Ansible control workstation with Ansible 2.15+ and Python 3.9+ (can be the builder host itself)
+- **A builder machine** (physical server, NUC, laptop, VM — anything that accepts boot media and has ≥50 GB disk for the RPM mirror + container registry data)
+- **3 × target cluster servers** (BMCs reachable, hard disks empty, IPMI-over-LAN enabled)
+- BMC credentials for each cluster node (used by STONITH)
 
 ## Step 1 — Clone and install collection dependencies
 
@@ -96,7 +101,39 @@ vault_bmc_password_node_c: "..."
 vault_hacluster_password: "..."
 ```
 
-## Step 5 — Bring up the builder (builder needs internet)
+## Step 5 — Mint the builder installer ISO
+
+Produces a bootable RHEL 9 ISO for the builder host, with the static IP / hostname / admin user / SSH key from your inventory baked into a kickstart so the install runs unattended.
+
+```bash
+ansible-playbook -i inventory/mysite playbooks/00-mint-builder-iso.yml \
+    -e builder_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+```
+
+Runs on your workstation — builds a local podman/docker tooling container from `tools/iso-builder/`, invokes `mkksiso` inside it. Output lands at `build/vpac-builder-installer.iso` (configurable via `-e builder_iso_output=...`).
+
+Override `builder_iso_os_disk` to match the builder's hardware (default `sda`; use `vda` for libvirt VMs or `nvme0n1` for NVMe servers).
+
+See [`IMAGE-BUILDER.md`](IMAGE-BUILDER.md) for the full variable reference.
+
+## Step 6 — Boot the builder from the minted ISO
+
+Put the ISO on the builder however your hardware prefers:
+
+- **Physical server**: `dd if=build/vpac-builder-installer.iso of=/dev/sdX bs=4M status=progress && sync` to a USB drive, or upload via BMC virtual media
+- **VM**: attach as CDROM in virt-manager / Cockpit / Proxmox / vSphere / whatever
+
+Boot the builder from the ISO. The kickstart runs unattended (~8–12 min), the builder powers off automatically, and the next time you start it from disk it will be SSH-reachable at the static IP you configured in step 2.
+
+Confirm:
+
+```bash
+ssh admin@<builder-ip> 'hostname -f; cat /etc/vpac-installer-tag'
+```
+
+Should return the builder's FQDN and `vpac-builder-ks-v1`.
+
+## Step 7 — Bring up the builder (builder needs internet)
 
 **This is the only step where the builder needs outbound internet access.** Plan 30–60 minutes depending on the builder's egress bandwidth.
 
@@ -109,19 +146,19 @@ What happens:
 
 1. `builder_rhsm` — registers the builder with RHSM, enables the six repos listed in `rhsm_repos`.
 2. `builder_mirror` — installs httpd + reposync, reposyncs all enabled repos to `/var/www/html/mirror`, rebuilds repodata to match on-disk packages, opens HTTP in firewalld, and HEAD-probes each repo's `repomd.xml` to confirm it's served.
-3. `builder_registry` — installs podman + skopeo, runs `registry:2` on port 5000 with persistent storage, and `skopeo copy`s the RHCS 7 container image from `registry.redhat.io` into it.
+3. `builder_registry` — installs podman + skopeo, runs `registry:2` on port 5000 with persistent storage, and `skopeo copy`s the RHCS 7 + monitoring stack images from `registry.redhat.io` into it.
 
 At the end, the playbook prints both URLs. Record them — they should match what you set in step 3.
 
 **After this completes, disconnect the builder from the internet.** Keep it connected only to the network where the cluster nodes can reach it.
 
-## Step 6 — Mint the cluster-node installer ISO
+## Step 8 — Mint the cluster-node installer ISO
 
-The cluster-node installer ISO is produced by a tooling container that runs on any host with podman (Bazzite, Fedora, RHEL, macOS with Docker Desktop, Windows WSL — anywhere).
+The cluster-node installer ISO is produced by the same tooling container as step 5, with a per-node-tailored kickstart that bakes in each node's static IP + hostname.
 
-*This tooling lands in a follow-up commit. Until then, produce the ISO with your existing kickstart pipeline, or install the cluster nodes manually from stock RHEL 9.7 and skip to step 7.*
+*This tooling is planned for a follow-up commit (tracking as `cluster_iso_mint` role + `00b-mint-cluster-isos.yml` playbook). Until then, provision the cluster nodes by any method that yields an SSH-reachable RHEL 9 host with the correct static IPs + passwordless-sudo admin user — e.g. run a similar `mkksiso` pipeline by hand, use your existing kickstart tooling, or install stock RHEL and run a post-install script.*
 
-## Step 7 — Boot each cluster node
+## Step 9 — Boot each cluster node
 
 For each cluster node, via iDRAC / Supermicro IPMI / Crystal web UI:
 
@@ -138,7 +175,7 @@ Confirm each node is reachable:
 ansible -i inventory/mysite vpac_cluster -m ping --ask-vault-pass
 ```
 
-## Step 8 — Preflight
+## Step 10 — Preflight
 
 ```bash
 ansible-playbook -i inventory/mysite site.yml --tags preflight --ask-vault-pass
@@ -156,7 +193,7 @@ Air-gapped-mode preflight fails fast if:
 
 Fix any failures before proceeding.
 
-## Step 9 — Full deploy
+## Step 11 — Full deploy
 
 ```bash
 ansible-playbook -i inventory/mysite site.yml --ask-vault-pass
@@ -164,7 +201,7 @@ ansible-playbook -i inventory/mysite site.yml --ask-vault-pass
 
 Expected duration: 30–60 minutes. Ceph bootstrap pulls the RHCS container image from the builder's local registry; every other package pull hits the builder's HTTP mirror.
 
-## Step 10 — Validate
+## Step 12 — Validate
 
 Same as the connected path:
 
@@ -174,7 +211,7 @@ ansible-playbook -i inventory/mysite site.yml --tags validate --ask-vault-pass
 
 ## Day-2 updates
 
-When new RHCS or RHEL packages land, update the air-gapped site by bringing the builder back online briefly and re-running step 5:
+When new RHCS or RHEL packages land, update the air-gapped site by bringing the builder back online briefly and re-running step 7:
 
 ```bash
 ansible-playbook -i inventory/mysite playbooks/01-build-builder.yml \

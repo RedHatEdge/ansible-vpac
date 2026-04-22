@@ -1,0 +1,104 @@
+{#
+  Builder-host kickstart, rendered from inventory at ISO-mint time.
+  Substituted values come from group_vars/all.yml + the builder's own
+  host_vars. The SSH public key is read from the file at
+  builder_iso_ssh_pubkey_path.
+
+  Jinja context available:
+    _bh                               — hostvars of the builder host
+    _bh.ansible_host                  — static IP for the builder
+    _bh.ansible_user                  — admin user to create
+    builder_host                      — inventory_hostname of the builder
+    site_domain / site_timezone       — from group_vars/all.yml
+    networks.mgmt.{gateway,cidr}      — for netmask + gateway
+    site_dns_servers                  — list, joined with commas
+    builder_iso_os_disk               — disk to install to (sda / vda / nvme0n1)
+    builder_iso_ssh_pubkey            — the pubkey contents (file-looked-up)
+    builder_iso_admin_password_hash   — optional sha512crypt; empty → locked
+    builder_iso_installer_tag         — written to /etc/vpac-installer-tag
+#}
+# vPAC builder host kickstart
+# Rendered from {{ inventory_file | default('<inventory>') }} at {{ ansible_date_time.iso8601 | default('') }}
+# Auto-installs RHEL 9 unattended, sets a static IP, creates the admin
+# user with SSH key + passwordless sudo, then powers off. Boot the host
+# again from its disk and it is ready for 01-build-builder.yml.
+
+text
+firstboot --disable
+keyboard --vckeymap=us --xlayouts='us'
+lang en_US.UTF-8
+timezone {{ site_timezone }} --utc
+selinux --enforcing
+firewall --enabled --service=ssh
+
+# Networking — static IP on whichever NIC has a cable. --device=link asks
+# Anaconda to pick the first link-up interface, which avoids depending on
+# udev's predictable-name output being consistent Anaconda-time vs post-
+# install.
+{# Compute the dotted-quad netmask from the CIDR's prefix length directly,
+   so the template doesn't require the netaddr python package (which isn't
+   installable via dnf on rpm-ostree / Bazzite hosts). #}
+{% set _mgmt_prefix = networks.mgmt.cidr.split('/')[1] | int %}
+{% set _mgmt_mask_int = (2 ** 32) - (2 ** (32 - _mgmt_prefix)) %}
+{% set _mgmt_netmask = (_mgmt_mask_int // 16777216) ~ '.' ~ ((_mgmt_mask_int // 65536) % 256) ~ '.' ~ ((_mgmt_mask_int // 256) % 256) ~ '.' ~ (_mgmt_mask_int % 256) %}
+{# Kickstart directives MUST be on a single physical line — Anaconda's
+   parser does NOT handle shell-style backslash continuations and fails
+   with "unrecognized arguments". Long but correct. #}
+network --bootproto=static --device=link --hostname={{ builder_host }}.{{ site_domain }} --ip={{ _bh.ansible_host }} --netmask={{ _mgmt_netmask }} --gateway={{ networks.mgmt.gateway }} --nameserver={{ site_dns_servers | join(',') }} --activate
+
+# Disk layout — autopart auto-detects BIOS vs UEFI and sizes /boot
+# appropriately. Operator pins the target disk via builder_iso_os_disk.
+ignoredisk --only-use={{ builder_iso_os_disk }}
+zerombr
+clearpart --all --initlabel --drives={{ builder_iso_os_disk }}
+bootloader --location=mbr --boot-drive={{ builder_iso_os_disk }}
+autopart --type=lvm
+
+# Root locked; all administration goes through the admin user + sudo.
+rootpw --lock
+
+{% if builder_iso_admin_password_hash | default('') | length > 0 %}
+user --name={{ _bh.ansible_user }} --groups=wheel --password={{ builder_iso_admin_password_hash }} --iscrypted
+{% else %}
+# No password → console login disabled for the admin user; SSH-key only.
+user --name={{ _bh.ansible_user }} --groups=wheel --lock
+{% endif %}
+
+services --enabled=sshd,chronyd,firewalld
+
+%packages
+@^minimal-environment
+kexec-tools
+cloud-init
+openssh-server
+sudo
+python3
+tar
+%end
+
+%post --erroronfail
+set -eux
+
+# Authorize the operator's SSH key for the admin user.
+mkdir -p /home/{{ _bh.ansible_user }}/.ssh
+cat > /home/{{ _bh.ansible_user }}/.ssh/authorized_keys <<'SSHKEY_EOF'
+{{ builder_iso_ssh_pubkey }}
+SSHKEY_EOF
+chmod 700 /home/{{ _bh.ansible_user }}/.ssh
+chmod 600 /home/{{ _bh.ansible_user }}/.ssh/authorized_keys
+chown -R {{ _bh.ansible_user }}:{{ _bh.ansible_user }} /home/{{ _bh.ansible_user }}/.ssh
+
+# Passwordless sudo for the admin user. Required by Ansible.
+cat > /etc/sudoers.d/{{ _bh.ansible_user }}-nopasswd <<'SUDO_EOF'
+{{ _bh.ansible_user }} ALL=(ALL) NOPASSWD: ALL
+Defaults:{{ _bh.ansible_user }} !requiretty
+SUDO_EOF
+chmod 0440 /etc/sudoers.d/{{ _bh.ansible_user }}-nopasswd
+
+# Installer fingerprint — preflight + diagnostics use this to confirm the
+# host was provisioned from a vpac kickstart rather than stock RHEL.
+echo '{{ builder_iso_installer_tag }}' > /etc/vpac-installer-tag
+%end
+
+# Power off when done. The ISO has finished its job; boot from HD next.
+poweroff

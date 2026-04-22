@@ -1,0 +1,26 @@
+---
+# Mint a bootable RHEL 9 installer ISO for the builder host. Standalone
+# entry point — runs on the SA's workstation, not against any target
+# host. Uses a locally-built podman/docker tooling container to do the
+# actual mkksiso work, so the SA's workstation can be any OS.
+#
+# Intended flow:
+#   1. SA downloads the RHEL 9 DVD ISO from access.redhat.com
+#   2. SA fills in inventory/<site>/group_vars/all.yml (builder host + networks)
+#   3. ansible-playbook -i inventory/<site> playbooks/00-mint-builder-iso.yml
+#      → produces build/vpac-builder-installer.iso
+#   4. SA boots the builder hardware/VM from that ISO — unattended install
+#   5. ansible-playbook -i inventory/<site> playbooks/01-build-builder.yml
+#      → builder becomes local mirror + registry
+#   6. (Builder disconnected from internet here, if the site requires it)
+#   7. SA mints the cluster-node installer ISO (follow-up), boots the
+#      cluster nodes, and runs site.yml
+
+- name: "Mint the builder installer ISO on the SA workstation"
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+  roles:
+    - role: builder_iso_mint
+      tags: [iso, iso-mint, builder-iso]

@@ -54,18 +54,28 @@ cp -r inventory/example inventory/mysite
 $EDITOR inventory/mysite/hosts.yml
 $EDITOR inventory/mysite/group_vars/all.yml   # set deployment_mode, sources, topology
 
-# 3. (Air-gapped path only) Bring up the builder: RHSM + local RPM mirror
+# 3. (Air-gapped path only) Mint the builder installer ISO — runs on your
+#    workstation via a podman/docker tooling container. Produces a
+#    bootable RHEL 9 ISO that installs the builder host unattended.
+ansible-playbook -i inventory/mysite playbooks/00-mint-builder-iso.yml \
+    -e builder_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+
+# 4. Boot the builder from that ISO (USB, BMC virtual media, whatever fits
+#    your hardware). Install runs unattended; the builder comes up
+#    SSH-reachable at the IP configured in your inventory.
+
+# 5. (Air-gapped path only) Bring up the builder: RHSM + local RPM mirror
 #    + local container registry with RHCS images mirrored. Runs once, while
 #    the builder still has outbound internet.
 ansible-playbook -i inventory/mysite playbooks/01-build-builder.yml --ask-vault-pass
 
-# 4. Preflight — confirms mode-specific reachability, subscriptions, hardware, networks
+# 6. Preflight — confirms mode-specific reachability, subscriptions, hardware, networks
 ansible-playbook -i inventory/mysite site.yml --tags preflight
 
-# 5. Full deploy
+# 7. Full deploy
 ansible-playbook -i inventory/mysite site.yml
 
-# 6. Validate
+# 8. Validate
 ansible-playbook -i inventory/mysite site.yml --tags validate
 ```
 

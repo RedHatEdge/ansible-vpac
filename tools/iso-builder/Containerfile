@@ -1,0 +1,38 @@
+# Tooling container for minting kickstart-injected RHEL 9 installer ISOs.
+#
+# Built locally on the SA's workstation by roles/builder_iso_mint. The SA
+# does not need to download or trust a pre-built image from any registry
+# — `podman build` or `docker build` against this file produces the
+# tooling image from source.
+#
+# Base image: Fedora, not UBI. UBI9 ships a minimal subset of RHEL that
+# does NOT include lorax (which provides mkksiso). Fedora's registry
+# image is publicly pullable without auth and has lorax in its default
+# repos, and Fedora's mkksiso is the upstream of the RHEL 9 tool — its
+# output is 100% compatible with the RHEL 9 installer.
+#
+# Pinning to Fedora 41 (stable as of early 2026) for reproducibility;
+# upgrade in lockstep with Fedora's release cycle if lorax's mkksiso
+# behavior changes.
+#
+# Runtime: pass the input DVD, kickstart, and output dir via -v volumes,
+# point INPUT_ISO / KICKSTART / OUTPUT_ISO env vars at their in-container
+# paths, and run.
+
+FROM registry.fedoraproject.org/fedora:41
+
+RUN dnf install -y --setopt=install_weak_deps=False \
+        lorax \
+        xorriso \
+        genisoimage \
+        syslinux \
+        isomd5sum \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+COPY entrypoint.sh /usr/local/bin/mint-iso
+RUN chmod 0755 /usr/local/bin/mint-iso
+
+WORKDIR /work
+
+ENTRYPOINT ["/usr/local/bin/mint-iso"]

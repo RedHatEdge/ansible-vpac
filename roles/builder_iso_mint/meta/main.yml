@@ -1,0 +1,25 @@
+---
+galaxy_info:
+  role_name: builder_iso_mint
+  author: Stephen Smith
+  description: >-
+    Mint a kickstart-injected RHEL 9 installer ISO for the builder host,
+    using a locally-built podman/docker tooling container. Runs on the
+    SA's workstation; produces an ISO that installs the builder
+    unattended with static IP + SSH + sudo ready for 01-build-builder.yml.
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+    - name: Fedora
+      versions: ["any"]
+    - name: MacOSX
+      versions: ["any"]
+  galaxy_tags:
+    - vpac
+    - builder
+    - iso
+    - kickstart
+    - imagebuilder
+dependencies: []

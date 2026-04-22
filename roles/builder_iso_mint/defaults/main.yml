@@ -1,0 +1,45 @@
+---
+# Source RHEL 9 DVD ISO — the SA downloads this from
+#   https://access.redhat.com/downloads/content/rhel
+# and points this var at the path on their workstation. Must be the full
+# DVD (~13 GB). The smaller boot-only ISO will not work because the
+# minted installer has to include all packages baked-in for air-gapped
+# first-boot.
+builder_iso_input: "~/Downloads/rhel-9.7-x86_64-dvd.iso"
+
+# Where the minted installer ISO lands. Default: repo-local build dir.
+builder_iso_output: "{{ playbook_dir }}/../build/vpac-builder-installer.iso"
+
+# Tooling container sources (Containerfile + entrypoint.sh).
+builder_iso_tooling_dir: "{{ playbook_dir }}/../tools/iso-builder"
+
+# Name of the locally-built tooling container image.
+builder_iso_tooling_image: "localhost/vpac-iso-builder:latest"
+
+# Where to render the kickstart before handing it to the container.
+# Removed at the end of the role run.
+builder_iso_kickstart_path: "/tmp/vpac-builder-ks.cfg"
+
+# SSH public key to authorize for the admin user on the minted builder.
+# The SA's workstation key — after the builder boots, ansible-playbook
+# from the same workstation is the intended flow.
+builder_iso_ssh_pubkey_path: "~/.ssh/id_ed25519.pub"
+
+# Optional sha512crypt-shaped password hash for the admin user. Leave
+# empty to lock the password (SSH-key-only access). Generate with:
+#   python3 -c "import crypt; print(crypt.crypt('mypass', crypt.mksalt(crypt.METHOD_SHA512)))"
+builder_iso_admin_password_hash: ""
+
+# Target disk for the OS install. Override to match the builder's hardware:
+#   sda           — most BIOS/UEFI servers with SATA/SAS
+#   vda           — virtio disks on KVM/libvirt VMs
+#   nvme0n1       — servers with NVMe OS disks
+builder_iso_os_disk: "sda"
+
+# Fingerprint written to /etc/vpac-installer-tag in the %post. preflight
+# looks for this to confirm the node was installed from a vpac ISO.
+builder_iso_installer_tag: "vpac-builder-ks-v1"
+
+# Container runtime on the SA's workstation. podman is the reference;
+# docker works too (the CLI flags we use are shared).
+builder_iso_container_cli: "podman"
