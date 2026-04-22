@@ -106,19 +106,34 @@
     mode: "0644"
 
 - name: "Mint the builder installer ISO"
-  # Volumes use :Z for SELinux relabeling on Fedora/Bazzite/RHEL hosts;
-  # harmless on Mac/Windows where SELinux is absent.
+  # --security-opt label=disable disables per-container SELinux
+  # confinement so the container can read whatever files the caller
+  # (rootless stephen) can read. Two reasons we need this:
+  #   1. RHEL/Fedora virt tooling often labels ISO files as
+  #      virt_content_t, which the stock targeted policy does NOT allow
+  #      a container (container_t) process to read. Stock SELinux
+  #      policy blocks us even though the kernel-level DAC permissions
+  #      would permit it.
+  #   2. Private relabeling with `:Z` would bump into setxattr EPERM on
+  #      any file not owned by the invoking user (common for shared
+  #      downloads, NFS mounts, or anything that passed through sudo).
+  # The tooling container is single-shot (runs mkksiso, exits), does
+  # not persist state, and doesn't touch anything outside the three
+  # volumes we give it. Disabling its SELinux label is a very small
+  # scope expansion. On Mac/Windows hosts this flag is a no-op.
   ansible.builtin.command:
     argv:
       - "{{ builder_iso_container_cli }}"
       - run
       - --rm
+      - --security-opt
+      - "label=disable"
       - -v
-      - "{{ _iso_input_resolved }}:/in/rhel.iso:ro,Z"
+      - "{{ _iso_input_resolved }}:/in/rhel.iso:ro"
       - -v
-      - "{{ builder_iso_kickstart_path }}:/in/ks.cfg:ro,Z"
+      - "{{ builder_iso_kickstart_path }}:/in/ks.cfg:ro"
       - -v
-      - "{{ _iso_output_resolved | dirname }}:/out:rw,Z"
+      - "{{ _iso_output_resolved | dirname }}:/out:rw"
       - -e
       - "INPUT_ISO=/in/rhel.iso"
       - -e

@@ -5,11 +5,25 @@
 # template served by the builder for airgapped mode). No EPEL, no upstream
 # community Ceph repo — this is a Red Hat Ceph Storage deploy.
 
+- name: "Install cephadm, podman, ceph-common from RHCS tools repo"
+  # ceph-common provides /usr/bin/ceph — needed for `ceph fsid`, `ceph -s`,
+  # `ceph orch ...`. Newer cephadm no longer installs it during bootstrap,
+  # so pull it explicitly. podman drags in containers-common, which owns
+  # /etc/containers/registries.conf.d/ — so this install must happen
+  # before the trust drop-in task below.
+  ansible.builtin.dnf:
+    name:
+      - cephadm
+      - podman
+      - ceph-common
+    state: present
+
 - name: "Trust the configured container registry (insecure/HTTP)"
   # When sources.container_registry_insecure is true (typical for a local
   # podman registry on the builder over plain HTTP), write a drop-in that
   # tells podman + cephadm to skip TLS verification for that host. For
   # registry.redhat.io this is left false and the drop-in isn't written.
+  # Runs AFTER the podman install so the target directory exists.
   ansible.builtin.copy:
     dest: /etc/containers/registries.conf.d/99-vpac-local.conf
     owner: root
@@ -20,14 +34,3 @@
       location = "{{ sources.container_registry }}"
       insecure = true
   when: sources.container_registry_insecure | default(false) | bool
-
-- name: "Install cephadm, podman, ceph-common from RHCS tools repo"
-  # ceph-common provides /usr/bin/ceph — needed for `ceph fsid`, `ceph -s`,
-  # `ceph orch ...`. Newer cephadm no longer installs it during bootstrap,
-  # so pull it explicitly.
-  ansible.builtin.dnf:
-    name:
-      - cephadm
-      - podman
-      - ceph-common
-    state: present

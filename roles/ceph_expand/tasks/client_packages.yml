@@ -7,6 +7,16 @@
 # that host_baseline must have enabled (via rhsm.repos for connected mode
 # or via the local_mirror template for airgapped).
 
+- name: "Install podman + ceph-common from RHCS tools repo"
+  # Runs before the trust drop-in below: podman pulls containers-common,
+  # which is what creates /etc/containers/registries.conf.d/. On a fresh
+  # RHEL minimal install that directory does not exist yet.
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - ceph-common
+    state: present
+
 - name: "Trust the configured container registry (insecure/HTTP)"
   # Non-bootstrap nodes also pull the ceph container image for their
   # MON/MGR/MDS/OSD daemons. When the builder's insecure registry is in
@@ -21,10 +31,3 @@
       location = "{{ sources.container_registry }}"
       insecure = true
   when: sources.container_registry_insecure | default(false) | bool
-
-- name: "Install podman + ceph-common from RHCS tools repo"
-  ansible.builtin.dnf:
-    name:
-      - podman
-      - ceph-common
-    state: present
