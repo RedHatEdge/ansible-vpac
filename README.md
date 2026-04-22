@@ -131,21 +131,23 @@ Full walk-through: [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md
 
 `site.yml` runs these in order. Each stage is also runnable independently via `--tags`.
 
-| # | Stage | Tag | What it does |
-|---|---|---|---|
-| 00 | Preflight | `preflight` | Reachability, sudo, RHEL version, disk, BMC access |
-| 10 | Host baseline | `baseline` | Subscription, repos, base packages, hostname, firewall, journald |
-| 20 | Networking | `networking` | Bonds, bridges, VLANs via nmstate; verifies PTP NIC isolation |
-| 30 | Virtualization | `virt` | libvirt, KVM, tuned, hugepages, isolated CPUs, kernel cmdline |
-| 40 | PTP | `ptp` | timemaster/ptp4l on dedicated NIC; chrony with NTP stripped when PTP-authoritative |
-| 50 | RT tuning | `rt` | `sched_rt_runtime_us`, cpufreq governor, RT chrony overrides |
-| 60 | Ceph | `ceph` | cephadm bootstrap, expand to 3 nodes, add OSDs, create CephFS |
-| 70 | Pacemaker | `pacemaker` | pcs, corosync on dedicated cluster network, cluster auth |
-| 75 | STONITH | `stonith` | fence_ipmilan per node, location constraints, `stonith-enabled=true` |
-| 80 | VM deploy | `vm` | render libvirt XML, define VMs, create as Pacemaker resources |
-| 90 | Validate | `validate` | cyclictest, `pcs status`, `ceph -s`, PTP offset, STONITH dry-run |
+| # | Stage | Tag | Status | What it does |
+|---|---|---|---|---|
+| 00 | Preflight | `preflight` | ✅ ready | Reachability, sudo, RHEL version, disk, BMC access, mode-aware sources probes |
+| 10 | Host baseline | `baseline` | ✅ ready | Subscription, repos, base packages, hostname, firewall, journald, operator tools + Cockpit |
+| 20 | Networking | `networking` | ✅ ready | Bonds, bridges, VLANs via nmstate; verifies PTP NIC isolation |
+| 30 | Virtualization | `virt` | ✅ ready | libvirt, KVM, tuned-profiles-cpu-partitioning, default NAT network removed |
+| 40 | PTP | `ptp` | 🚧 stub | (will) timemaster/ptp4l on dedicated NIC; NTP stripped when PTP-authoritative |
+| 50 | RT tuning | `rt` | 🚧 stub | (will) kernel-rt, tuned realtime profile, `sched_rt_runtime_us`, RT chrony overrides |
+| 60 | Ceph | `ceph` | ✅ ready | cephadm bootstrap with RHCS 7, expand cluster, add OSDs, create CephFS, deploy monitoring stack, enable native dashboard |
+| 70 | Pacemaker | `pacemaker` | 🚧 stub | (will) pcs, corosync on heartbeat net, cluster auth, `pcsd` web UI on :2224 |
+| 75 | STONITH | `stonith` | 🚧 stub | (will) fence_ipmilan / fence_virsh per node, location constraints, `stonith-enabled=true` |
+| 80 | VM deploy | `vm` | ✅ ready | render libvirt domain XML from `vm_catalog`, define each VM on its `target_host` (non-clustered v1; Pacemaker-managed mode lands with stage 75) |
+| 90 | Validate | `validate` | 🚧 stub | (will) cyclictest tail latency, `pcs status`, `ceph -s` parse, PTP offset, STONITH dry-run |
 
-Ceph (stage 60) **always** runs after host baseline, networking, and virtualization. STONITH (stage 75) **always** runs before VM deploy (stage 80). Do not reorder.
+**Stub stages are no-ops that emit a `"not yet implemented"` debug line.** They don't fail the run, but they also don't configure anything. A POC using only the ready stages gets a working RHEL+KVM+Ceph+CephFS cluster with VMs defined. HA (Pacemaker + STONITH + VM-as-resource) and real-time tuning land in upcoming commits.
+
+Ceph (stage 60) **always** runs after host baseline, networking, and virtualization. STONITH (stage 75) **always** runs before VM deploy (stage 80) — enforced by `site.yml`'s stage ordering. Do not reorder.
 
 ## Directory layout
 
@@ -184,6 +186,7 @@ ansible-vpac/
 │   ├── builder_mirror/                   # reposync RHSM repos to local httpd
 │   ├── builder_registry/                 # run local registry:2, skopeo-copy RHCS images
 │   ├── cluster_iso_mint/                 # mint per-node cluster installer ISOs
+│   ├── common_tools/                     # vim/tmux/htop/sos/cockpit — included from host_baseline + builder track
 │   ├── preflight/                        # ↓ roles invoked by site.yml
 │   ├── host_baseline/
 │   ├── networking/
