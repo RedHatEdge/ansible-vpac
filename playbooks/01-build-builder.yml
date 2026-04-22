@@ -10,6 +10,11 @@
 #   2. builder_mirror  — reposync those repos to /var/www/html/mirror + httpd
 #   3. builder_registry — run registry:2 on :5000, skopeo-copy RHCS (and any
 #                        other declared) images into it from registry.redhat.io
+#   4. common_tools    — install vim/tmux/htop/sos/cloud-init/cockpit — the
+#                        same operator toolkit every cluster node gets via
+#                        host_baseline. After this completes, Cockpit at
+#                        https://<builder>:9090 shows the mirror + registry
+#                        state.
 #
 # After this completes, the cluster inventory's sources block points at the
 # builder:
@@ -40,3 +45,5 @@
       tags: [builder, builder-mirror]
     - role: builder_registry
       tags: [builder, builder-registry]
+    - role: common_tools
+      tags: [builder, builder-tools, common-tools]

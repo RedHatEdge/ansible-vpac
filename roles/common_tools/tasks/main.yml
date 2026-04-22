@@ -1,0 +1,39 @@
+---
+# Install operator-expected RHEL tooling and (by default) enable Cockpit.
+# Intended to run AFTER firewalld is started — this role adds the cockpit
+# service to firewalld's default zone, which requires the daemon to be
+# running. host_baseline invokes this role after its firewalld.yml; the
+# builder playbook lists it after the builder_mirror role (which starts
+# firewalld for the HTTP mirror).
+
+- name: "Compute effective package list"
+  ansible.builtin.set_fact:
+    _common_tools_effective: >-
+      {{ common_tools_packages
+         + (common_tools_cockpit_packages if (common_tools_install_cockpit | bool) else [])
+         + common_tools_extra_packages }}
+
+- name: "Install operator tools + Cockpit"
+  ansible.builtin.dnf:
+    name: "{{ _common_tools_effective }}"
+    state: present
+
+- name: "Enable + start cockpit.socket"
+  ansible.builtin.systemd_service:
+    name: cockpit.socket
+    state: started
+    enabled: true
+  when: common_tools_install_cockpit | bool
+
+- name: "Open cockpit service in firewalld"
+  # firewalld must already be running — host_baseline/firewalld.yml
+  # started it earlier for cluster nodes; builder_mirror started it on
+  # the builder. If firewalld isn't running when this task fires, the
+  # module fails loudly rather than silently dropping the rule.
+  ansible.posix.firewalld:
+    service: cockpit
+    zone: "{{ common_tools_firewalld_zone }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  when: common_tools_install_cockpit | bool

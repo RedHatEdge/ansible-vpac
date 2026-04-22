@@ -44,3 +44,10 @@
 - name: "Journald persistent"
   ansible.builtin.import_tasks: journald.yml
   tags: [baseline, baseline-journald]
+
+- name: "Operator tools + Cockpit (via common_tools role)"
+  # Runs AFTER firewalld.yml — common_tools adds cockpit to firewalld's
+  # default zone and needs the daemon active.
+  ansible.builtin.include_role:
+    name: common_tools
+  tags: [baseline, baseline-tools, common-tools]

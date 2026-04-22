@@ -1,0 +1,89 @@
+---
+# Common operator tools installed on every vPAC host — both cluster nodes
+# (via host_baseline → include_role) and the builder (via
+# 01-build-builder.yml's roles list). These are the utilities an SA
+# expects to have available on any production RHEL box: vim, tmux,
+# troubleshooting tools, monitoring agents, and Cockpit.
+#
+# Every package listed here is available in stock RHEL 9 BaseOS or
+# AppStream — no EPEL, no third-party repos required. Works identically
+# on connected and airgapped sites.
+
+common_tools_packages:
+  # Basic shell + package management
+  - bash-completion
+  - bind-utils
+  - curl
+  - dnf-plugins-core
+  - dnf-utils
+  - git
+  - iputils
+  - less
+  - net-tools
+  - nmap-ncat
+  - rsync
+  - tar
+  - unzip
+  - wget
+
+  # Editors + terminal multiplexer — every SA expects these
+  - tmux
+  - vim-enhanced
+
+  # Ops visibility / troubleshooting
+  # Note: htop is NOT in RHEL 9 BaseOS/AppStream (EPEL only), so it's
+  # deliberately left out of the default set. Sites that enable EPEL
+  # can add it via common_tools_extra_packages. top + sysstat's
+  # iostat/vmstat/sar cover the essential ground from the stock repos.
+  - iotop
+  - iperf3
+  - jq
+  - lsof
+  - strace
+  - sysstat
+  - tcpdump
+
+  # Compression
+  - bzip2
+  - zstd
+
+  # System support / production hygiene
+  - audit
+  - ca-certificates
+  - cloud-init
+  - cloud-utils-growpart
+  - irqbalance
+  - linux-firmware
+  - sos
+  - tuned
+
+  # Container runtime — useful beyond just Ceph (podman is AppStream;
+  # installing here unconditionally avoids every other role having to
+  # install it individually)
+  - podman
+
+# Cockpit web console. On by default — any utility SA expects to be
+# able to open https://<node>:9090 and see a dashboard. Operators with
+# a minimum-install requirement can flip to false.
+common_tools_install_cockpit: true
+
+common_tools_cockpit_packages:
+  - cockpit
+  - cockpit-machines
+  - cockpit-networkmanager
+  - cockpit-packagekit
+  - cockpit-podman
+  - cockpit-selinux
+  - cockpit-sosreport
+  - cockpit-storaged
+  - cockpit-system
+
+# Add site-specific packages here — the role installs these alongside
+# the curated lists above. Useful for customer-requested tools that
+# shouldn't be in the upstream default set.
+common_tools_extra_packages: []
+
+# Firewalld zone the cockpit service is opened in. Kept as a
+# role-local var so it can diverge from host_baseline's
+# firewalld_default_zone if a site wants a different policy.
+common_tools_firewalld_zone: public

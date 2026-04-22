@@ -1,35 +1,18 @@
 ---
-# Baseline packages installed on every cluster node.
-# Extend per-site with baseline_extra_packages in group_vars.
+# Minimal package set host_baseline installs BEFORE its own later tasks
+# (chrony.yml, firewalld.yml, selinux.yml) run. The full operator
+# tooling set — vim, tmux, htop, sos, audit, cloud-init, podman, Cockpit,
+# etc. — is installed afterwards by the common_tools role, which
+# host_baseline includes as its final step.
+#
+# Keep this list small. Anything an SA expects on a shell goes in
+# common_tools, not here — that way the same set lands on the builder
+# too (which doesn't run host_baseline).
 baseline_packages:
-  - bash-completion
-  - bind-utils
-  - chrony
-  - curl
-  - dnf-utils
-  - firewalld
-  - git
-  - iotop
-  - iperf3
-  - iputils
-  - jq
-  - less
-  - lsof
-  - net-tools
-  - nmap-ncat
-  - openssh-server
-  - policycoreutils-python-utils
-  - rsync
-  - sos
-  - strace
-  - sysstat
-  - tar
-  - tcpdump
-  - tmux
-  - tuned
-  - unzip
-  - vim-enhanced
-  - wget
+  - chrony                          # used by chrony.yml below
+  - firewalld                       # used by firewalld.yml below
+  - openssh-server                  # ensure the admin can keep reaching us
+  - policycoreutils-python-utils    # used by selinux.yml
 
 baseline_extra_packages: []
 
