@@ -7,10 +7,19 @@
 # (builder's local registry) modes, because builder_registry mirrors them
 # under the same path.
 
-# Whether cephadm bootstrap enables the dashboard MGR module. Default off —
-# most operators use Prometheus + Grafana instead, and the dashboard adds
-# web UI surface + TLS setup most labs don't want.
-ceph_bootstrap_enable_dashboard: false
+# Whether cephadm bootstrap enables the dashboard MGR module. On by
+# default — SAs expect a management UI beyond the Grafana dashboards
+# cephadm auto-provisions (Grafana is view-only; the native dashboard
+# handles pool creation, OSD operations, CephFS management, etc.).
+#
+# When true, cephadm auto-generates an admin password and prints it to
+# the bootstrap log + saves it under
+# /var/lib/ceph/<fsid>/dashboard-password on the bootstrap node.
+# Operators typically reset it to a known value immediately:
+#   echo '<your-password>' | ceph dashboard ac-user-create admin -i - administrator
+# The URL lands at https://<active-mgr-storage-ip>:8443 — reach it via
+# SSH port-forward in labs where the storage network is L2-only.
+ceph_bootstrap_enable_dashboard: true
 
 # How long to wait for the newly-bootstrapped MON to reach at least
 # HEALTH_WARN (HEALTH_OK won't happen until OSDs are added — that's

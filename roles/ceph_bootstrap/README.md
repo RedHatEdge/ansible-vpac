@@ -14,7 +14,7 @@ Stage 60 (first half). Runs on the `ceph_bootstrap_node` group (a single-host gr
 
 | Name | Default | Notes |
 |---|---|---|
-| `ceph_bootstrap_enable_dashboard` | `false` | flip `true` for the cephadm dashboard MGR module |
+| `ceph_bootstrap_enable_dashboard` | `true` | flip `false` if you want only Grafana (no native Ceph dashboard). When on, reach it at `https://<active-mgr>:8443`; cephadm auto-generates an admin password printed to the bootstrap log — reset with `echo '<pw>' \| ceph dashboard ac-user-create admin -i - administrator` |
 | `ceph_bootstrap_mon_health_timeout_s` | `120` | max wait for MON health |
 | `ceph_bootstrap_cmd_timeout_s` | `600` | max wait for `cephadm bootstrap` itself |
 
