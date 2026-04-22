@@ -31,11 +31,20 @@
   # serves over plain HTTP — cluster nodes get the insecure trust drop-in
   # from ceph_bootstrap/ceph_expand when sources.container_registry_insecure
   # is true.
+  #
+  # cgroups=disabled works around an eBPF-device-filter install failure
+  # that crun 1.27+ can trigger on RHEL 9.6 kernels (the 9.7 kernel has
+  # the cgroup-v2 BPF features crun expects, but fresh-installed
+  # builders may still be on the 9.6 kernel until they reboot into an
+  # updated one). The registry does not need device-cgroup isolation, so
+  # disabling it here is safe.
   containers.podman.podman_container:
     name: "{{ builder_registry_container_name }}"
     image: "{{ builder_registry_image }}"
     state: started
     restart_policy: always
+    cgroups: disabled
+    recreate: true                      # drop stale failed containers from prior runs
     ports:
       - "{{ builder_registry_port }}:5000"
     volumes:
