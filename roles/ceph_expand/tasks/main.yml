@@ -27,6 +27,10 @@
   ansible.builtin.import_tasks: mount.yml
   tags: [ceph, ceph-expand, ceph-mount]
 
+- name: "Deploy monitoring stack (prometheus + alertmanager + grafana + node-exporter)"
+  ansible.builtin.import_tasks: monitoring_deploy.yml
+  tags: [ceph, ceph-expand, ceph-monitoring]
+
 - name: "Verify final health"
   ansible.builtin.import_tasks: verify.yml
   tags: [ceph, ceph-expand, ceph-verify]

@@ -1,0 +1,20 @@
+---
+# Deploy the monitoring stack. ceph_bootstrap passes --skip-monitoring-stack
+# to `cephadm bootstrap` so auto-placement doesn't race the
+# monitoring_config step; this file is responsible for explicitly asking
+# cephadm to deploy each service with default placement. By this point,
+# ceph config set has already pointed every container_image_* at the
+# local registry, so the pulls work offline.
+
+- name: "Deploy monitoring services via cephadm orch apply"
+  ansible.builtin.command:
+    argv: ["/usr/bin/ceph", "orch", "apply", "{{ item }}"]
+  loop:
+    - prometheus
+    - alertmanager
+    - grafana
+    - node-exporter
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  register: _ceph_monitoring_apply
+  changed_when: "'Scheduled' in (_ceph_monitoring_apply.stdout | default(''))"

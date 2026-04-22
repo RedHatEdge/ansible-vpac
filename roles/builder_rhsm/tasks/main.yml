@@ -1,0 +1,59 @@
+---
+# Register the builder with RHSM and enable the repos needed to populate
+# the local RPM mirror. Idempotent — re-running is a no-op if the host is
+# already registered and repos are already enabled.
+#
+# Auth precedence:
+#   1. If rhsm_activation_key + rhsm_org_id are both set → activation key
+#   2. Else if rhsm_username + rhsm_password are both set → username/password
+#   3. Else fail the assert
+# Air-gapped production and Satellite-registered hosts should set
+# builder_rhsm_skip_register: true and rely on pre-existing registration.
+
+- name: "Assert RHSM creds are set (unless skipping registration)"
+  ansible.builtin.assert:
+    that:
+      - >-
+        builder_rhsm_skip_register | bool or
+        (rhsm_activation_key | default('', true) | length > 0 and
+         rhsm_org_id | default('', true) | length > 0) or
+        (rhsm_username | default('', true) | length > 0 and
+         rhsm_password | default('', true) | length > 0)
+      - rhsm_repos | default([]) | length > 0
+    fail_msg: >-
+      builder_rhsm requires either (rhsm_activation_key + rhsm_org_id)
+      or (rhsm_username + rhsm_password), plus a non-empty rhsm_repos.
+      Set these in inventory/<site>/group_vars/all.yml (and vault.yml for
+      secrets), or set builder_rhsm_skip_register: true if the builder
+      is already registered.
+
+- name: "Register with RHSM via activation key"
+  community.general.redhat_subscription:
+    state: present
+    activationkey: "{{ rhsm_activation_key }}"
+    org_id: "{{ rhsm_org_id }}"
+    server_hostname: "{{ rhsm_server_url | default(omit) }}"
+  when:
+    - not (builder_rhsm_skip_register | bool)
+    - rhsm_activation_key | default('', true) | length > 0
+    - rhsm_org_id | default('', true) | length > 0
+  no_log: true
+
+- name: "Register with RHSM via username/password"
+  community.general.redhat_subscription:
+    state: present
+    username: "{{ rhsm_username }}"
+    password: "{{ rhsm_password }}"
+    server_hostname: "{{ rhsm_server_url | default(omit) }}"
+    auto_attach: true
+  when:
+    - not (builder_rhsm_skip_register | bool)
+    - (rhsm_activation_key | default('', true) | length == 0)
+    - rhsm_username | default('', true) | length > 0
+    - rhsm_password | default('', true) | length > 0
+  no_log: true
+
+- name: "Enable required RHSM repos"
+  community.general.rhsm_repository:
+    name: "{{ rhsm_repos }}"
+    state: enabled

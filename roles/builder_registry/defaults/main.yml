@@ -1,0 +1,37 @@
+---
+# Port the local registry listens on (and is advertised at). Cluster nodes
+# reach this as "{{ builder }}:{{ builder_registry_port }}".
+builder_registry_port: 5000
+
+# Where the registry stores its blobs. Survives container restarts.
+builder_registry_data_dir: /var/lib/vpac-registry
+
+# Systemd unit name + podman container name for the registry.
+builder_registry_container_name: vpac-registry
+
+# The registry:2 image itself — pulled from quay.io (public, no creds).
+# Override if you have the registry image pre-mirrored somewhere else.
+builder_registry_image: docker.io/library/registry:2
+
+# Red Hat container registry to pull entitled images from. Authenticate
+# with a registry service account token from
+#   https://access.redhat.com/terms-based-registry/
+# (NOT the IAM/API service accounts at console.redhat.com/iam — those are
+# for hybrid-cloud-console APIs and do not authenticate to the registry.)
+redhat_registry_url: registry.redhat.io
+
+# Auth for redhat_registry_url. Set via group_vars/vault.yml — never
+# commit in plaintext.
+#   redhat_registry_username: "<service-account-token-user>"
+#   redhat_registry_password: "<service-account-token-value>"
+
+# Images to mirror from redhat_registry_url into the local registry.
+# Default: every value in container_images (the full RHCS + monitoring
+# stack the cluster needs). Paths are repo:tag relative to the registry
+# hostname; the role pulls from redhat_registry_url/<path> and pushes to
+# local/<path> unchanged.
+#
+# Override in inventory to mirror additional images (internal registries,
+# Red Hat Quay, etc.) — the default pulls from container_images which is
+# the site-wide source of truth for "what images does this deployment need".
+builder_registry_images: "{{ container_images.values() | list }}"

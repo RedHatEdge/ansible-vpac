@@ -27,14 +27,16 @@ site_dns_servers:
 # --------------------------------------------------------------------
 # Two first-class paths:
 #   connected — nodes have outbound internet; install RHEL yourself or by any
-#               standard method; site.yml pulls from RHSM and quay.io.
-#   airgapped — utility POC / substation default; run build-installer.yml first
-#               to produce a custom installer ISO; site.yml pulls from a local
-#               Satellite / mirror / registry you operate.
+#               standard method; site.yml pulls from RHSM and registry.redhat.io.
+#   airgapped — utility POC / substation default; run 01-build-builder.yml
+#               first to prepare a local mirror + registry on the builder;
+#               (and then mint the cluster-node installer ISO with the
+#               tooling container — see docs/IMAGE-BUILDER.md);
+#               site.yml pulls from the builder you operate.
 #
 # Each of the two deployment guides under docs/ walks through the full workflow
 # for its path. This variable selects defaults for everything in section 3;
-# override individual entries there to mix (e.g. Satellite RPMs + quay.io
+# override individual entries there to mix (e.g. Satellite RPMs + registry.redhat.io
 # images) when egress is selective.
 deployment_mode: "connected"             # connected | airgapped
 
@@ -56,9 +58,18 @@ sources:
   # Required when repo_source == local_mirror
   local_mirror_url: ""                   # e.g. http://builder.example.local/mirror
 
-  # Container registry for Ceph and any other pulled images. Default quay.io
-  # for connected deployments; a local registry hostname for air-gapped.
-  container_registry: "quay.io"          # e.g. registry.example.local:5000
+  # Container registry for Red Hat Ceph Storage (and any other pulled
+  # images). registry.redhat.io for connected deployments; a local
+  # registry hostname for air-gapped. The builder_registry role mirrors
+  # RHCS images under the same path ("rhceph/rhceph-7-rhel9:latest"), so
+  # flipping this variable is the only change required between modes.
+  container_registry: "registry.redhat.io"   # e.g. site1-builder:5000
+
+  # Set true when container_registry is a plain-HTTP registry (the
+  # builder_registry role's podman-hosted registry:2 on port 5000 is
+  # plain HTTP by default). Writes an insecure trust drop-in on every
+  # cluster node. Always false for registry.redhat.io.
+  container_registry_insecure: false
 
   # Where the Ansible control node pulls collection dependencies. galaxy for
   # connected, local_tarball for air-gapped (tarball produced by the builder).
@@ -66,21 +77,64 @@ sources:
   ansible_collections_local_path: ""     # e.g. /opt/ansible-collections.tar.gz
 
 # --------------------------------------------------------------------
-# 4. RHEL subscription (used only when sources.repo_source is rhsm or satellite)
+# 4. RHEL subscription + container registry auth
 # --------------------------------------------------------------------
-rhsm_activation_key: "CHANGEME"          # activation key on RHN or Satellite
-rhsm_org_id: "CHANGEME"
+# RHSM credentials for the builder (01-build-builder.yml) and the cluster
+# nodes (site.yml, when sources.repo_source is rhsm). Use vault.yml for
+# the secrets — never commit plaintext.
+rhsm_activation_key: "{{ vault_rhsm_activation_key | default('') }}"
+rhsm_org_id: "{{ vault_rhsm_org_id | default('') }}"
 rhsm_server_url: "subscription.rhsm.redhat.com"
 rhsm_pool: ""                            # optional pool override
 
-# Repos enabled on each node beyond BaseOS/AppStream. Needed for HA,
-# resilient-storage (Ceph tooling), and the NFV repo for RT kernel.
+# Repos enabled on the builder (by builder_rhsm) AND on cluster nodes (by
+# host_baseline, when sources.repo_source is rhsm). The builder reposyncs
+# this entire list into its local mirror so the same contract works for
+# air-gapped and connected deployments.
+#   baseos / appstream       — RHEL core
+#   highavailability         — pcs, pacemaker, corosync, fence-agents
+#   resilient-storage        — gfs2 + companion bits
+#   nfv                      — kernel-rt, tuned-profiles-nfv, realtime
+#   rhceph-7-tools           — cephadm, ceph-common (Red Hat Ceph Storage 7)
 rhsm_repos:
   - rhel-9-for-x86_64-baseos-rpms
   - rhel-9-for-x86_64-appstream-rpms
   - rhel-9-for-x86_64-highavailability-rpms
   - rhel-9-for-x86_64-resilient-storage-rpms
   - rhel-9-for-x86_64-nfv-rpms
+  - rhceph-7-tools-for-rhel-9-x86_64-rpms
+
+# Red Hat container registry credentials. Required for builder_registry
+# to skopeo-copy RHCS + monitoring images from registry.redhat.io. Create
+# a *registry* service account at
+#   https://access.redhat.com/terms-based-registry/
+# and put the username + password in vault.yml.
+#   Username shape: "<org-id>|<token-name>"
+#   Password:       long random string
+# (Not to be confused with the IAM/API service accounts at
+# console.redhat.com/iam — those authenticate to hybrid-cloud-console
+# APIs, not to registry.redhat.io.)
+redhat_registry_url: "registry.redhat.io"
+redhat_registry_username: "{{ vault_redhat_registry_username | default('') }}"
+redhat_registry_password: "{{ vault_redhat_registry_password | default('') }}"
+
+# Red Hat container images the stack pulls, keyed by role.
+#   - builder_registry mirrors every value here from redhat_registry_url
+#     into the local registry.
+#   - ceph_bootstrap passes container_images.ceph to cephadm for MON/MGR/
+#     MDS/OSD/crash/ceph-exporter, and sets the per-daemon cephadm config
+#     (mgr/cephadm/container_image_{prometheus,alertmanager,
+#     node_exporter,grafana}) to point at the local registry copies.
+# Paths are relative to the registry host — the role prepends
+# sources.container_registry when pulling.
+# Versions: bump when RHCS releases new compatible tags. The defaults
+# below track the images shipped with RHCS 7.1.
+container_images:
+  ceph:           "rhceph/rhceph-7-rhel9:latest"
+  prometheus:     "openshift4/ose-prometheus:v4.15"
+  alertmanager:   "openshift4/ose-prometheus-alertmanager:v4.15"
+  node_exporter: "openshift4/ose-prometheus-node-exporter:v4.15"
+  grafana:        "rhceph/grafana-rhel9:latest"
 
 # --------------------------------------------------------------------
 # 5. Node topology
@@ -258,19 +312,28 @@ rt_chrony:
   combinelimit: 0
 
 # --------------------------------------------------------------------
-# 9. Ceph
+# 9. Ceph (Red Hat Ceph Storage)
 # --------------------------------------------------------------------
 # FSID is generated by cephadm bootstrap on first run and captured into
 # a fact; leave null unless you are re-deploying onto an existing cluster.
-# Container image defaults to "{{ sources.container_registry }}/ceph/ceph:<tag>"
-# matching ceph.release. Override ceph.container_image if your local registry
-# uses a different path.
+#
+# Container image defaults to
+#   "{{ sources.container_registry }}/{{ container_images.ceph }}"
+# Override ceph.container_image to pin a specific digest, or edit
+# container_images.ceph to change the tag.
+#
+# Registry auth: registry.redhat.io requires authentication. Create a
+# ceph-registry credentials JSON at a local path on the bootstrap node:
+#   {"url":"registry.redhat.io","username":"<sa-user>","password":"<sa-token>"}
+# Then set ceph.registry_credentials_file: "/root/ceph-registry.json".
+# Leave null for anonymous local registries (the builder's registry on :5000).
 ceph:
   fsid: null
   public_network: "10.0.10.0/24"         # must match networks.storage.cidr
   cluster_network: "10.0.10.0/24"        # typically same subnet as public
-  release: "reef"                        # reef | squid | quincy
+  release: "7"                           # RHCS major version (7, 6, …)
   container_image: null                  # null → derived from sources.container_registry + release
+  registry_credentials_file: null        # path on bootstrap node; JSON for cephadm --registry-json
   bootstrap_node: "site1-node-a"
 
   # Per-node OSD devices. Must be empty block devices. No auto-discovery.
@@ -405,20 +468,27 @@ vm_catalog:
         bus: "virtio"
 
 # --------------------------------------------------------------------
-# 13. Image builder (air-gapped path)
+# 13. Builder / image builder (air-gapped path)
 # --------------------------------------------------------------------
-# Run via build-installer.yml BEFORE site.yml. Produces a custom RHEL 9.7
-# installer ISO with packages pre-baked + kickstart injected, plus one
-# cloud-init seed ISO per node listed in vpac_nodes.
+# The builder host serves two purposes on the air-gapped path:
+#   1. Local mirror + container registry for the cluster nodes (roles
+#      builder_rhsm, builder_mirror, builder_registry — run by
+#      playbooks/01-build-builder.yml).
+#   2. ISO minting for the cluster nodes' kickstart-driven installs
+#      (handled by the tooling-container-based role landing in a
+#      follow-up — see docs/IMAGE-BUILDER.md).
+#
+# Vars below are read by the ISO-minting side. The mirror + registry side
+# reads from the top-level rhsm_repos / redhat_registry_* / sources.*.
 #
 # Default behavior:
 #   deployment_mode: airgapped → imagebuilder.enabled = true
 #   deployment_mode: connected → imagebuilder.enabled = false
-# Override below if you want the ISO produced for a connected deployment
+# Override below if you want ISOs produced for a connected deployment
 # (some operators prefer consistent installs regardless of connectivity).
 imagebuilder:
   enabled: "{{ deployment_mode == 'airgapped' }}"
-  location: "node_a"                     # node_a | external_host
+  location: "builder"                    # builder host runs the minting tooling
   rhel_version: "9.7"
   output_dir: "/var/lib/imagebuilder"
   blueprint_name: "vpac-rhel-9-7"

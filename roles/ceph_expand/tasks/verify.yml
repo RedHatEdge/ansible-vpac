@@ -13,11 +13,20 @@
   retries: "{{ (ceph_expand_health_timeout_s | int) // 10 }}"
   delay: 10
 
+- name: "List filesystems for the summary"
+  # `ceph -s --format json`'s fsmap nests differently across releases;
+  # `ceph fs ls --format json` has a stable shape [{name, ...}, ...].
+  ansible.builtin.command: /usr/bin/ceph fs ls --format json
+  register: _ceph_fs_list
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
 - name: "Report cluster summary"
   ansible.builtin.debug:
     msg:
       - "FSID: {{ ceph_fsid }}"
       - "Health: {{ (_ceph_final_status.stdout | from_json).health.status }}"
       - "OSDs: {{ (_ceph_final_status.stdout | from_json).osdmap.num_up_osds }}/{{ (_ceph_final_status.stdout | from_json).osdmap.num_osds }} up"
-      - "Filesystems: {{ (_ceph_final_status.stdout | from_json).fsmap.filesystems | default([]) | map(attribute='mdsmap.fs_name') | list }}"
+      - "Filesystems: {{ (_ceph_fs_list.stdout | from_json) | map(attribute='name') | list }}"
   run_once: true

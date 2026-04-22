@@ -20,8 +20,8 @@ Both are first-class. Pick the one that matches your environment; the playbooks 
 
 | Path | When to use | How |
 |---|---|---|
-| **Air-gapped** | Utility POCs, substations, any site without outbound internet | `build-installer.yml` on a builder host produces a custom RHEL 9.7 installer ISO with packages pre-baked. Boot nodes from the ISO via iDRAC/IPMI virtual media. `site.yml` pulls from a local Satellite / mirror / registry. |
-| **Connected** | Lab, greenfield, any site with outbound internet | Install stock RHEL 9.7 on the nodes yourself (USB, PXE, Satellite, whatever). `site.yml` pulls from RHSM and `quay.io`. |
+| **Air-gapped** | Utility POCs, substations, any site without outbound internet | `01-build-builder.yml` prepares a builder host (local RPM mirror + local container registry with RHCS images mirrored). A follow-on ISO-minting step produces a custom RHEL 9.7 installer ISO for the cluster nodes. Boot nodes from the ISO. `site.yml` pulls from the builder. |
+| **Connected** | Lab, greenfield, any site with outbound internet | Install stock RHEL 9.7 on the nodes yourself (USB, PXE, Satellite, whatever). `site.yml` pulls from RHSM and `registry.redhat.io`. |
 
 Which path the playbooks use is controlled by one inventory variable: `deployment_mode: airgapped | connected`.
 
@@ -54,8 +54,10 @@ cp -r inventory/example inventory/mysite
 $EDITOR inventory/mysite/hosts.yml
 $EDITOR inventory/mysite/group_vars/all.yml   # set deployment_mode, sources, topology
 
-# 3. (Air-gapped path only) Build the installer ISO and boot nodes from it
-ansible-playbook -i inventory/mysite build-installer.yml
+# 3. (Air-gapped path only) Bring up the builder: RHSM + local RPM mirror
+#    + local container registry with RHCS images mirrored. Runs once, while
+#    the builder still has outbound internet.
+ansible-playbook -i inventory/mysite playbooks/01-build-builder.yml --ask-vault-pass
 
 # 4. Preflight — confirms mode-specific reachability, subscriptions, hardware, networks
 ansible-playbook -i inventory/mysite site.yml --tags preflight

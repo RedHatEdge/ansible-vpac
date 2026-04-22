@@ -1,0 +1,101 @@
+---
+# Run a local OCI container registry on the builder and skopeo-copy the
+# required Red Hat container images into it. After this role finishes,
+# cluster nodes in air-gapped mode can pull RHCS (and any other mirrored
+# images) from the builder without internet access.
+
+- name: "Install podman + skopeo"
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - skopeo
+    state: present
+
+- name: "Open registry port in firewalld"
+  ansible.posix.firewalld:
+    port: "{{ builder_registry_port }}/tcp"
+    state: enabled
+    permanent: true
+    immediate: true
+
+- name: "Create registry data directory"
+  ansible.builtin.file:
+    path: "{{ builder_registry_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Run local container registry"
+  # Pulled as root, managed as a system podman container. The registry
+  # serves over plain HTTP — cluster nodes get the insecure trust drop-in
+  # from ceph_bootstrap/ceph_expand when sources.container_registry_insecure
+  # is true.
+  containers.podman.podman_container:
+    name: "{{ builder_registry_container_name }}"
+    image: "{{ builder_registry_image }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "{{ builder_registry_port }}:5000"
+    volumes:
+      - "{{ builder_registry_data_dir }}:/var/lib/registry:Z"
+
+- name: "Wait for registry to accept connections"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ builder_registry_port }}"
+    timeout: 30
+
+- name: "Assert Red Hat registry creds are set"
+  ansible.builtin.assert:
+    that:
+      - redhat_registry_username | default('', true) | length > 0
+      - redhat_registry_password | default('', true) | length > 0
+      - builder_registry_images | default([]) | length > 0
+    fail_msg: >-
+      builder_registry needs redhat_registry_username and
+      redhat_registry_password from a registry service account at
+      https://access.redhat.com/terms-based-registry/ (NOT an IAM/API
+      service account from console.redhat.com/iam — those don't
+      authenticate to registry.redhat.io). Also needs at least one
+      entry in builder_registry_images.
+
+- name: "Mirror each image from Red Hat registry into the local registry"
+  # skopeo copy streams the image manifest + layers source→dest without
+  # needing to pull+tag+push separately. --dest-tls-verify=false because
+  # the local registry is plain HTTP; --src-creds authenticates the pull
+  # from registry.redhat.io.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/skopeo
+      - copy
+      - "--src-creds={{ redhat_registry_username }}:{{ redhat_registry_password }}"
+      - "--dest-tls-verify=false"
+      - "docker://{{ redhat_registry_url }}/{{ item }}"
+      - "docker://localhost:{{ builder_registry_port }}/{{ item }}"
+  loop: "{{ builder_registry_images }}"
+  no_log: true
+  changed_when: true
+
+- name: "Confirm each mirrored image is present in the local registry"
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/skopeo
+      - inspect
+      - "--tls-verify=false"
+      - "docker://localhost:{{ builder_registry_port }}/{{ item }}"
+  loop: "{{ builder_registry_images }}"
+  register: _reg_inspect
+  changed_when: false
+
+- name: "Print the registry URL"
+  ansible.builtin.debug:
+    msg: |-
+      Local container registry is up at:
+        {{ ansible_default_ipv4.address }}:{{ builder_registry_port }}
+
+      Set in your cluster inventory group_vars/all.yml:
+        sources:
+          container_registry: "{{ ansible_default_ipv4.address }}:{{ builder_registry_port }}"
+          container_registry_insecure: true

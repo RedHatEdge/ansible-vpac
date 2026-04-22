@@ -1,52 +1,28 @@
 ---
 # Every cluster node needs:
-#   - podman (cephadm manages daemons as containers; check-host fails without it)
-#   - ceph-common (for CephFS mount + any ceph CLI calls post-join)
-# ceph-common has EPEL-only runtime deps, so we also need EPEL + Ceph repos
-# configured. The bootstrap node already has all of this from ceph_bootstrap;
-# re-running here is idempotent.
+#   - podman (cephadm manages daemons as containers on each node; check-host
+#     fails without it)
+#   - ceph-common (for CephFS kernel mount + any cluster-side ceph commands)
+# Both come from rhceph-{release}-tools-for-rhel-9, the RHCS entitled repo
+# that host_baseline must have enabled (via rhsm.repos for connected mode
+# or via the local_mirror template for airgapped).
 
-- name: "Import Ceph release GPG key"
-  ansible.builtin.rpm_key:
-    key: "https://download.ceph.com/keys/release.asc"
-    state: present
-
-- name: "Write upstream Ceph repo file"
+- name: "Trust the configured container registry (insecure/HTTP)"
+  # Non-bootstrap nodes also pull the ceph container image for their
+  # MON/MGR/MDS/OSD daemons. When the builder's insecure registry is in
+  # use, write the same trust drop-in cluster-wide.
   ansible.builtin.copy:
-    dest: /etc/yum.repos.d/ceph.repo
+    dest: /etc/containers/registries.conf.d/99-vpac-local.conf
     owner: root
     group: root
     mode: "0644"
     content: |
-      [ceph]
-      name=Ceph {{ ceph.release }} packages
-      baseurl=https://download.ceph.com/rpm-{{ ceph.release }}/el9/$basearch
-      enabled=1
-      gpgcheck=1
-      gpgkey=https://download.ceph.com/keys/release.asc
-      priority=2
+      [[registry]]
+      location = "{{ sources.container_registry }}"
+      insecure = true
+  when: sources.container_registry_insecure | default(false) | bool
 
-      [ceph-noarch]
-      name=Ceph {{ ceph.release }} noarch
-      baseurl=https://download.ceph.com/rpm-{{ ceph.release }}/el9/noarch
-      enabled=1
-      gpgcheck=1
-      gpgkey=https://download.ceph.com/keys/release.asc
-      priority=2
-
-- name: "Import EPEL 9 GPG key"
-  ansible.builtin.rpm_key:
-    key: "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9"
-    state: present
-
-- name: "Install EPEL 9 repo config"
-  ansible.builtin.dnf:
-    name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm"
-    state: present
-
-- name: "Install podman + ceph-common"
-  # podman: cephadm needs it on every managed node to run daemon containers.
-  # ceph-common: for CephFS kernel mount and any cluster-side ceph commands.
+- name: "Install podman + ceph-common from RHCS tools repo"
   ansible.builtin.dnf:
     name:
       - podman

@@ -4,30 +4,51 @@
     path: /etc/ceph/ceph.conf
   register: _ceph_conf
 
-- name: "Compute default container image from release"
+- name: "Compute RHCS container image path"
+  # Operator can override via ceph.container_image to pin a specific
+  # digest or custom path. Otherwise we derive:
+  #   {sources.container_registry}/{container_images.ceph}
   ansible.builtin.set_fact:
     _ceph_image: >-
       {{ ceph.container_image
          if (ceph.container_image | default('', true) | length > 0)
-         else (sources.container_registry ~ '/ceph/ceph:' ~ ceph_release_tag_map[ceph.release]) }}
+         else (sources.container_registry ~ '/' ~ container_images.ceph) }}
 
 - name: "Run cephadm bootstrap (first run only)"
-  # Pin cephadm to the target image before calling bootstrap — otherwise
-  # cephadm picks its own default, which may drift from ceph.release.
-  # --allow-fqdn-hostname: cephadm defaults to rejecting FQDN hostnames;
-  # vPAC nodes intentionally have FQDNs (set by host_baseline).
+  # --image pins the target image before bootstrap — otherwise cephadm
+  # picks its own default, which may drift from ceph.release.
+  # --allow-fqdn-hostname: cephadm rejects FQDN hostnames by default;
+  # vPAC nodes intentionally have FQDNs set by host_baseline.
+  # --skip-monitoring-stack: cephadm's default monitoring daemons
+  # (prometheus, alertmanager, grafana, node-exporter) live at DIFFERENT
+  # image paths than the core ceph image (openshift4/ose-prometheus etc.),
+  # and auto-placement happens before we get a chance to point cephadm at
+  # the locally-mirrored copies. Deferring the monitoring stack to
+  # ceph_expand's monitoring_deploy step — after we've configured the
+  # right image paths — keeps the cold-run deterministic.
+  # --registry-json: registry.redhat.io requires authentication. The
+  # operator writes service-account creds to ceph.registry_credentials_file
+  # (JSON: {"url":"...","username":"...","password":"..."}). Left blank for
+  # anonymous-read local registries (builder's registry:2 on :5000).
   ansible.builtin.command:
-    argv:
-      - /usr/sbin/cephadm
-      - --image
-      - "{{ _ceph_image }}"
-      - bootstrap
-      - --mon-ip
-      - "{{ _ceph_node.storage_ip }}"
-      - --cluster-network
-      - "{{ ceph.cluster_network }}"
-      - --allow-fqdn-hostname
-      - "{{ '--skip-dashboard' if not ceph_bootstrap_enable_dashboard else '' }}"
+    argv: "{{ _ceph_bootstrap_argv }}"
+  vars:
+    _ceph_bootstrap_argv: >-
+      {{
+        [
+          '/usr/sbin/cephadm',
+          '--image', _ceph_image,
+          'bootstrap',
+          '--mon-ip', _ceph_node.storage_ip,
+          '--cluster-network', ceph.cluster_network,
+          '--allow-fqdn-hostname',
+          '--skip-monitoring-stack',
+        ]
+        + (['--skip-dashboard'] if not ceph_bootstrap_enable_dashboard else [])
+        + (['--registry-json', ceph.registry_credentials_file]
+           if (ceph.registry_credentials_file | default('', true) | length > 0)
+           else [])
+      }}
   register: _ceph_bootstrap
   when: not _ceph_conf.stat.exists
   async: "{{ ceph_bootstrap_cmd_timeout_s }}"

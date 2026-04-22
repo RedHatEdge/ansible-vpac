@@ -30,7 +30,6 @@ preflight_check_mode: true
 
 # Mode-specific endpoints (connected path)
 preflight_rhsm_probe_url: "https://subscription.rhsm.redhat.com"
-preflight_container_registry_probe_url: "https://quay.io/v2/"
 
 # Mode-specific probes (airgapped path)
 preflight_installer_tag_path: "/etc/vpac-installer-tag"

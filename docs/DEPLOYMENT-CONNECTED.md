@@ -1,6 +1,6 @@
 # Deployment guide — connected path
 
-For sites where the cluster nodes have outbound internet access (lab, greenfield, internet-connected datacenter). Package RPMs come from RHSM; container images come from `quay.io`. No builder host is required — you install RHEL on the nodes yourself.
+For sites where the cluster nodes have outbound internet access (lab, greenfield, internet-connected datacenter). Package RPMs come from RHSM; container images (Red Hat Ceph Storage) come from `registry.redhat.io`. No builder host is required — you install RHEL on the nodes yourself.
 
 If your site cannot reach the internet from the cluster nodes, use [`DEPLOYMENT-AIRGAPPED.md`](DEPLOYMENT-AIRGAPPED.md) instead.
 
@@ -36,7 +36,7 @@ Edit `inventory/mysite/group_vars/all.yml`. The file is heavily annotated; work 
 
 1. **Site identity** — name, domain, DNS, timezone
 2. **Deployment mode** — set `deployment_mode: connected`
-3. **Sources** — leave defaults (`repo_source: rhsm`, `container_registry: quay.io`, `ansible_collections_source: galaxy`), or switch `repo_source` to `satellite` and set `satellite_url` if you use one
+3. **Sources** — leave defaults (`repo_source: rhsm`, `container_registry: registry.redhat.io`, `ansible_collections_source: galaxy`), or switch `repo_source` to `satellite` and set `satellite_url` if you use one
 4. **RHEL subscription** — activation key + org ID
 5. **Node topology** — one `vpac_nodes` entry per node with management, storage, station, heartbeat, and BMC IPs
 6. **Networking** — the five network CIDRs and VLANs; per-host NIC names under `networking_defaults` (override per-host in `host_vars/<node>.yml` if hardware is mixed)
@@ -61,6 +61,13 @@ vault_bmc_password_node_b: "..."
 vault_bmc_password_node_c: "..."
 vault_hacluster_password: "..."
 vault_rhsm_activation_key: "..."
+vault_rhsm_org_id: "..."
+# Registry service account from https://access.redhat.com/terms-based-registry/
+# — needed when cephadm bootstrap pulls the RHCS image from registry.redhat.io
+# directly (connected mode). Write the same values into a JSON file and point
+# ceph.registry_credentials_file at it.
+vault_redhat_registry_username: "<org-id>|<token-name>"
+vault_redhat_registry_password: "..."
 ```
 
 Reference them from `all.yml` as `"{{ vault_bmc_password_node_a }}"` etc. Run subsequent commands with `--ask-vault-pass`.

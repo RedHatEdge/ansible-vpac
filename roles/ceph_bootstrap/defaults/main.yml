@@ -1,9 +1,11 @@
 ---
-# Map ceph.release → container image tag. Extend as new releases land.
-ceph_release_tag_map:
-  reef: "v18"
-  squid: "v19"
-  quincy: "v17"
+# The container image used for MON/MGR/MDS/OSD/crash/ceph-exporter comes
+# from container_images.ceph in group_vars/all.yml. Monitoring images
+# (prometheus, grafana, alertmanager, node_exporter) come from the matching
+# keys in container_images. Paths are relative to sources.container_registry
+# — the same path works for connected (registry.redhat.io) and airgapped
+# (builder's local registry) modes, because builder_registry mirrors them
+# under the same path.
 
 # Whether cephadm bootstrap enables the dashboard MGR module. Default off —
 # most operators use Prometheus + Grafana instead, and the dashboard adds

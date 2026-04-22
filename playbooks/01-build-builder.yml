@@ -1,0 +1,42 @@
+---
+# Bring up the builder host as a self-contained provider of RPMs and
+# container images for the cluster deploy. Separate entry point from
+# site.yml — run this once against the builder while it has outbound
+# internet, then disconnect the builder (or keep it online, operator's
+# choice) before pointing site.yml at the cluster nodes.
+#
+# Workflow:
+#   1. builder_rhsm    — register with RHSM, enable the repos in rhsm_repos
+#   2. builder_mirror  — reposync those repos to /var/www/html/mirror + httpd
+#   3. builder_registry — run registry:2 on :5000, skopeo-copy RHCS (and any
+#                        other declared) images into it from registry.redhat.io
+#
+# After this completes, the cluster inventory's sources block points at the
+# builder:
+#   sources.repo_source: local_mirror
+#   sources.local_mirror_url: "http://<builder>/mirror"
+#   sources.container_registry: "<builder>:5000"
+#   sources.container_registry_insecure: true
+#
+# Invocation:
+#   ansible-playbook -i inventory/<site> playbooks/01-build-builder.yml \
+#       --ask-vault-pass
+#
+# Prereqs on the builder:
+#   - Fresh RHEL 9.x install (see docs/DEPLOYMENT-AIRGAPPED.md for how to
+#     mint a builder installer ISO using the tooling container)
+#   - Outbound HTTPS reachability to subscription.rhsm.redhat.com and
+#     registry.redhat.io for the duration of this playbook
+#   - ~50 GB free under /var for the RPM mirror and container registry data
+
+- name: "Build the vPAC builder host"
+  hosts: builder
+  gather_facts: true
+  become: true
+  roles:
+    - role: builder_rhsm
+      tags: [builder, builder-rhsm]
+    - role: builder_mirror
+      tags: [builder, builder-mirror]
+    - role: builder_registry
+      tags: [builder, builder-registry]

@@ -1,0 +1,32 @@
+---
+# Point cephadm at the locally-mirrored copies of the monitoring stack
+# images before they get deployed. Run right after bootstrap (before any
+# `ceph orch apply prometheus|alertmanager|grafana|node-exporter` — that
+# happens in ceph_expand/monitoring_deploy.yml).
+#
+# Why this is needed: RHCS ships monitoring daemons as images at completely
+# different paths than the core ceph image:
+#   registry.redhat.io/openshift4/ose-prometheus:v4.15
+#   registry.redhat.io/openshift4/ose-prometheus-alertmanager:v4.15
+#   registry.redhat.io/openshift4/ose-prometheus-node-exporter:v4.15
+#   registry.redhat.io/rhceph/grafana-rhel9:latest
+# Cephadm's defaults point at registry.redhat.io. For air-gapped
+# deployments we need them pointed at the local registry instead.
+
+- name: "Set cephadm container_image_* for each monitoring daemon"
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/ceph
+      - config
+      - set
+      - mgr
+      - "mgr/cephadm/container_image_{{ item.key }}"
+      - "{{ sources.container_registry }}/{{ item.value }}"
+  loop: "{{ _monitoring_image_map | dict2items }}"
+  vars:
+    _monitoring_image_map:
+      prometheus: "{{ container_images.prometheus }}"
+      alertmanager: "{{ container_images.alertmanager }}"
+      node_exporter: "{{ container_images.node_exporter }}"
+      grafana: "{{ container_images.grafana }}"
+  changed_when: true

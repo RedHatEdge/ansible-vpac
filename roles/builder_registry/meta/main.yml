@@ -1,0 +1,19 @@
+---
+galaxy_info:
+  role_name: builder_registry
+  author: Stephen Smith
+  description: >-
+    Run a local container registry on the builder and skopeo-copy the
+    Red Hat Ceph Storage (and other required) container images into it
+    so air-gapped cluster nodes can pull them without internet access.
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags:
+    - vpac
+    - builder
+    - registry
+    - podman
+dependencies: []

@@ -11,6 +11,10 @@
   ansible.builtin.import_tasks: bootstrap.yml
   tags: [ceph, ceph-bootstrap]
 
+- name: "Point cephadm at local-registry copies of monitoring images"
+  ansible.builtin.import_tasks: monitoring_config.yml
+  tags: [ceph, ceph-bootstrap, ceph-monitoring]
+
 - name: "Capture FSID + wait for initial MON health"
   ansible.builtin.import_tasks: verify.yml
   tags: [ceph, ceph-bootstrap, ceph-verify]

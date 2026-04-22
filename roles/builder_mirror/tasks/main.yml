@@ -1,0 +1,94 @@
+---
+# Reposync the repos enabled by builder_rhsm to a local path and serve
+# them over HTTP. This is the RPM half of the air-gapped builder; the
+# container half lives in builder_registry.
+#
+# Reads rhsm_repos from group_vars/all.yml — same list builder_rhsm just
+# enabled, so the two roles stay in lockstep.
+
+- name: "Install mirror tooling + httpd"
+  ansible.builtin.dnf:
+    name:
+      - httpd
+      - dnf-utils           # provides reposync
+      - createrepo_c
+      - firewalld
+      - rsync
+    state: present
+
+- name: "Start + enable firewalld and httpd"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - firewalld
+    - httpd
+
+- name: "Open HTTP in firewalld"
+  ansible.posix.firewalld:
+    service: http
+    state: enabled
+    permanent: true
+    immediate: true
+
+- name: "Create mirror directory"
+  ansible.builtin.file:
+    path: "{{ builder_mirror_root }}"
+    state: directory
+    owner: apache
+    group: apache
+    mode: "0755"
+
+- name: "Reposync each enabled repo (slow — ~10–20 GB total on first run)"
+  # `creates:` makes this idempotent per-repo but doesn't refresh content;
+  # re-running after a new package lands upstream requires removing the
+  # repodata dir or setting builder_mirror_skip_reposync: false with a
+  # forced run. Keep it simple: first run populates, day-2 operators
+  # re-run to pick up updates explicitly.
+  ansible.builtin.command: >-
+    /usr/bin/reposync
+    --repoid={{ item }}
+    --download-path={{ builder_mirror_root }}
+    --download-metadata
+    --delete
+    --newest-only
+  args:
+    creates: "{{ builder_mirror_root }}/{{ item }}/repodata/repomd.xml"
+  loop: "{{ rhsm_repos }}"
+  when: not (builder_mirror_skip_reposync | bool)
+
+- name: "Rebuild repodata from on-disk packages"
+  # reposync --download-metadata pulls the CDN's repomd which references
+  # every historical package version — but --newest-only only keeps the
+  # latest on disk. dnf clients then 404 chasing intermediate versions.
+  # createrepo_c rewrites the metadata from what's actually present.
+  ansible.builtin.command: >-
+    /usr/bin/createrepo_c --update {{ builder_mirror_root }}/{{ item }}
+  loop: "{{ rhsm_repos }}"
+  changed_when: true
+  when: not (builder_mirror_skip_reposync | bool)
+
+- name: "Fix ownership on mirror tree"
+  ansible.builtin.file:
+    path: "{{ builder_mirror_root }}"
+    state: directory
+    owner: apache
+    group: apache
+    recurse: true
+
+- name: "Confirm httpd serves the repomd.xml for each repo"
+  ansible.builtin.uri:
+    url: "http://{{ ansible_default_ipv4.address }}/{{ builder_mirror_url_path }}/{{ item }}/repodata/repomd.xml"
+    method: HEAD
+    status_code: 200
+  loop: "{{ rhsm_repos }}"
+
+- name: "Print the mirror URL"
+  ansible.builtin.debug:
+    msg: |-
+      Local RPM mirror is up.
+      Set in your cluster inventory group_vars/all.yml:
+        sources:
+          repo_source: "local_mirror"
+          local_mirror_url: "http://{{ ansible_default_ipv4.address }}/{{ builder_mirror_url_path }}"

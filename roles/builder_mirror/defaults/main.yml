@@ -1,0 +1,12 @@
+---
+# Filesystem root served by httpd. Kept under /var/www/html/mirror so it
+# inherits the httpd_sys_content_t SELinux context automatically.
+builder_mirror_root: /var/www/html/mirror
+
+# URL path suffix: cluster inventories consume the mirror at
+# http://<builder>/{{ builder_mirror_url_path }}.
+builder_mirror_url_path: mirror
+
+# Per-repo reposync takes a while (~10–20 GB for the default repo set).
+# Set true in re-runs when you're sure the existing mirror is fresh enough.
+builder_mirror_skip_reposync: false

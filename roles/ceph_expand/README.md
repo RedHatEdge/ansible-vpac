@@ -10,7 +10,8 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 4. **Add OSDs** — from `ceph.osd_devices[hostname]` per node. No auto-discovery; inventory is the source of truth. Waits until all OSDs are up.
 5. **Create CephFS** — one filesystem per entry in `ceph.pools[]` with `type: cephfs`. `ceph fs volume create` creates data + metadata pools + deploys MDS. (v1 only handles the first cephfs-type entry; RBD support comes later.)
 6. **Mount on every cluster node** — installs `ceph-common`, distributes `ceph.conf` + admin keyring, creates the mountpoint, writes the fstab entry, mounts. All cluster nodes need shared CephFS access for Pacemaker VM migration.
-7. **Verify** — waits for `HEALTH_OK` (or `HEALTH_WARN` if `ceph_expand_require_health_ok: false`).
+7. **Monitoring deploy** — `ceph orch apply` for prometheus, alertmanager, grafana, and node-exporter. cephadm pulls images from the paths configured by `ceph_bootstrap/monitoring_config.yml` (local registry in air-gapped mode, registry.redhat.io in connected mode).
+8. **Verify** — waits for `HEALTH_OK` (or `HEALTH_WARN` if `ceph_expand_require_health_ok: false`), then reports FSID, OSD count, and CephFS names.
 
 ## Variables
 
@@ -32,7 +33,7 @@ Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_n
 
 - `ceph` — everything Ceph (also applies in `ceph_bootstrap`)
 - `ceph-expand` — this role specifically
-- `ceph-facts`, `ceph-hosts`, `ceph-osds`, `ceph-fs`, `ceph-mount`, `ceph-verify` — sub-steps
+- `ceph-facts`, `ceph-hosts`, `ceph-osds`, `ceph-fs`, `ceph-mount`, `ceph-monitoring`, `ceph-verify` — sub-steps
 
 ## Simplifications in v1
 
