@@ -2,10 +2,10 @@
 
 An air-gapped deployment has two separate image-build jobs, both supported by this repo:
 
-1. **Builder installer ISO** — a bootable, kickstart-injected RHEL 9 ISO that installs the builder host unattended. Produced by `playbooks/00-mint-builder-iso.yml` on the SA's workstation via a podman/docker tooling container. Documented in full below.
-2. **Cluster-node installer ISO** — a bootable RHEL 9 ISO that installs each cluster node with per-node static IPs, admin user, SSH key. **TBD** — slated for a follow-up commit; same tooling container will drive it with a different kickstart template.
+1. **Builder installer ISO** — a bootable, kickstart-injected RHEL 9 ISO that installs the builder host unattended. Produced by `playbooks/00-mint-builder-iso.yml` on the SA's workstation via a podman/docker tooling container. Documented below.
+2. **Cluster-node installer ISOs** — one bootable RHEL 9 ISO per entry in `vpac_nodes`, each with that node's static mgmt IP + hostname baked in. Produced by `playbooks/00b-mint-cluster-isos.yml` using the same tooling container. Documented after the builder section.
 
-On the **connected** path neither ISO is needed; operators install stock RHEL 9.x on nodes themselves.
+On the **connected** path neither set of ISOs is needed; operators install stock RHEL 9.x on nodes themselves.
 
 ## Builder installer ISO (`00-mint-builder-iso.yml`)
 
@@ -85,10 +85,43 @@ Boot again from the installed disk, and:
 - It does not pre-install the RPM mirror, container registry, or anything cluster-specific (same reason — next stage)
 - It does not touch the cluster nodes (separate ISO, tracked as follow-up work)
 
-## Cluster-node installer ISO — planned
+## Cluster-node installer ISOs (`00b-mint-cluster-isos.yml`)
 
-Same tooling container, different kickstart template. Each node in `vpac_nodes` gets one ISO (or one shared ISO + per-node cloud-init seed) with its specific static IP + hostname baked in.
+Same tooling container as the builder track, different kickstart template. For each entry in `vpac_nodes`, produces one bootable installer ISO with that node's static mgmt IP + hostname + admin-user SSH-key config baked in.
 
-Current status: not yet implemented. Until then, cluster nodes can be installed by any method that produces an SSH-reachable RHEL 9 host with admin + sudo + the correct static IPs — including running the lab's `install-nodes.sh` script, or manually installing stock RHEL and running a site-specific post-install script.
+### Invocation
 
-Tracking: roles `cluster_iso_mint` + playbook `00b-mint-cluster-isos.yml` will land in a follow-up commit.
+```bash
+ansible-playbook -i inventory/mysite playbooks/00b-mint-cluster-isos.yml
+```
+
+Output lands at `{{ cluster_iso_output_dir }}/vpac-node-<hostname>.iso` (default: `build/`).
+
+### What differs from the builder kickstart
+
+- **Per-node loop**: one kickstart rendered per entry in `vpac_nodes`, each with that node's `hostname` and `mgmt_ip`.
+- **OSD-disk protection**: the kickstart's `ignoredisk --only-use={{ cluster_iso_os_disk }}` restricts Anaconda to the OS disk only. Every other block device — crucially the OSDs — is left completely untouched. `ceph_expand` zaps and reformats them later.
+- **Mgmt-NIC selection**: `networking_defaults.mgmt_bond.members[0]` names the NIC the static IP lands on at install time. Before the `networking` role runs there's no bond, so the IP sits on that physical NIC; after `site.yml`, nmstate moves it into the bond.
+- **Installer tag**: `/etc/vpac-installer-tag` = `vpac-node-ks-v1` (distinguishable from the builder's `vpac-builder-ks-v1` in preflight and diagnostics).
+
+### Variables
+
+See [`roles/cluster_iso_mint/README.md`](../roles/cluster_iso_mint/README.md) for the full list.
+
+### Disk usage note
+
+Each output ISO is ~13 GB. A 3-node cluster produces ~39 GB of output + ~13 GB of tooling-container extract during the mint. **Do not point `cluster_iso_output_dir` at a tmpfs** (like `/tmp` on modern Fedora/Bazzite hosts, where `/tmp` is a RAM-backed filesystem sized relative to system RAM). Default is the repo-local `build/` directory on your real disk.
+
+### Delivery to target hardware
+
+Same three paths as the builder ISO:
+
+1. **BMC virtual media** (iDRAC, iLO, Supermicro IPMI): upload each `vpac-node-<hostname>.iso` to its target node's BMC, mount as virtual CDROM, one-time boot = virtual CDROM, power on.
+2. **USB flash**: `sudo dd if=build/vpac-node-<hostname>.iso of=/dev/sdX bs=4M status=progress && sync`, plug into the server, boot from USB.
+3. **PXE**: stage ISOs on the builder's httpd and configure DHCP to hand different kickstart URLs per MAC.
+
+All 3 paths end in an unattended install; the node powers off when done, boot-from-disk comes up SSH-reachable at its configured mgmt IP.
+
+### Order in the overall deploy
+
+`00b-mint-cluster-isos.yml` runs after `01-build-builder.yml` has completed (the builder is serving the local RPM mirror + container registry). Once all cluster nodes are booted from their ISOs and SSH-reachable, `site.yml` does the actual vPAC provisioning.

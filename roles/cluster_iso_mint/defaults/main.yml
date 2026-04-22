@@ -1,0 +1,47 @@
+---
+# Source RHEL 9 DVD ISO. Same knob as builder_iso_mint — if the SA has
+# already downloaded the DVD for minting the builder ISO, point at the
+# same file here (the tooling container is shared).
+cluster_iso_input: "~/Downloads/rhel-9.7-x86_64-dvd.iso"
+
+# Directory where the per-node ISOs land. One file per entry in
+# vpac_nodes, named vpac-node-<hostname>.iso.
+cluster_iso_output_dir: "{{ playbook_dir }}/../build"
+
+# Tooling container source + image tag. Reuses the same Containerfile +
+# image that builder_iso_mint uses — so if the SA already built it for
+# the builder ISO, this role's build step is a cached no-op.
+cluster_iso_tooling_dir: "{{ playbook_dir }}/../tools/iso-builder"
+cluster_iso_tooling_image: "localhost/vpac-iso-builder:latest"
+
+# SSH public key authorized on every cluster node for the admin user.
+cluster_iso_ssh_pubkey_path: "~/.ssh/id_ed25519.pub"
+
+# Admin user name. Matches what ansible connects as (site inventory
+# hosts.yml's ansible_user) so post-install Ansible works out of the box.
+cluster_iso_admin_user: "admin"
+
+# Optional sha512crypt hash for the admin user's password. Empty =
+# SSH-key-only (console login locked). Generate with:
+#   python3 -c "import crypt; print(crypt.crypt('mypass', crypt.mksalt(crypt.METHOD_SHA512)))"
+cluster_iso_admin_password_hash: ""
+
+# OS install disk for every cluster node. Override if your cluster
+# hardware uses a different path (nvme0n1 for NVMe servers, etc.). The
+# kickstart uses `ignoredisk --only-use=<this>` so every OTHER block
+# device the node has — in particular the OSD devices — stays completely
+# untouched through the install. ceph_expand later zaps and formats them.
+cluster_iso_os_disk: "sda"
+
+# Fingerprint written to /etc/vpac-installer-tag in the %post. preflight
+# checks for this to confirm the node came from a vpac ISO.
+cluster_iso_installer_tag: "vpac-node-ks-v1"
+
+# Container CLI on the SA's workstation. Set to "docker" on macOS /
+# Windows if using Docker Desktop.
+cluster_iso_container_cli: "podman"
+
+# Staging path for each per-node kickstart, removed after the ISO is
+# minted. Includes the hostname so parallel runs (theoretically) don't
+# collide — the role is serial today but leaving room.
+cluster_iso_kickstart_path_template: "/tmp/vpac-cluster-ks-{hostname}.cfg"

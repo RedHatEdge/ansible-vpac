@@ -508,6 +508,34 @@ builder_iso_admin_password_hash: ""
 # Docker Desktop (macOS/Windows).
 builder_iso_container_cli: "podman"
 
+# ----- cluster-node ISO minting (playbooks/00b-mint-cluster-isos.yml) -----
+# Produces one installer ISO per entry in vpac_nodes, each with that
+# node's mgmt_ip + hostname baked in. Same tooling container as the
+# builder ISO (cached between runs).
+
+# Reuses the same source DVD as the builder ISO; point both at your
+# downloaded RHEL 9 DVD.
+cluster_iso_input: "~/Downloads/rhel-9.7-x86_64-dvd.iso"
+
+# Directory where per-node ISOs land. One file named
+# vpac-node-<hostname>.iso per vpac_nodes entry.
+#
+# WARNING: each ISO is ~13 GB. A 3-node cluster produces ~39 GB.
+# Do NOT point this at a tmpfs (e.g. /tmp on Fedora/Bazzite) — you'll
+# run out of RAM mid-mint.
+cluster_iso_output_dir: "{{ playbook_dir }}/../build"
+
+# OS install disk for every cluster node. Same override story as
+# builder_iso_os_disk. The kickstart uses `ignoredisk --only-use=<this>`
+# so every OSD device stays intact for Ceph to format later.
+cluster_iso_os_disk: "sda"
+
+# Admin user + SSH key. Should match the ansible_user in
+# inventory/<site>/hosts.yml for cluster nodes.
+cluster_iso_admin_user: "admin"
+cluster_iso_ssh_pubkey_path: "~/.ssh/id_ed25519.pub"
+cluster_iso_admin_password_hash: ""
+
 # --------------------------------------------------------------------
 # 14. Validation thresholds
 # --------------------------------------------------------------------

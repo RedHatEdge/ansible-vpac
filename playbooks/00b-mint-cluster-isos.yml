@@ -1,0 +1,29 @@
+---
+# Mint per-node RHEL 9 installer ISOs for the cluster nodes. Standalone
+# entry point — runs on the SA's workstation, not against any target
+# host. Produces one ISO per entry in vpac_nodes, each with that node's
+# mgmt IP + hostname baked into its kickstart.
+#
+# Companion to 00-mint-builder-iso.yml. Reuses the same tooling container
+# (tools/iso-builder/), so if the builder ISO was minted in the same
+# session, this playbook's build step is a cached no-op.
+#
+# Intended flow (see docs/DEPLOYMENT-AIRGAPPED.md for the full walkthrough):
+#   1. 00-mint-builder-iso.yml  → builder installer ISO
+#   2. (boot builder from its ISO)
+#   3. 01-build-builder.yml     → builder becomes mirror + registry
+#   4. 00b-mint-cluster-isos.yml → one installer ISO per cluster node
+#   5. (boot each cluster node from its ISO)
+#   6. site.yml                 → full vPAC stack
+#
+# Invocation:
+#   ansible-playbook -i inventory/<site> playbooks/00b-mint-cluster-isos.yml
+
+- name: "Mint per-node cluster installer ISOs on the SA workstation"
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+  roles:
+    - role: cluster_iso_mint
+      tags: [iso, iso-mint, cluster-iso]

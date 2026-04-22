@@ -69,6 +69,12 @@ ansible-playbook -i inventory/mysite playbooks/00-mint-builder-iso.yml \
 #    the builder still has outbound internet.
 ansible-playbook -i inventory/mysite playbooks/01-build-builder.yml --ask-vault-pass
 
+# 5a. (Air-gapped path only) Mint one installer ISO per cluster node.
+#     Each ISO installs its node unattended with its static IP + hostname
+#     baked in. Deliver each to its target node (BMC / USB / PXE).
+ansible-playbook -i inventory/mysite playbooks/00b-mint-cluster-isos.yml \
+    -e cluster_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+
 # 6. Preflight — confirms mode-specific reachability, subscriptions, hardware, networks
 ansible-playbook -i inventory/mysite site.yml --tags preflight
 

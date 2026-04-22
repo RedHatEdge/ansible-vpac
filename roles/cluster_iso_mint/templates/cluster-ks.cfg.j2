@@ -1,0 +1,112 @@
+{#
+  Cluster-node kickstart, rendered per entry in vpac_nodes at ISO-mint time.
+  Each cluster node gets its own ISO with its own IP/hostname baked in.
+
+  Jinja context available (set by cluster_iso_mint/tasks/mint_one.yml):
+    _node                                 — one vpac_nodes[] entry:
+      _node.hostname                        short hostname (e.g. site1-node-a)
+      _node.mgmt_ip                         static IP for the mgmt network
+    site_domain / site_timezone           — from group_vars/all.yml
+    networks.mgmt.{cidr,gateway}          — for netmask + gateway
+    site_dns_servers                      — list, joined with commas
+    cluster_iso_os_disk                   — OS install disk (sda / vda / nvme0n1)
+    cluster_iso_ssh_pubkey                — authorized key contents
+    cluster_iso_admin_user                — admin user name (usually "admin")
+    cluster_iso_admin_password_hash       — sha512crypt; empty → locked
+    cluster_iso_installer_tag             — /etc/vpac-installer-tag fingerprint
+    networking_defaults.mgmt_bond.members — list; first element is the NIC
+                                            the mgmt IP gets configured on
+                                            at install time (before the
+                                            networking role builds the bond)
+#}
+# vPAC cluster node kickstart — {{ _node.hostname }}
+# Rendered from {{ inventory_file | default('<inventory>') }} at {{ ansible_date_time.iso8601 | default('') }}
+#
+# Auto-installs RHEL 9 unattended, sets this node's static mgmt IP + hostname,
+# creates the admin user with SSH key + passwordless sudo, LEAVES THE OSD
+# DISKS UNTOUCHED, then powers off. Subsequent roles (host_baseline,
+# networking, virtualization, ceph_bootstrap, ceph_expand) do the real work.
+
+text
+firstboot --disable
+keyboard --vckeymap=us --xlayouts='us'
+lang en_US.UTF-8
+timezone {{ site_timezone }} --utc
+selinux --enforcing
+firewall --enabled --service=ssh
+
+{# Compute netmask from mgmt network's CIDR prefix without netaddr. #}
+{% set _mgmt_prefix = networks.mgmt.cidr.split('/')[1] | int %}
+{% set _mgmt_mask_int = (2 ** 32) - (2 ** (32 - _mgmt_prefix)) %}
+{% set _mgmt_netmask = (_mgmt_mask_int // 16777216) ~ '.' ~ ((_mgmt_mask_int // 65536) % 256) ~ '.' ~ ((_mgmt_mask_int // 256) % 256) ~ '.' ~ (_mgmt_mask_int % 256) %}
+{# Pick the mgmt NIC. Prefer the first member of networking_defaults.mgmt_bond
+   (which names the physical NICs that the networking role will later bond);
+   fall back to --device=link (first with a cable) if unset. At install time
+   the bond doesn't exist yet, so we configure the static IP directly on the
+   physical NIC. The networking role picks it up and moves it into the bond. #}
+{% if networking_defaults.mgmt_bond.members | default([]) | length > 0 %}
+{%   set _mgmt_nic = networking_defaults.mgmt_bond.members[0] %}
+{% else %}
+{%   set _mgmt_nic = 'link' %}
+{% endif %}
+{# Kickstart directives MUST be on a single physical line — Anaconda's
+   parser does NOT handle shell-style backslash continuations. #}
+network --bootproto=static --device={{ _mgmt_nic }} --hostname={{ _node.hostname }}.{{ site_domain }} --ip={{ _node.mgmt_ip }} --netmask={{ _mgmt_netmask }} --gateway={{ networks.mgmt.gateway }} --nameserver={{ site_dns_servers | join(',') }} --activate
+
+{# Only touch the OS disk. OSD disks (typically vdb/vdc in the lab,
+   /dev/nvme[1-N]n1 in production) must be left completely alone —
+   ceph_expand zaps + reformats them later. #}
+ignoredisk --only-use={{ cluster_iso_os_disk }}
+zerombr
+clearpart --all --initlabel --drives={{ cluster_iso_os_disk }}
+bootloader --location=mbr --boot-drive={{ cluster_iso_os_disk }}
+autopart --type=lvm
+
+rootpw --lock
+
+{% if cluster_iso_admin_password_hash | default('') | length > 0 %}
+user --name={{ cluster_iso_admin_user }} --groups=wheel --password={{ cluster_iso_admin_password_hash }} --iscrypted
+{% else %}
+# No password → console login disabled for the admin user; SSH-key only.
+user --name={{ cluster_iso_admin_user }} --groups=wheel --lock
+{% endif %}
+
+services --enabled=sshd,chronyd,firewalld
+
+%packages
+@^minimal-environment
+kexec-tools
+cloud-init
+openssh-server
+sudo
+python3
+tar
+chrony
+%end
+
+%post --erroronfail
+set -eux
+
+# Authorize the operator's SSH key.
+mkdir -p /home/{{ cluster_iso_admin_user }}/.ssh
+cat > /home/{{ cluster_iso_admin_user }}/.ssh/authorized_keys <<'SSHKEY_EOF'
+{{ cluster_iso_ssh_pubkey }}
+SSHKEY_EOF
+chmod 700 /home/{{ cluster_iso_admin_user }}/.ssh
+chmod 600 /home/{{ cluster_iso_admin_user }}/.ssh/authorized_keys
+chown -R {{ cluster_iso_admin_user }}:{{ cluster_iso_admin_user }} /home/{{ cluster_iso_admin_user }}/.ssh
+
+# Passwordless sudo.
+cat > /etc/sudoers.d/{{ cluster_iso_admin_user }}-nopasswd <<'SUDO_EOF'
+{{ cluster_iso_admin_user }} ALL=(ALL) NOPASSWD: ALL
+Defaults:{{ cluster_iso_admin_user }} !requiretty
+SUDO_EOF
+chmod 0440 /etc/sudoers.d/{{ cluster_iso_admin_user }}-nopasswd
+
+# Installer fingerprint — preflight looks for this to confirm the node
+# was provisioned from a vpac kickstart rather than stock RHEL or a
+# different installer.
+echo '{{ cluster_iso_installer_tag }}' > /etc/vpac-installer-tag
+%end
+
+poweroff

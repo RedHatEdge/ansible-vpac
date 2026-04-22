@@ -1,0 +1,45 @@
+---
+# Render this node's kickstart, mint its ISO, clean up. Loop body
+# imported by tasks/main.yml with _node bound to one vpac_nodes entry.
+
+- name: "Compute paths for {{ _node.hostname }}"
+  ansible.builtin.set_fact:
+    _one_ks_path: "{{ cluster_iso_kickstart_path_template | replace('{hostname}', _node.hostname) }}"
+    _one_iso_name: "vpac-node-{{ _node.hostname }}.iso"
+
+- name: "Render kickstart for {{ _node.hostname }}"
+  ansible.builtin.template:
+    src: cluster-ks.cfg.j2
+    dest: "{{ _one_ks_path }}"
+    mode: "0644"
+
+- name: "Mint installer ISO for {{ _node.hostname }}"
+  # Same --security-opt label=disable trick as builder_iso_mint — the
+  # SA's DVD ISO often has labels the container_t context can't read.
+  ansible.builtin.command:
+    argv:
+      - "{{ cluster_iso_container_cli }}"
+      - run
+      - --rm
+      - --security-opt
+      - "label=disable"
+      - -v
+      - "{{ _cluster_iso_input_resolved }}:/in/rhel.iso:ro"
+      - -v
+      - "{{ _one_ks_path }}:/in/ks.cfg:ro"
+      - -v
+      - "{{ _cluster_iso_output_dir_resolved }}:/out:rw"
+      - -e
+      - "INPUT_ISO=/in/rhel.iso"
+      - -e
+      - "KICKSTART=/in/ks.cfg"
+      - -e
+      - "OUTPUT_ISO=/out/{{ _one_iso_name }}"
+      - "{{ cluster_iso_tooling_image }}"
+  register: _one_iso_mint
+  changed_when: true
+
+- name: "Remove staged kickstart for {{ _node.hostname }}"
+  ansible.builtin.file:
+    path: "{{ _one_ks_path }}"
+    state: absent

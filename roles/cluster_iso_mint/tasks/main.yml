@@ -1,0 +1,113 @@
+---
+# Produce one kickstart-injected RHEL 9 installer ISO per entry in
+# vpac_nodes. Each ISO installs its target node unattended, configured
+# with that node's mgmt_ip + hostname. All cluster nodes share a single
+# installer ISO generation pass — minor per-node differences are baked
+# into each ISO's embedded kickstart.
+#
+# Runs on the SA's workstation via 00b-mint-cluster-isos.yml
+# (connection: local). After this succeeds the SA delivers each ISO to
+# its target node via BMC virtual media, USB, or PXE.
+#
+# Shares tools/iso-builder/ with builder_iso_mint; if the SA already
+# built that image while minting the builder ISO, this role's build step
+# is a cached no-op.
+
+# ----- common setup (once, not per node) -----
+
+- name: "Resolve input ISO path"
+  ansible.builtin.set_fact:
+    _cluster_iso_input_resolved: "{{ cluster_iso_input | expanduser }}"
+
+- name: "Canonicalize input ISO path (resolve symlinks)"
+  ansible.builtin.command: "/usr/bin/readlink -f {{ _cluster_iso_input_resolved | quote }}"
+  register: _cluster_iso_input_realpath
+  changed_when: false
+
+- name: "Use resolved target"
+  ansible.builtin.set_fact:
+    _cluster_iso_input_resolved: "{{ _cluster_iso_input_realpath.stdout | trim }}"
+
+- name: "Resolve output dir + SSH pubkey paths"
+  ansible.builtin.set_fact:
+    _cluster_iso_output_dir_resolved: "{{ cluster_iso_output_dir | expanduser }}"
+    _cluster_iso_pubkey_resolved: "{{ cluster_iso_ssh_pubkey_path | expanduser }}"
+
+- name: "Sanity — input RHEL ISO exists and is a full DVD"
+  ansible.builtin.stat:
+    path: "{{ _cluster_iso_input_resolved }}"
+  register: _cluster_iso_input_stat
+
+- name: "Assert input ISO is present"
+  ansible.builtin.assert:
+    that:
+      - _cluster_iso_input_stat.stat.exists
+      - _cluster_iso_input_stat.stat.size > 1073741824
+    fail_msg: >-
+      cluster_iso_input ({{ _cluster_iso_input_resolved }}) not found or
+      not a full RHEL 9 DVD ISO (≥1 GB). Download the full DVD from
+      access.redhat.com/downloads and set cluster_iso_input to its path.
+
+- name: "Sanity — SSH pubkey exists"
+  ansible.builtin.stat:
+    path: "{{ _cluster_iso_pubkey_resolved }}"
+  register: _cluster_iso_pubkey_stat
+
+- name: "Assert SSH pubkey is present"
+  ansible.builtin.assert:
+    that: _cluster_iso_pubkey_stat.stat.exists
+    fail_msg: >-
+      cluster_iso_ssh_pubkey_path
+      ({{ _cluster_iso_pubkey_resolved }}) not found. Generate one with
+      `ssh-keygen -t ed25519` or set cluster_iso_ssh_pubkey_path to an
+      existing pubkey in group_vars/all.yml.
+
+- name: "Read SSH pubkey"
+  ansible.builtin.slurp:
+    src: "{{ _cluster_iso_pubkey_resolved }}"
+  register: _cluster_iso_pubkey_b64
+
+- name: "Stage SSH pubkey content"
+  ansible.builtin.set_fact:
+    cluster_iso_ssh_pubkey: "{{ _cluster_iso_pubkey_b64.content | b64decode | trim }}"
+
+- name: "Ensure output dir exists"
+  ansible.builtin.file:
+    path: "{{ _cluster_iso_output_dir_resolved }}"
+    state: directory
+    mode: "0755"
+
+- name: "Build the iso-builder tooling container"
+  # Shared with builder_iso_mint — if that role already built the image,
+  # this is a cache hit and near-instant.
+  ansible.builtin.command:
+    argv:
+      - "{{ cluster_iso_container_cli }}"
+      - build
+      - -t
+      - "{{ cluster_iso_tooling_image }}"
+      - "{{ cluster_iso_tooling_dir }}"
+  register: _cluster_iso_build
+  changed_when: true
+
+# ----- per-node loop -----
+
+- name: "Mint one ISO per cluster node"
+  ansible.builtin.include_tasks: mint_one.yml
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "{{ _node.hostname }}"
+
+- name: "Summarize minted ISOs"
+  ansible.builtin.debug:
+    msg: |-
+      Cluster installer ISOs ready under
+        {{ _cluster_iso_output_dir_resolved }}/
+      {% for n in vpac_nodes %}
+        - vpac-node-{{ n.hostname }}.iso ({{ n.mgmt_ip }}, {{ n.hostname }}.{{ site_domain }})
+      {% endfor %}
+
+      Deliver each ISO to its target node via BMC virtual media,
+      USB flash (`dd`), or PXE. After unattended install, reach
+      each node via SSH as {{ cluster_iso_admin_user }} at the IPs above.

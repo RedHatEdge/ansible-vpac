@@ -1,0 +1,26 @@
+---
+galaxy_info:
+  role_name: cluster_iso_mint
+  author: Stephen Smith
+  description: >-
+    Mint one kickstart-injected RHEL 9 installer ISO per vPAC cluster
+    node, with each node's static mgmt IP + hostname baked into its
+    kickstart. Reuses the tools/iso-builder/ container from
+    builder_iso_mint. Runs on the SA's workstation; the resulting ISOs
+    are delivered to each node via BMC virtual media, USB, or PXE.
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+    - name: Fedora
+      versions: ["any"]
+    - name: MacOSX
+      versions: ["any"]
+  galaxy_tags:
+    - vpac
+    - cluster
+    - iso
+    - kickstart
+    - imagebuilder
+dependencies: []

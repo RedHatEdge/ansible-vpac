@@ -16,3 +16,7 @@ vault_password
 
 # Collection install target
 collections/
+
+# Minted installer ISOs — builder_iso_mint + cluster_iso_mint default here
+build/
+*.iso

@@ -152,22 +152,30 @@ At the end, the playbook prints both URLs. Record them — they should match wha
 
 **After this completes, disconnect the builder from the internet.** Keep it connected only to the network where the cluster nodes can reach it.
 
-## Step 8 — Mint the cluster-node installer ISO
+## Step 8 — Mint the cluster-node installer ISOs
 
-The cluster-node installer ISO is produced by the same tooling container as step 5, with a per-node-tailored kickstart that bakes in each node's static IP + hostname.
+Produces one bootable RHEL 9 installer ISO per entry in `vpac_nodes`, each with that node's static mgmt IP + hostname baked into its kickstart. Same tooling container as step 5 (cached — near-instant build).
 
-*This tooling is planned for a follow-up commit (tracking as `cluster_iso_mint` role + `00b-mint-cluster-isos.yml` playbook). Until then, provision the cluster nodes by any method that yields an SSH-reachable RHEL 9 host with the correct static IPs + passwordless-sudo admin user — e.g. run a similar `mkksiso` pipeline by hand, use your existing kickstart tooling, or install stock RHEL and run a post-install script.*
+```bash
+ansible-playbook -i inventory/mysite playbooks/00b-mint-cluster-isos.yml \
+    -e cluster_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+```
+
+Output: one `build/vpac-node-<hostname>.iso` per node (~13 GB each). Override `cluster_iso_output_dir` if you want them somewhere else — **but not `/tmp`** on Fedora/Bazzite (tmpfs, will run out of RAM).
+
+Override `cluster_iso_os_disk` if your cluster hardware uses a different install-disk path than the default `sda` (`nvme0n1` for NVMe, `vda` for virtio). The kickstart protects every other block device — OSDs stay untouched.
+
+See [`roles/cluster_iso_mint/README.md`](../roles/cluster_iso_mint/README.md) for the full variable reference.
 
 ## Step 9 — Boot each cluster node
 
-For each cluster node, via iDRAC / Supermicro IPMI / Crystal web UI:
+For each cluster node, deliver its `vpac-node-<hostname>.iso` via one of:
 
-1. Attach the installer ISO as virtual media
-2. Attach the per-node seed ISO (cloud-init) as secondary virtual media
-3. Set one-time boot to virtual CDROM
-4. Power on
+- **BMC virtual media** (iDRAC, iLO, Supermicro IPMI): upload the ISO to that specific node's BMC, mount as virtual CDROM, set one-time boot = virtual CDROM, power on
+- **USB flash**: `sudo dd if=build/vpac-node-<hostname>.iso of=/dev/sdX bs=4M status=progress && sync`, plug into that server, boot from USB
+- **PXE**: stage ISOs on the builder's httpd and configure DHCP to hand different kickstart URLs per MAC
 
-The kickstart runs unattended. The node comes up with the planned static IP, SSH enabled for the admin user, and the baseline packages installed. Expected duration: ~15 minutes per node, can run in parallel.
+The kickstart runs unattended. The node comes up with its planned static mgmt IP, SSH enabled for the admin user, and the baseline packages installed. Expected duration: ~15 minutes per node, all 3 in parallel since each ISO is standalone.
 
 Confirm each node is reachable:
 
