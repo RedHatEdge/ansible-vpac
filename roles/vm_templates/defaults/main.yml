@@ -1,0 +1,7 @@
+---
+# Directory where rendered per-VM libvirt XMLs land. Kept separate from
+# libvirt's own /etc/libvirt/qemu/ (which libvirt writes the authoritative
+# copies to after `virsh define`) so that re-runs of this role don't
+# conflict with libvirt's internal management. vm_deploy reads XMLs from
+# this directory and feeds them to `virsh define`.
+vm_templates_xml_dir: /etc/libvirt/qemu-vpac

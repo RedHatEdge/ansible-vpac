@@ -1,8 +1,24 @@
 ---
-# Not yet implemented. See roles/vm_templates/README.md for planned behavior.
+# For every vm_catalog entry whose target_host is THIS inventory_hostname,
+# render a libvirt domain XML under vm_templates_xml_dir. Runs on every
+# cluster node; each node only renders XMLs for its own VMs.
+#
+# Profiles live under vars/profiles/<name>.yml; each catalog entry has a
+# `profile:` field naming one. Catalog fields take precedence over
+# profile defaults — the jinja template uses `_vm.foo | default(_profile.foo)`.
 
-- name: "vm_templates: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'vm_templates' is a stub — not implemented yet.
-      See roles/vm_templates/README.md for planned behavior.
+- name: "Ensure vPAC-managed libvirt XML directory exists"
+  ansible.builtin.file:
+    path: "{{ vm_templates_xml_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Render per-VM domain XML (only for VMs targeted at this host)"
+  ansible.builtin.include_tasks: render_one.yml
+  loop: "{{ vm_catalog | default([]) }}"
+  loop_control:
+    loop_var: _vm
+    label: "{{ _vm.name }} (target={{ _vm.target_host | default('none') }})"
+  when: _vm.target_host | default('') == inventory_hostname

@@ -1,0 +1,37 @@
+---
+# VM profile: Windows engineering workstation with PCI passthrough.
+#
+# Typically the Wireshark / engineering workstation VM that needs a real
+# NIC pass-through to sniff station-bus traffic. NOT real-time — Windows
+# is not an RT OS and the workload (operator GUIs, occasional captures)
+# doesn't need the RT tuning that hurts Windows' own idle/power behavior.
+
+os_type_arch: "x86_64"
+os_type_machine: "q35"
+
+cpu_mode: "host-passthrough"
+
+# No hugepages. Windows doesn't benefit, and 1 GiB hugepages can't be
+# freed back to the host easily if the VM is stopped.
+hugepage_size_gb: 0
+lock_memory: false
+nosharepages: false
+
+# HPET on — Windows kernels use it as a timer source.
+hpet_present: true
+
+# Memballoon ON — memory-growth is fine for an engineering VM.
+memballoon: true
+
+# Watchdog: still disabled cluster-wide (field deployment incident didn't spare Windows).
+# The cluster's HA model handles guest liveness via Pacemaker monitors
+# rather than in-guest watchdogs.
+watchdog: false
+
+# Writeback cache is fine for a non-RT workstation.
+disk_cache: "writeback"
+disk_io: "native"
+disk_bus: "virtio"
+
+# Not RT — no FIFO priority.
+rt_priority_default: 0

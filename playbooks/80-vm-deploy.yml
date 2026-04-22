@@ -1,16 +1,27 @@
 ---
-# VM deploy: render libvirt XML from jinja templates (per-VM pinning,
-# hugepages, virtio, MAC preservation), define the VMs, create as Pacemaker
-# resources with location constraints from vm_catalog.allowed_hosts.
+# Stage 80 — define VMs on the cluster.
+#
+# v1 (today): non-clustered. Renders libvirt domain XML per vm_catalog
+# entry (vm_templates), then defines each as a standalone libvirt domain
+# on its target_host (vm_deploy). Does not auto-start by default; does
+# not undefine VMs missing from vm_catalog.
+#
+# Follow-up (when stonith role lands): vm_deploy gains a clustered mode
+# that wraps each domain as an ocf:heartbeat:VirtualDomain Pacemaker
+# resource with location constraints derived from target_host +
+# allowed_hosts. Both modes share vm_templates — the rendered XML is
+# the same artifact.
 
 - name: VM templates
   hosts: vpac_cluster
   gather_facts: true
   roles:
     - role: vm_templates
+      tags: [vm, vm-templates]
 
 - name: VM deploy
-  hosts: pacemaker_cluster
+  hosts: vpac_cluster
   gather_facts: true
   roles:
     - role: vm_deploy
+      tags: [vm, vm-deploy]

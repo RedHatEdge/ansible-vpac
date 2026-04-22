@@ -1,0 +1,26 @@
+---
+# VM profile: Virtual Protection Relay / RTAC / RTU workloads.
+#
+# Same real-time tuning story as ssc600, slightly lower RT priority by
+# default (40 vs 50). Separate profile so operators can adjust one
+# family's knobs without touching the other.
+
+os_type_arch: "x86_64"
+os_type_machine: "q35"
+
+cpu_mode: "host-passthrough"
+
+hugepage_size_gb: 1
+lock_memory: true
+nosharepages: true
+
+hpet_present: false
+
+memballoon: false
+watchdog: false
+
+disk_cache: "none"
+disk_io: "native"
+disk_bus: "virtio"
+
+rt_priority_default: 40

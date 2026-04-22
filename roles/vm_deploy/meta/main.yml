@@ -1,12 +1,20 @@
 ---
 galaxy_info:
+  role_name: vm_deploy
   author: Stephen Smith
-  description: Define VMs in libvirt, wrap as Pacemaker VirtualDomain resources, apply placement constraints from vm_catalog
+  description: >-
+    Define each VM in libvirt from the XML files vm_templates produced.
+    v1 is non-clustered — standalone libvirt domains on each VM's
+    target_host. Pacemaker-managed VirtualDomain resources + location
+    constraints land later with the stonith role.
   license: Apache-2.0
   min_ansible_version: "2.15"
   platforms:
     - name: EL
-      versions:
-        - "9"
-
+      versions: ["9"]
+  galaxy_tags:
+    - vpac
+    - libvirt
+    - kvm
+    - virtualization
 dependencies: []

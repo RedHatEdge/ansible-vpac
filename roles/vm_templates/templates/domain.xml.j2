@@ -1,0 +1,142 @@
+{#
+  libvirt domain XML for a single vPAC VM.
+  Rendered by roles/vm_templates with:
+    _vm      — one vm_catalog entry (name, vcpus, pinned_cpus, emulator_cpus,
+               memory_gb, hugepages, preserve_mac, mac_address, nics[], disks[],
+               pci_passthrough[], rt_priority, etc.)
+    _profile — profile defaults merged under the catalog entry
+               (cpu_mode, hugepage_size_gb, lock_memory, memballoon, watchdog,
+               hpet_present, disk_cache, disk_io, disk_bus, os_type_machine, etc.)
+
+  UUID is derived deterministically from the VM name via to_uuid with a
+  fixed namespace — same VM name always produces the same UUID, so
+  re-renders are idempotent without having to persist the UUID elsewhere.
+#}
+{%- set _vm_uuid = _vm.name | to_uuid('6ba7b810-9dad-11d1-80b4-00c04fd430c8') -%}
+{%- set _hp_gb = _vm.hugepage_size_gb | default(_profile.hugepage_size_gb) | default(0) | int -%}
+<!-- vPAC-managed domain: {{ _vm.name }}. Re-rendered by roles/vm_templates; do not edit by hand. -->
+<domain type='kvm'>
+  <name>{{ _vm.name }}</name>
+  <uuid>{{ _vm_uuid }}</uuid>
+  <memory unit='GiB'>{{ _vm.memory_gb }}</memory>
+  <currentMemory unit='GiB'>{{ _vm.memory_gb }}</currentMemory>
+{% if (_vm.hugepages | default(false)) and _hp_gb > 0 %}
+  <memoryBacking>
+    <hugepages>
+      <page size='{{ _hp_gb }}' unit='GiB'/>
+    </hugepages>
+{%   if _profile.lock_memory | default(false) %}
+    <locked/>
+{%   endif %}
+{%   if _profile.nosharepages | default(false) %}
+    <nosharepages/>
+{%   endif %}
+  </memoryBacking>
+{% elif _profile.lock_memory | default(false) or _profile.nosharepages | default(false) %}
+  <memoryBacking>
+{%   if _profile.lock_memory | default(false) %}
+    <locked/>
+{%   endif %}
+{%   if _profile.nosharepages | default(false) %}
+    <nosharepages/>
+{%   endif %}
+  </memoryBacking>
+{% endif %}
+  <vcpu placement='static'>{{ _vm.vcpus }}</vcpu>
+{% if _vm.pinned_cpus is defined and (_vm.pinned_cpus | length) > 0 %}
+  <cputune>
+{%   for cpu in _vm.pinned_cpus %}
+    <vcpupin vcpu='{{ loop.index0 }}' cpuset='{{ cpu }}'/>
+{%   endfor %}
+{%   if _vm.emulator_cpus is defined and (_vm.emulator_cpus | length) > 0 %}
+    <emulatorpin cpuset='{{ _vm.emulator_cpus | join(",") }}'/>
+    <iothreadpin iothread='1' cpuset='{{ _vm.emulator_cpus | join(",") }}'/>
+{%   endif %}
+  </cputune>
+{% endif %}
+{% if _vm.emulator_cpus is defined and (_vm.emulator_cpus | length) > 0 %}
+  <iothreads>1</iothreads>
+{% endif %}
+  <os>
+    <type arch='{{ _profile.os_type_arch | default("x86_64") }}' machine='{{ _profile.os_type_machine | default("q35") }}'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+{% if not (_profile.memballoon | default(true)) %}
+    <pmu state='off'/>
+{% endif %}
+  </features>
+  <cpu mode='{{ _profile.cpu_mode | default("host-passthrough") }}' check='none' migratable='on'>
+    <cache mode='passthrough'/>
+  </cpu>
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='{{ "yes" if (_profile.hpet_present | default(false)) else "no" }}'/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+{% for disk in _vm.disks | default([]) %}
+{#   _resolve_disk_path: sources like "cephfs:/vms/foo.qcow2" become "/vms/foo.qcow2";
+     "/absolute/path.qcow2" stays as-is. #}
+{%   set _path = disk.source.split(":", 1)[1] if (":" in disk.source) else disk.source %}
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' cache='{{ disk.cache | default(_profile.disk_cache) | default("none") }}' io='{{ disk.io | default(_profile.disk_io) | default("native") }}'/>
+      <source file='{{ _path }}'/>
+      <target dev='vd{{ "abcdefgh"[loop.index0] }}' bus='{{ disk.bus | default(_profile.disk_bus) | default("virtio") }}'/>
+    </disk>
+{% endfor %}
+{% for nic in _vm.nics | default([]) %}
+    <interface type='bridge'>
+      <source bridge='{{ nic.bridge }}'/>
+{%   if (_vm.preserve_mac | default(false)) and _vm.mac_address is defined %}
+      <mac address='{{ _vm.mac_address }}'/>
+{%   endif %}
+      <model type='{{ nic.model | default("virtio") }}'/>
+    </interface>
+{% endfor %}
+{% for pci in _vm.pci_passthrough | default([]) %}
+{#   PCI address like "0000:18:00.0" → 4 parts: domain:bus:slot.function #}
+{%   set _parts = pci | regex_replace("[:.]", " ") | split %}
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x{{ _parts[0] }}' bus='0x{{ _parts[1] }}' slot='0x{{ _parts[2] }}' function='0x{{ _parts[3] }}'/>
+      </source>
+    </hostdev>
+{% endfor %}
+{% if _profile.memballoon | default(true) %}
+    <memballoon model='virtio'/>
+{% else %}
+    <memballoon model='none'/>
+{% endif %}
+{#   libvirt + q35 auto-injects <watchdog model='itco' action='reset'/> if
+     we don't emit anything — the ITCO watchdog is part of the PCH chipset
+     emulation. Leaving it with action='reset' is what tripped field deployment
+     (false-positive watchdog reboots under load). We always emit an
+     explicit <watchdog> so the action is deterministic:
+       watchdog: false (default, RT profiles) → action='none' — present
+         but neutered; libvirt schema requires the element to exist on
+         q35, we just make it a no-op.
+       watchdog: true (opt-in)                → action='reset'.
+  #}
+{% if _profile.watchdog | default(false) %}
+    <watchdog model='itco' action='reset'/>
+{% else %}
+    <watchdog model='itco' action='none'/>
+{% endif %}
+    <serial type='pty'>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
+  </devices>
+</domain>

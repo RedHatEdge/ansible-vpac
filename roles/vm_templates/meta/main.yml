@@ -1,12 +1,20 @@
 ---
 galaxy_info:
+  role_name: vm_templates
   author: Stephen Smith
-  description: Render libvirt XML per VM from jinja templates with CPU pinning, hugepages, virtio NICs, and per-VM MAC preservation
+  description: >-
+    Render libvirt domain XML for each entry in vm_catalog, using a
+    per-profile set of defaults (ssc600, vpr, windows_passthrough, …).
+    One XML per VM under /etc/libvirt/qemu-vpac/; vm_deploy picks them
+    up from there.
   license: Apache-2.0
   min_ansible_version: "2.15"
   platforms:
     - name: EL
-      versions:
-        - "9"
-
+      versions: ["9"]
+  galaxy_tags:
+    - vpac
+    - libvirt
+    - kvm
+    - virtualization
 dependencies: []

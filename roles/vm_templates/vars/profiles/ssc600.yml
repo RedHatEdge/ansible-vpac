@@ -1,0 +1,37 @@
+---
+# VM profile: ABB SSC600-style protection relay.
+#
+# Tight real-time tuning — these VMs run relay logic with GOOSE/SV traffic
+# and need deterministic latency. Memory locked, no memballoon, no watchdog,
+# no HPET, CPU host-passthrough, 1 GiB hugepages.
+#
+# Each value here is a DEFAULT — a catalog entry can override any field.
+
+# libvirt <os> hints
+os_type_arch: "x86_64"
+os_type_machine: "q35"
+
+# <cpu> mode — host-passthrough exposes every host feature to the guest,
+# which RT protection software often needs.
+cpu_mode: "host-passthrough"
+
+# <memoryBacking> choices
+hugepage_size_gb: 1            # 1 GiB hugepages; 0 disables
+lock_memory: true              # <locked/> — prevent swap
+nosharepages: true             # <nosharepages/> — disable KSM for this VM
+
+# <clock> timers — HPET is not RT-friendly for guest drift
+hpet_present: false
+
+# Device presence toggles
+memballoon: false              # no memballoon (no inflate surprises)
+watchdog: false                # no watchdog (false-positive reboots burned field deployment)
+
+# Disk tuning — cache=none + io=native is the RT-safe pattern
+disk_cache: "none"
+disk_io: "native"
+disk_bus: "virtio"
+
+# RT priority hint — consumed by vm_deploy if it wires FIFO scheduling
+# for the emulator threads (not in v1, but catalog carries the value).
+rt_priority_default: 50

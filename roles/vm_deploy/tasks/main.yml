@@ -1,8 +1,23 @@
 ---
-# Not yet implemented. See roles/vm_deploy/README.md for planned behavior.
+# Define each VM in libvirt from the XML files vm_templates produced.
+# v1 is non-clustered — each VM is defined as a standalone libvirt
+# domain on its target_host. Pacemaker-managed VirtualDomain resources
+# are a follow-up that lands with the stonith role.
+#
+# Safety posture for v1:
+#   - Defines domains (virsh define). Idempotent.
+#   - Does NOT auto-start (vm_deploy_autostart: false by default).
+#     Operator runs `virsh start <name>` manually after confirming the
+#     qcow2 exists and the XML accepted cleanly. Avoids a fleet of
+#     failing-to-boot VMs on first run.
+#   - Does NOT undefine VMs that exist in libvirt but not in vm_catalog.
+#     That cleanup is an explicit operator action, not something a
+#     playbook should do silently.
 
-- name: "vm_deploy: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'vm_deploy' is a stub — not implemented yet.
-      See roles/vm_deploy/README.md for planned behavior.
+- name: "Define each VM targeted at this host"
+  ansible.builtin.include_tasks: deploy_one.yml
+  loop: "{{ vm_catalog | default([]) }}"
+  loop_control:
+    loop_var: _vm
+    label: "{{ _vm.name }} (target={{ _vm.target_host | default('none') }})"
+  when: _vm.target_host | default('') == inventory_hostname

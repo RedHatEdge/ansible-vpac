@@ -1,0 +1,17 @@
+---
+# Directory vm_templates wrote per-VM XMLs to. Must match that role's
+# vm_templates_xml_dir. Kept as a separate var for flexibility, but in
+# practice the default matches.
+vm_deploy_xml_dir: /etc/libvirt/qemu-vpac
+
+# Whether to start VMs after defining them. Defaults to false in v1 so
+# the operator can verify qcow2 disks exist and the XML accepted cleanly
+# before committing to a VM fleet startup. Flip to true once the site is
+# ready to bring workloads online.
+vm_deploy_autostart: false
+
+# Whether to mark defined VMs as autostart-on-boot. When true, each
+# libvirt domain gets `virsh autostart <name>` applied. Ignored when
+# deployment is managed by Pacemaker (future work) — Pacemaker owns
+# start/stop decisions there.
+vm_deploy_autostart_on_boot: false

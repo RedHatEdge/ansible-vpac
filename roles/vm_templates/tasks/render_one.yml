@@ -1,0 +1,32 @@
+---
+# Per-iteration body of the vm_catalog loop. _vm is bound to one entry.
+# Loads its profile into _profile, renders the XML.
+
+- name: "Assert profile '{{ _vm.profile }}' is defined"
+  ansible.builtin.stat:
+    path: "{{ role_path }}/vars/profiles/{{ _vm.profile }}.yml"
+  delegate_to: localhost
+  become: false
+  run_once: false
+  register: _vm_profile_stat
+
+- name: "Fail if the profile file is missing"
+  ansible.builtin.assert:
+    that: _vm_profile_stat.stat.exists
+    fail_msg: >-
+      vm_catalog entry '{{ _vm.name }}' references profile '{{ _vm.profile }}',
+      but roles/vm_templates/vars/profiles/{{ _vm.profile }}.yml does not exist.
+      Add the profile file or fix the catalog entry.
+
+- name: "Load profile '{{ _vm.profile }}' for VM {{ _vm.name }}"
+  ansible.builtin.include_vars:
+    file: "vars/profiles/{{ _vm.profile }}.yml"
+    name: _profile
+
+- name: "Render domain XML for {{ _vm.name }}"
+  ansible.builtin.template:
+    src: domain.xml.j2
+    dest: "{{ vm_templates_xml_dir }}/{{ _vm.name }}.xml"
+    owner: root
+    group: root
+    mode: "0644"
