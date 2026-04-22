@@ -193,16 +193,46 @@ bridges:
   station: "br-station"
 
 # --------------------------------------------------------------------
-# 7. PTP
+# 7. Time sync (chrony + PTP)
 # --------------------------------------------------------------------
-# Is PTP the authoritative clock source? If yes, NTP sources are stripped
-# from chrony. If no, chrony retains NTP as fallback.
-ptp_is_authoritative: true
+# Two-layer design:
+#   1. host_baseline (stage 10) configures chrony with ntp_servers below
+#      and waits for sync. Clocks are in NTP tolerance (~10 ms) before any
+#      later stage runs.
+#   2. ptp_timesync (stage 40) installs linuxptp and, based on mode, either
+#      strips NTP from chrony (mode=ptp) or keeps NTP as a fallback
+#      (mode=ptp_with_ntp). Pure NTP sites (mode=ntp) skip the PTP part.
+#
+# Ceph (stage 60) asserts chrony is synchronized before `cephadm bootstrap`
+# — belt-and-suspenders, independent of how sync was established.
 
-ptp_domain: 0
-ptp_transport: "L2"                      # L2 | UDPv4
-ptp_delay_mechanism: "P2P"               # P2P | E2E — relay domains usually P2P
-ptp_profile: "default"                   # default | G.8275.1 | G.8275.2
+time_sync:
+
+  # How time reaches the cluster:
+  #   ntp          — chrony with the ntp_servers list; no PTP
+  #   ptp          — PTP is authoritative; NTP sources stripped after stage 40
+  #   ptp_with_ntp — PTP preferred, NTP kept as a fallback (safer production)
+  mode: "ptp"
+
+  # NTP sources used initially by host_baseline, and retained when
+  # mode is "ntp" or "ptp_with_ntp". When mode is "ptp", these are
+  # used only for the initial sync then removed in stage 40.
+  ntp_servers:
+    - "0.rhel.pool.ntp.org"
+    - "1.rhel.pool.ntp.org"
+    - "2.rhel.pool.ntp.org"
+
+  # How long host_baseline waits for chrony to report sync. Raise for
+  # sites with slow / distant NTP or when bootstrapping off PTP alone.
+  sync_timeout_s: 120
+  max_offset_ms: 50
+
+  # PTP configuration — used by stage 40 (ptp_timesync).
+  ptp:
+    domain: 0
+    transport: "L2"                      # L2 | UDPv4
+    delay_mechanism: "P2P"               # P2P | E2E — relay domains usually P2P
+    profile: "default"                   # default | G.8275.1 | G.8275.2
 
 # --------------------------------------------------------------------
 # 8. Real-time tuning

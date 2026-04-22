@@ -13,8 +13,9 @@ Stage 10. Brings each cluster node to a known, minimal state before any networki
    - `satellite` → register against the Satellite URL with the same key
    - `local_mirror` → write dnf repo files pointing at `sources.local_mirror_url`; no subscription
 6. **Packages** — install the baseline toolset (networking, tracing, cluster-adjacent utilities)
-7. **Firewalld** — start + enable; allow SSH. Other services open their own ports in their own roles.
-8. **Journald** — persistent storage under `/var/log/journal`, sized to `journald_max_use_mb`
+7. **Chrony** — write `/etc/chrony.conf` from `time_sync.ntp_servers`, start `chronyd`, then block on `chronyc waitsync` until chrony reports offset within `time_sync.max_offset_ms` (or fail after `time_sync.sync_timeout_s`). Every downstream stage — Ceph especially — can assume clocks are within NTP tolerance after this runs. `ptp_timesync` (stage 40) may later replace the NTP sources with a PTP reference.
+8. **Firewalld** — start + enable; allow SSH. Other services open their own ports in their own roles.
+9. **Journald** — persistent storage under `/var/log/journal`, sized to `journald_max_use_mb`
 
 ## Variables (with defaults)
 

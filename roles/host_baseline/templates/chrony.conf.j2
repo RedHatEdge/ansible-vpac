@@ -1,0 +1,23 @@
+# Managed by ansible-vpac / host_baseline role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags baseline-chrony
+#
+# Sources from inventory time_sync.ntp_servers. When ptp_timesync (stage 40)
+# runs with time_sync.mode set to 'ptp', it strips these and replaces them
+# with a PTP reference clock. 'ptp_with_ntp' keeps both.
+
+{% for s in time_sync.ntp_servers %}
+server {{ s }} iburst
+{% endfor %}
+
+# Record the rate at which the system clock gains/loses time.
+driftfile /var/lib/chrony/drift
+
+# Allow the system clock to be stepped in the first three updates if its
+# offset is larger than 1 second. After that, gradual slewing only.
+makestep 1.0 3
+
+# Sync the kernel RTC from the system clock.
+rtcsync
+
+# Log directory.
+logdir /var/log/chrony

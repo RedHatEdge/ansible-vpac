@@ -33,6 +33,10 @@
   ansible.builtin.import_tasks: packages.yml
   tags: [baseline, baseline-packages]
 
+- name: "Chrony (basic NTP sync before downstream stages)"
+  ansible.builtin.import_tasks: chrony.yml
+  tags: [baseline, baseline-chrony]
+
 - name: "Firewalld baseline"
   ansible.builtin.import_tasks: firewalld.yml
   tags: [baseline, baseline-firewall]
