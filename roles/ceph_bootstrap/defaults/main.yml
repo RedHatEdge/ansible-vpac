@@ -1,0 +1,19 @@
+---
+# Map ceph.release → container image tag. Extend as new releases land.
+ceph_release_tag_map:
+  reef: "v18"
+  squid: "v19"
+  quincy: "v17"
+
+# Whether cephadm bootstrap enables the dashboard MGR module. Default off —
+# most operators use Prometheus + Grafana instead, and the dashboard adds
+# web UI surface + TLS setup most labs don't want.
+ceph_bootstrap_enable_dashboard: false
+
+# How long to wait for the newly-bootstrapped MON to reach at least
+# HEALTH_WARN (HEALTH_OK won't happen until OSDs are added — that's
+# ceph_expand's job).
+ceph_bootstrap_mon_health_timeout_s: 120
+
+# Max time for `cephadm bootstrap` itself to run before we consider it stuck.
+ceph_bootstrap_cmd_timeout_s: 600

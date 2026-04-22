@@ -1,24 +1,43 @@
 # ceph_expand
 
-**Status: stub — not yet implemented.**
+Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participating cluster nodes). Brings a bootstrapped single-host cluster up to a full multi-node CephFS.
 
-Stage 60 (second half) of the vPAC site deployment.
+## What it does
 
-## Planned behavior
+1. **Load facts** — reads FSID + ceph.conf + admin keyring from the bootstrap node, sets an Ansible fact for downstream tasks.
+2. **Authorize cephadm SSH key** — cephadm manages daemons via root SSH from the bootstrap node; authorize its pubkey on every other cluster node.
+3. **Add hosts to the orchestrator** — `ceph orch host add <hostname> <storage_ip>` for each non-bootstrap node. Idempotent.
+4. **Add OSDs** — from `ceph.osd_devices[hostname]` per node. No auto-discovery; inventory is the source of truth. Waits until all OSDs are up.
+5. **Create CephFS** — one filesystem per entry in `ceph.pools[]` with `type: cephfs`. `ceph fs volume create` creates data + metadata pools + deploys MDS. (v1 only handles the first cephfs-type entry; RBD support comes later.)
+6. **Mount on every cluster node** — installs `ceph-common`, distributes `ceph.conf` + admin keyring, creates the mountpoint, writes the fstab entry, mounts. All cluster nodes need shared CephFS access for Pacemaker VM migration.
+7. **Verify** — waits for `HEALTH_OK` (or `HEALTH_WARN` if `ceph_expand_require_health_ok: false`).
 
-- Runs against `ceph_nodes` (bootstrap node plus the rest)
-- Add each node to the Ceph cluster via `cephadm shell -- ceph orch host add <hostname> <storage_ip>`
-- For each node, add OSDs from `ceph.osd_devices[hostname]` — no "all unused devices" auto-discovery (too risky)
-- Create CephFS pools per `ceph.pools[]`: data pool + metadata pool with the declared PG counts
-- Enable the MDS daemon, create the filesystem
-- Mount CephFS at `ceph.cephfs_mountpoint` on every node in `vpac_cluster` (VM disks live here)
-- Health-check: `ceph -s` must return `HEALTH_OK` before the role declares success
+## Variables
+
+| Name | Default | Notes |
+|---|---|---|
+| `ceph_expand_orch_timeout_s` | `300` | max wait for each orchestrator op |
+| `ceph_expand_health_timeout_s` | `600` | max wait for final health state |
+| `ceph_expand_require_health_ok` | `true` | flip `false` if accepting `HEALTH_WARN` (e.g. minimal lab without enough OSDs for proper redundancy) |
+| `ceph_expand_mount_opts` | `"noatime,_netdev"` | fstab options for CephFS |
+
+Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_node`, `osd_devices`, `pools`, `cephfs_mountpoint`).
 
 ## Dependencies
 
-- `ceph_bootstrap` (same stage, first half) — FSID and admin keyring must be in cluster facts
-- All of stages 10–30 on every node
+- `ceph_bootstrap` (same stage, first half) — sets `ceph_fsid` and the mon is serving.
+- `host_baseline` / `networking` / `virtualization` on every cluster node.
 
 ## Tags
 
-- `ceph` — full role (currently a no-op stub)
+- `ceph` — everything Ceph (also applies in `ceph_bootstrap`)
+- `ceph-expand` — this role specifically
+- `ceph-facts`, `ceph-hosts`, `ceph-osds`, `ceph-fs`, `ceph-mount`, `ceph-verify` — sub-steps
+
+## Simplifications in v1
+
+- Only the first `type: cephfs` entry in `ceph.pools[]` gets created. Multiple CephFS filesystems = future work.
+- RBD pools aren't provisioned here (VM disks can live on CephFS; RBD is an optimization for specific profiles like ssc600).
+- Admin keyring is pushed to every node. Production wants a scoped `client.libvirt` keyring with read-only access to ceph metadata; that's a future refinement.
+- No pool-level placement rules, PG autoscaling is left at cephadm defaults.
+- MDS is deployed by `ceph fs volume create` on the bootstrap node only. For HA MDS, future work layers a second standby MDS on another node.

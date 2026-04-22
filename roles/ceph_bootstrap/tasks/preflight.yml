@@ -1,0 +1,32 @@
+---
+# Ceph refuses quorum when mon clocks drift. host_baseline established NTP
+# sync; reconfirm it's still in tolerance before bootstrapping.
+
+- name: "Verify chrony is synchronized"
+  ansible.builtin.command: /usr/bin/chronyc tracking
+  register: _ceph_chrony
+  changed_when: false
+
+- name: "Assert chrony reports Leap status Normal"
+  ansible.builtin.assert:
+    that: "'Leap status     : Normal' in _ceph_chrony.stdout"
+    fail_msg: >-
+      chrony is not synchronized on {{ inventory_hostname }} — Ceph
+      bootstrap will fail. Fix time sync first (re-run host_baseline
+      with --tags baseline-chrony) then retry.
+
+- name: "Find this node's entry in vpac_nodes"
+  ansible.builtin.set_fact:
+    _ceph_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"
+
+- name: "Verify this node's storage IP is bound to an interface"
+  ansible.builtin.command: "/usr/sbin/ip -4 -o addr show"
+  register: _ceph_ip
+  changed_when: false
+
+- name: "Assert storage_ip is present on some interface"
+  ansible.builtin.assert:
+    that: _ceph_node.storage_ip in _ceph_ip.stdout
+    fail_msg: >-
+      storage_ip {{ _ceph_node.storage_ip }} is not bound to any interface
+      on {{ inventory_hostname }}. Has the networking role run cleanly?

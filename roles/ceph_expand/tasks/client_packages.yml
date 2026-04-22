@@ -1,0 +1,54 @@
+---
+# Every cluster node needs:
+#   - podman (cephadm manages daemons as containers; check-host fails without it)
+#   - ceph-common (for CephFS mount + any ceph CLI calls post-join)
+# ceph-common has EPEL-only runtime deps, so we also need EPEL + Ceph repos
+# configured. The bootstrap node already has all of this from ceph_bootstrap;
+# re-running here is idempotent.
+
+- name: "Import Ceph release GPG key"
+  ansible.builtin.rpm_key:
+    key: "https://download.ceph.com/keys/release.asc"
+    state: present
+
+- name: "Write upstream Ceph repo file"
+  ansible.builtin.copy:
+    dest: /etc/yum.repos.d/ceph.repo
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [ceph]
+      name=Ceph {{ ceph.release }} packages
+      baseurl=https://download.ceph.com/rpm-{{ ceph.release }}/el9/$basearch
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://download.ceph.com/keys/release.asc
+      priority=2
+
+      [ceph-noarch]
+      name=Ceph {{ ceph.release }} noarch
+      baseurl=https://download.ceph.com/rpm-{{ ceph.release }}/el9/noarch
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://download.ceph.com/keys/release.asc
+      priority=2
+
+- name: "Import EPEL 9 GPG key"
+  ansible.builtin.rpm_key:
+    key: "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9"
+    state: present
+
+- name: "Install EPEL 9 repo config"
+  ansible.builtin.dnf:
+    name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm"
+    state: present
+
+- name: "Install podman + ceph-common"
+  # podman: cephadm needs it on every managed node to run daemon containers.
+  # ceph-common: for CephFS kernel mount and any cluster-side ceph commands.
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - ceph-common
+    state: present

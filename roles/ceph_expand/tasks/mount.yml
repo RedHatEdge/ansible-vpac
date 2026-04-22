@@ -1,0 +1,44 @@
+---
+# CephFS mount at ceph.cephfs_mountpoint on every cluster node. VM qcow2
+# files live here; all nodes need read/write access for Pacemaker live
+# migration to work. Packages + repos are handled earlier in client_packages.yml.
+
+- name: "Create /etc/ceph directory"
+  ansible.builtin.file:
+    path: /etc/ceph
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Distribute ceph.conf to this node"
+  ansible.builtin.copy:
+    content: "{{ _ceph_conf_blob.content | b64decode }}"
+    dest: /etc/ceph/ceph.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Distribute admin keyring to this node (lab-acceptable; prod wants a scoped client)"
+  ansible.builtin.copy:
+    content: "{{ _ceph_keyring_blob.content | b64decode }}"
+    dest: /etc/ceph/ceph.client.admin.keyring
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: "Create mountpoint"
+  ansible.builtin.file:
+    path: "{{ ceph.cephfs_mountpoint }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Mount CephFS + add fstab entry"
+  ansible.posix.mount:
+    path: "{{ ceph.cephfs_mountpoint }}"
+    src: "admin@{{ ceph_fsid }}.{{ _ceph_fs.name }}=/"
+    fstype: ceph
+    opts: "{{ ceph_expand_mount_opts }}"
+    state: mounted

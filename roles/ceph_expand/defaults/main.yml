@@ -1,0 +1,19 @@
+---
+# How long to wait for each `ceph orch` operation to report its target
+# state — host addition, OSD creation, fs ready, etc.
+# First-cold runs pull the ~1 GB ceph container image on each non-bootstrap
+# node; at typical NAT bandwidth that plus OSD deploy pushes past 5 min.
+ceph_expand_orch_timeout_s: 900
+
+# How long to wait for HEALTH_OK (or the operator-configured acceptable
+# state) at the end of the role. Tuning OSDs on slow disks can make this
+# take a while.
+ceph_expand_health_timeout_s: 600
+
+# Whether HEALTH_OK is required for the role to succeed. Set false for
+# deployments that expect HEALTH_WARN (e.g. insufficient OSDs in a minimal
+# lab).
+ceph_expand_require_health_ok: true
+
+# fstab mount options for CephFS.
+ceph_expand_mount_opts: "noatime,_netdev"

@@ -1,0 +1,17 @@
+---
+# cephadm manages daemons by SSHing from the bootstrap node to every cluster
+# node as root. Authorize the key cephadm generated during bootstrap.
+
+- name: "Get cephadm SSH pubkey from bootstrap node"
+  ansible.builtin.command: /usr/bin/ceph cephadm get-pub-key
+  register: _ceph_pubkey
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
+- name: "Authorize cephadm pubkey for root on non-bootstrap nodes"
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ _ceph_pubkey.stdout }}"
+    state: present
+  when: inventory_hostname != ceph.bootstrap_node

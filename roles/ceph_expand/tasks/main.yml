@@ -1,8 +1,32 @@
 ---
-# Not yet implemented. See roles/ceph_expand/README.md for planned behavior.
+- name: "Load FSID and ceph.conf on the bootstrap node"
+  ansible.builtin.import_tasks: load_facts.yml
+  tags: [ceph, ceph-expand, ceph-facts]
 
-- name: "ceph_expand: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'ceph_expand' is a stub — not implemented yet.
-      See roles/ceph_expand/README.md for planned behavior.
+- name: "Install podman + ceph-common on every cluster node"
+  ansible.builtin.import_tasks: client_packages.yml
+  tags: [ceph, ceph-expand, ceph-packages]
+
+- name: "Authorize cephadm SSH key on every cluster node"
+  ansible.builtin.import_tasks: authorize_cephadm.yml
+  tags: [ceph, ceph-expand, ceph-hosts]
+
+- name: "Add cluster hosts to the orchestrator"
+  ansible.builtin.import_tasks: add_hosts.yml
+  tags: [ceph, ceph-expand, ceph-hosts]
+
+- name: "Add OSDs from inventory"
+  ansible.builtin.import_tasks: add_osds.yml
+  tags: [ceph, ceph-expand, ceph-osds]
+
+- name: "Create CephFS pools + filesystem"
+  ansible.builtin.import_tasks: cephfs.yml
+  tags: [ceph, ceph-expand, ceph-fs]
+
+- name: "Mount CephFS on every cluster node"
+  ansible.builtin.import_tasks: mount.yml
+  tags: [ceph, ceph-expand, ceph-mount]
+
+- name: "Verify final health"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [ceph, ceph-expand, ceph-verify]

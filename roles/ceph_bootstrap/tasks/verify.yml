@@ -1,0 +1,30 @@
+---
+- name: "Read FSID from cluster"
+  ansible.builtin.command: /usr/bin/ceph fsid
+  register: _ceph_fsid_cmd
+  changed_when: false
+
+- name: "Record FSID fact for downstream stages"
+  ansible.builtin.set_fact:
+    ceph_fsid: "{{ _ceph_fsid_cmd.stdout | trim }}"
+    cacheable: true
+
+- name: "Wait for MON to report at least HEALTH_WARN (not HEALTH_ERR)"
+  # HEALTH_OK won't happen until OSDs are up — ceph_expand's job.
+  # We just need the MON responsive.
+  ansible.builtin.command: /usr/bin/ceph -s --format json
+  register: _ceph_status
+  until:
+    - _ceph_status.rc == 0
+    - (_ceph_status.stdout | from_json).health.status in ['HEALTH_OK', 'HEALTH_WARN']
+  retries: "{{ (ceph_bootstrap_mon_health_timeout_s | int) // 10 }}"
+  delay: 10
+  changed_when: false
+
+- name: "Report bootstrap summary"
+  ansible.builtin.debug:
+    msg:
+      - "Cluster FSID: {{ ceph_fsid }}"
+      - "MON IP: {{ _ceph_node.storage_ip }}"
+      - "Image: {{ _ceph_image }}"
+      - "Health: {{ (_ceph_status.stdout | from_json).health.status }}"

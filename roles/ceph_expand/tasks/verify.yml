@@ -1,0 +1,23 @@
+---
+- name: "Wait for final cluster health"
+  ansible.builtin.command: /usr/bin/ceph -s --format json
+  register: _ceph_final_status
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+  until:
+    - _ceph_final_status.rc == 0
+    - |
+      (_ceph_final_status.stdout | from_json).health.status
+      in (['HEALTH_OK'] if ceph_expand_require_health_ok else ['HEALTH_OK', 'HEALTH_WARN'])
+  retries: "{{ (ceph_expand_health_timeout_s | int) // 10 }}"
+  delay: 10
+
+- name: "Report cluster summary"
+  ansible.builtin.debug:
+    msg:
+      - "FSID: {{ ceph_fsid }}"
+      - "Health: {{ (_ceph_final_status.stdout | from_json).health.status }}"
+      - "OSDs: {{ (_ceph_final_status.stdout | from_json).osdmap.num_up_osds }}/{{ (_ceph_final_status.stdout | from_json).osdmap.num_osds }} up"
+      - "Filesystems: {{ (_ceph_final_status.stdout | from_json).fsmap.filesystems | default([]) | map(attribute='mdsmap.fs_name') | list }}"
+  run_once: true

@@ -1,0 +1,25 @@
+---
+- name: "Read FSID from bootstrap node"
+  ansible.builtin.command: /usr/bin/ceph fsid
+  register: _ceph_fsid_cmd
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
+- name: "Set ceph_fsid fact (shared across play)"
+  ansible.builtin.set_fact:
+    ceph_fsid: "{{ _ceph_fsid_cmd.stdout | trim }}"
+
+- name: "Slurp bootstrap node's ceph.conf"
+  ansible.builtin.slurp:
+    src: /etc/ceph/ceph.conf
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  register: _ceph_conf_blob
+
+- name: "Slurp bootstrap node's admin keyring"
+  ansible.builtin.slurp:
+    src: /etc/ceph/ceph.client.admin.keyring
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  register: _ceph_keyring_blob

@@ -1,0 +1,42 @@
+---
+# OSDs per `ceph.osd_devices[hostname]`. No auto-discovery — operator's
+# inventory is the source of truth (too risky to grab "all unused devices").
+#
+# Target host MUST be the FQDN that `ceph orch host ls` reports; passing a
+# short hostname makes cephadm silently no-op with rc=0.
+
+- name: "Add OSD on each device declared in ceph.osd_devices for this host"
+  # On a freshly-bootstrapped cluster, `ceph orch daemon add osd` can
+  # return rc=0 with empty output for the first device on a newly-added
+  # host — the orchestrator hasn't finished settling that host's device
+  # inventory yet. Retry until cephadm gives us a definitive response:
+  # either "Created osd" (success) or "already exists"/"in use"
+  # (idempotent skip on re-run). Otherwise the task misses the OSD and
+  # we end up short one device.
+  ansible.builtin.command: >-
+    /usr/bin/ceph orch daemon add osd
+    {{ hostvars[inventory_hostname].ansible_fqdn }}:{{ item }}
+  loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  register: _ceph_add_osd
+  changed_when: "'Created osd' in (_ceph_add_osd.stdout | default(''))"
+  until:
+    - _ceph_add_osd.rc == 0
+    - >-
+      ('Created osd' in (_ceph_add_osd.stdout | default(''))) or
+      ('already' in (_ceph_add_osd.stderr | default(''))) or
+      ('in use' in (_ceph_add_osd.stderr | default('')))
+  retries: 10
+  delay: 15
+
+- name: "Wait for OSD count to equal inventory total"
+  ansible.builtin.command: /usr/bin/ceph osd stat --format json
+  register: _ceph_osd_stat
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+  until:
+    - (_ceph_osd_stat.stdout | from_json).num_osds >= (ceph.osd_devices.values() | map('length') | sum)
+    - (_ceph_osd_stat.stdout | from_json).num_up_osds >= (ceph.osd_devices.values() | map('length') | sum)
+  retries: "{{ (ceph_expand_orch_timeout_s | int) // 10 }}"
+  delay: 10

@@ -1,0 +1,76 @@
+---
+# cephadm is not in RHEL 9 BaseOS/AppStream — Red Hat ships it under the
+# separate RHCS entitlement. Pull the community cephadm from the upstream
+# Ceph project's RPM repo.
+#
+# We write /etc/yum.repos.d/ceph.repo ourselves instead of using
+# `cephadm add-repo`, because that helper also tries to install epel-release
+# as a safety net. Our builder mirror (BaseOS + AppStream) doesn't have
+# EPEL, and cephadm + ceph-common don't actually need it at the package
+# level — the EPEL install attempt was defensive-only.
+#
+# TODO (air-gapped): when sources.repo_source is local_mirror, the builder
+# must mirror download.ceph.com/rpm-{release}/ and this baseurl should
+# point at that mirror. For now this path requires outbound HTTPS to
+# download.ceph.com from the cluster nodes.
+
+- name: "Import Ceph release GPG key"
+  ansible.builtin.rpm_key:
+    key: "https://download.ceph.com/keys/release.asc"
+    state: present
+
+- name: "Write upstream Ceph repo file"
+  ansible.builtin.copy:
+    dest: /etc/yum.repos.d/ceph.repo
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [ceph]
+      name=Ceph {{ ceph.release }} packages
+      baseurl=https://download.ceph.com/rpm-{{ ceph.release }}/el9/$basearch
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://download.ceph.com/keys/release.asc
+      priority=2
+
+      [ceph-noarch]
+      name=Ceph {{ ceph.release }} noarch
+      baseurl=https://download.ceph.com/rpm-{{ ceph.release }}/el9/noarch
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://download.ceph.com/keys/release.asc
+      priority=2
+
+- name: "Install cephadm + podman (no EPEL deps)"
+  ansible.builtin.dnf:
+    name:
+      - cephadm
+      - podman
+    state: present
+
+# ceph-common has EPEL-only runtime deps (gperftools-libs, arrow, parquet,
+# liboath). Red Hat's RHCS builds pull these from RHCS repos; community
+# builds expect EPEL. Add EPEL so `dnf install ceph-common` resolves.
+#
+# TODO (air-gapped): the builder needs to mirror EPEL as well — add
+# `epel-release` to the builder's reposync set and point at the mirror
+# URL instead of dl.fedoraproject.org.
+
+- name: "Import EPEL 9 GPG key"
+  ansible.builtin.rpm_key:
+    key: "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9"
+    state: present
+
+- name: "Install EPEL 9 repo config"
+  ansible.builtin.dnf:
+    name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm"
+    state: present
+
+- name: "Install ceph-common (needs EPEL deps)"
+  # ceph-common provides /usr/bin/ceph — needed for `ceph fsid`, `ceph -s`,
+  # `ceph orch ...`. Newer cephadm no longer installs it during bootstrap.
+  ansible.builtin.dnf:
+    name:
+      - ceph-common
+    state: present

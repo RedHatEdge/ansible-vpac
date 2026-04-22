@@ -1,0 +1,42 @@
+---
+# Create one CephFS per entry in ceph.pools[] where type == cephfs.
+# Each CephFS needs a data pool and a metadata pool plus an MDS daemon.
+# Simplification for v1: only handle the first cephfs-type entry.
+# RBD-type entries are deferred to a future ceph_pools role.
+
+- name: "Find the cephfs pool definition"
+  ansible.builtin.set_fact:
+    _ceph_fs: "{{ (ceph.pools | selectattr('type', 'equalto', 'cephfs') | list | first) | default(None) }}"
+  run_once: true
+
+- name: "Assert at least one cephfs pool is declared"
+  ansible.builtin.assert:
+    that: _ceph_fs is not none
+    fail_msg: "ceph.pools has no entry with type=cephfs — ceph_expand needs one to create the VM filesystem"
+  run_once: true
+
+- name: "List existing CephFS filesystems"
+  ansible.builtin.command: /usr/bin/ceph fs ls --format json
+  register: _ceph_fs_ls
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
+- name: "Create CephFS if missing"
+  ansible.builtin.command: >-
+    /usr/bin/ceph fs volume create {{ _ceph_fs.name }}
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  when: _ceph_fs.name not in ((_ceph_fs_ls.stdout | from_json) | map(attribute='name') | list)
+
+- name: "Wait for MDS to reach active state"
+  ansible.builtin.command: /usr/bin/ceph fs status {{ _ceph_fs.name }} --format json
+  register: _ceph_fs_status
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+  until:
+    - _ceph_fs_status.rc == 0
+    - ((_ceph_fs_status.stdout | from_json).mdsmap | default([]) | selectattr('state', 'equalto', 'active') | list | length) >= 1
+  retries: "{{ (ceph_expand_orch_timeout_s | int) // 10 }}"
+  delay: 10

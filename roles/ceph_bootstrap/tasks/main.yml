@@ -1,8 +1,16 @@
 ---
-# Not yet implemented. See roles/ceph_bootstrap/README.md for planned behavior.
+- name: "Preflight — time sync + this node's storage IP"
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [ceph, ceph-bootstrap, ceph-preflight]
 
-- name: "ceph_bootstrap: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'ceph_bootstrap' is a stub — not implemented yet.
-      See roles/ceph_bootstrap/README.md for planned behavior.
+- name: "Install cephadm"
+  ansible.builtin.import_tasks: packages.yml
+  tags: [ceph, ceph-bootstrap, ceph-packages]
+
+- name: "cephadm bootstrap"
+  ansible.builtin.import_tasks: bootstrap.yml
+  tags: [ceph, ceph-bootstrap]
+
+- name: "Capture FSID + wait for initial MON health"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [ceph, ceph-bootstrap, ceph-verify]

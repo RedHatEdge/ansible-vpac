@@ -1,0 +1,35 @@
+---
+# All orchestrator operations run on the bootstrap node via delegate_to.
+
+- name: "List hosts currently known to the orchestrator"
+  ansible.builtin.command: /usr/bin/ceph orch host ls --format json
+  register: _ceph_orch_hosts
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
+- name: "Parse known-hosts fact"
+  ansible.builtin.set_fact:
+    _ceph_known_hosts: "{{ (_ceph_orch_hosts.stdout | from_json) | map(attribute='hostname') | list }}"
+
+- name: "Add this node to the orchestrator (if not already present)"
+  # Use ansible_fqdn (set by host_baseline) — cephadm's check-host step
+  # compares against `hostname` on the target node, which is the FQDN.
+  # Passing the short name here triggers "hostname does not match" error.
+  ansible.builtin.command: >-
+    /usr/bin/ceph orch host add
+    {{ hostvars[inventory_hostname].ansible_fqdn }}
+    {{ (vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first).storage_ip }}
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  when: (hostvars[inventory_hostname].ansible_fqdn) not in _ceph_known_hosts
+
+- name: "Wait for all cluster nodes to be reported as online"
+  ansible.builtin.command: /usr/bin/ceph orch host ls --format json
+  register: _ceph_orch_hosts_check
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+  until:
+    - (_ceph_orch_hosts_check.stdout | from_json | length) >= (vpac_nodes | length)
+  retries: "{{ (ceph_expand_orch_timeout_s | int) // 10 }}"
+  delay: 10
