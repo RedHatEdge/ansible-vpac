@@ -134,4 +134,4 @@ Most common causes in order:
 1. Storage network not up on all nodes — the Ceph bootstrap tries to reach peer storage IPs before they are configured. Re-run stage 20 and confirm.
 2. Hostname resolution failing between nodes — `cephadm` expects to be able to resolve all OSD hostnames. `host_baseline` writes `/etc/hosts` entries; confirm they match reality.
 3. OSD devices not empty — `cephadm` refuses to create OSDs on devices with existing data. `wipefs -a` any stale disks and re-run.
-4. Podman/container registry unreachable — air-gapped sites must populate `ceph.registry` with a local mirror.
+4. Podman/container registry unreachable — for air-gapped sites, `sources.container_registry` must point at the builder's local registry (default `<builder>:5000`) and `sources.container_registry_insecure: true` for the plain-HTTP registry the builder serves. Confirm with `curl -v http://<builder>:5000/v2/_catalog` from a cluster node; should return a JSON list that includes `rhceph/rhceph-7-rhel9`.

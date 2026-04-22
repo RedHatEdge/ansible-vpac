@@ -83,7 +83,7 @@ Boot again from the installed disk, and:
 
 - It does not register the host with RHSM (that's `01-build-builder.yml`'s job — by then the SA will provide vault-supplied credentials)
 - It does not pre-install the RPM mirror, container registry, or anything cluster-specific (same reason — next stage)
-- It does not touch the cluster nodes (separate ISO, tracked as follow-up work)
+- It does not touch the cluster nodes — each cluster node gets its own ISO from `00b-mint-cluster-isos.yml` (documented below)
 
 ## Cluster-node installer ISOs (`00b-mint-cluster-isos.yml`)
 

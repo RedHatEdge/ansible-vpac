@@ -10,7 +10,8 @@ You need:
 
 - 3 × RHEL 9.x hosts, freshly installed, reachable via SSH with passwordless sudo
 - BMC credentials (iDRAC or IPMI) for each node, IPMI-over-LAN enabled in the BMC
-- Active RHEL subscription (activation key + org ID) or a Satellite you can reach
+- Active RHEL subscription (activation key + org ID) or a Satellite you can reach, with Red Hat Ceph Storage entitlement (the `rhceph-7-tools-for-rhel-9-x86_64-rpms` repo)
+- **A Red Hat registry service account** — `cephadm bootstrap` pulls the RHCS container image from `registry.redhat.io`, which requires authentication. Create one at [access.redhat.com/terms-based-registry](https://access.redhat.com/terms-based-registry/); save the username (shape `<org-id>|<token-name>`) + password for the vault file below. (Not the IAM/API service accounts at `console.redhat.com/iam` — those don't authenticate to `registry.redhat.io`.)
 - An Ansible control workstation with Ansible 2.15+ and Python 3.9+
 - Physical network cabling matching the five-network layout in [`ARCHITECTURE.md`](ARCHITECTURE.md)
 

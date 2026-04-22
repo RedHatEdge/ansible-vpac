@@ -210,17 +210,19 @@ ansible-vpac/
 │   └── (read-only scripts for gathering data from existing clusters)
 └── docs/
     ├── ARCHITECTURE.md
+    ├── DEPLOYMENT-GUIDE.md
     ├── DEPLOYMENT-CONNECTED.md
     ├── DEPLOYMENT-AIRGAPPED.md
+    ├── IMAGE-BUILDER.md
     ├── OPERATIONS.md
     ├── TROUBLESHOOTING.md
-    ├── HARDWARE-BOM.md
-    └── IMAGE-BUILDER.md
+    └── HARDWARE-BOM.md
 ```
 
 ## Documentation
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — what the cluster looks like, network layout, role of each component
+- **[docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md)** — one-minute picker for choosing between connected and air-gapped
 - **[docs/DEPLOYMENT-CONNECTED.md](docs/DEPLOYMENT-CONNECTED.md)** — step-by-step for internet-connected deployments
 - **[docs/DEPLOYMENT-AIRGAPPED.md](docs/DEPLOYMENT-AIRGAPPED.md)** — step-by-step for air-gapped utility POCs
 - **[docs/IMAGE-BUILDER.md](docs/IMAGE-BUILDER.md)** — how the ISO-minting tooling container works; both `builder_iso_mint` and `cluster_iso_mint` documented
