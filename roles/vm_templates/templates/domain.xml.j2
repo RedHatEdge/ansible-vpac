@@ -14,6 +14,11 @@
 #}
 {%- set _vm_uuid = _vm.name | to_uuid('6ba7b810-9dad-11d1-80b4-00c04fd430c8') -%}
 {%- set _hp_gb = _vm.hugepage_size_gb | default(_profile.hugepage_size_gb) | default(0) | int -%}
+{#- RT discriminator: a VM opts in by setting rt_priority (per-VM) or by
+    inheriting a non-zero rt_priority_default from its profile. Every
+    RT-only XML element below gates on _is_rt. -#}
+{%- set _rt_prio = (_vm.rt_priority | default(_profile.rt_priority_default | default(0))) | int -%}
+{%- set _is_rt = _rt_prio > 0 -%}
 <!-- vPAC-managed domain: {{ _vm.name }}. Re-rendered by roles/vm_templates; do not edit by hand. -->
 <domain type='kvm'>
   <name>{{ _vm.name }}</name>
@@ -52,7 +57,29 @@
     <emulatorpin cpuset='{{ _vm.emulator_cpus | join(",") }}'/>
     <iothreadpin iothread='1' cpuset='{{ _vm.emulator_cpus | join(",") }}'/>
 {%   endif %}
+{#  RT scheduling: vCPUs run at FIFO _rt_prio (40 for VPR, 50 for SSC600 in
+    the reference profiles). Emulator + iothread threads run at FIFO 1 so
+    they don't preempt the vCPUs but still beat SCHED_OTHER work (chrony,
+    sshd) that would otherwise starve them under host load. #}
+{%   if _is_rt %}
+{%     for cpu in _vm.pinned_cpus %}
+    <vcpusched vcpus='{{ loop.index0 }}' scheduler='fifo' priority='{{ _rt_prio }}'/>
+{%     endfor %}
+    <emulatorsched scheduler='fifo' priority='1'/>
+{%     if _vm.emulator_cpus is defined and (_vm.emulator_cpus | length) > 0 %}
+    <iothreadsched iothreads='1' scheduler='fifo' priority='1'/>
+{%     endif %}
+{%   endif %}
   </cputune>
+{#  Strict NUMA pinning: the kernel will only satisfy hugepage allocations
+    from the named node, never silently from a remote node on multi-socket
+    hosts. Reference single-socket hardware uses node 0; override per-VM
+    via _vm.numa_node when relevant. #}
+{%   if _is_rt %}
+  <numatune>
+    <memory mode='strict' nodeset='{{ _vm.numa_node | default(_profile.numa_node) | default(0) }}'/>
+  </numatune>
+{%   endif %}
 {% endif %}
 {% if _vm.emulator_cpus is defined and (_vm.emulator_cpus | length) > 0 %}
   <iothreads>1</iothreads>
@@ -63,19 +90,66 @@
   </os>
   <features>
     <acpi/>
-    <apic/>
-{% if not (_profile.memballoon | default(true)) %}
+{# RT features block: apic eoi=on (Intel APIC EOI optimization), kvm
+   hint-dedicated=on (tells the guest its vCPUs are dedicated), poll-control=off
+   (disable adaptive halt-poll which adds jitter), pv-ipi=on (paravirt IPI
+   shortcut, lower latency than HW APIC). pmu off prevents the guest's
+   perfmon counters from causing PMI storms on isolated cores; gated on RT,
+   not on memballoon. vmport off disables the legacy VMware backdoor port
+   (jitter source). #}
+{% if _is_rt %}
+    <apic eoi='on'/>
+    <kvm>
+      <hint-dedicated state='on'/>
+      <poll-control state='off'/>
+      <pv-ipi state='on'/>
+    </kvm>
+    <vmport state='off'/>
     <pmu state='off'/>
+{% else %}
+    <apic/>
 {% endif %}
   </features>
   <cpu mode='{{ _profile.cpu_mode | default("host-passthrough") }}' check='none' migratable='on'>
     <cache mode='passthrough'/>
+{# Explicit topology suppresses any in-guest hyperthread split on RT VMs
+   so the guest sees N single-thread cores, matching the host-side
+   isolation pattern (cores isolated whole, no thread split). Default
+   sockets=1, threads=1, cores derived from vcpus. #}
+{% if _is_rt %}
+{%   set _topo_sockets = (_vm.cpu_topology.sockets | default(_profile.cpu_topology.sockets | default(1))) | int %}
+{%   set _topo_threads = (_vm.cpu_topology.threads | default(_profile.cpu_topology.threads | default(1))) | int %}
+{%   set _topo_cores = (_vm.vcpus | int // (_topo_sockets * _topo_threads)) | int %}
+    <topology sockets='{{ _topo_sockets }}' cores='{{ _topo_cores }}' threads='{{ _topo_threads }}'/>
+{# invtsc exposes invariant TSC to the guest — required for migratable RT
+   VMs where the guest pins its clock to TSC and would otherwise reject
+   migration to a host with a different-feeling TSC. #}
+    <feature policy='require' name='invtsc'/>
+{% endif %}
   </cpu>
   <clock offset='utc'>
     <timer name='rtc' tickpolicy='catchup'/>
     <timer name='pit' tickpolicy='delay'/>
     <timer name='hpet' present='{{ "yes" if (_profile.hpet_present | default(false)) else "no" }}'/>
+{# kvmclock + tsc native: without these, an RT guest falls back to HPET
+   (~3.6 µs per timer read) which dominates jitter at any meaningful read
+   rate. tsc mode='native' lets the guest read the TSC directly without
+   trapping into the hypervisor. #}
+{% if _is_rt %}
+    <timer name='kvmclock' present='yes'/>
+    <timer name='tsc' present='yes' mode='native'/>
+{% endif %}
   </clock>
+{# Disable ACPI sleep states on RT VMs. Without this, the guest's
+   suspend-to-mem path can be triggered (rare but observed during
+   pacemaker stop sequences with QGA installed; suspend-instead-of-shutdown
+   leaves the cluster in an inconsistent state). #}
+{% if _is_rt %}
+  <pm>
+    <suspend-to-mem enabled='no'/>
+    <suspend-to-disk enabled='no'/>
+  </pm>
+{% endif %}
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>restart</on_crash>

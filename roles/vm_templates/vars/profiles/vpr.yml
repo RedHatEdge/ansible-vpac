@@ -24,3 +24,14 @@ disk_io: "native"
 disk_bus: "virtio"
 
 rt_priority_default: 40
+
+# RT topology — single thread per core suppresses any in-guest HT split
+# so the guest sees N single-thread cores, matching the host-side
+# isolation pattern. Override per-VM via _vm.cpu_topology.
+cpu_topology:
+  sockets: 1
+  threads: 1
+
+# NUMA pinning — single-socket reference hardware lives on node 0; for
+# multi-socket hosts override per-VM via _vm.numa_node.
+numa_node: 0

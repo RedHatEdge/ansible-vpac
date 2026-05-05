@@ -32,6 +32,18 @@ disk_cache: "none"
 disk_io: "native"
 disk_bus: "virtio"
 
-# RT priority hint — consumed by vm_deploy if it wires FIFO scheduling
-# for the emulator threads (not in v1, but catalog carries the value).
+# RT FIFO priority for vCPU threads. Rendered by vm_templates into
+# <vcpusched scheduler='fifo' priority='X'/> per vcpu. Emulator and
+# iothread sched at FIFO 1 (set in the template, not here).
 rt_priority_default: 50
+
+# RT topology — single thread per core suppresses any in-guest HT split
+# so the guest sees N single-thread cores, matching the host-side
+# isolation pattern. Override per-VM via _vm.cpu_topology.
+cpu_topology:
+  sockets: 1
+  threads: 1
+
+# NUMA pinning — single-socket reference hardware lives on node 0; for
+# multi-socket hosts override per-VM via _vm.numa_node.
+numa_node: 0

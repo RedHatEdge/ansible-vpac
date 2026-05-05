@@ -16,13 +16,26 @@ The rendered XML includes:
 
 - `<vcpu placement='static'>` and `<cputune>` with `<vcpupin>`, `<emulatorpin>`, `<iothreadpin>` from `pinned_cpus` + `emulator_cpus`
 - `<memoryBacking><hugepages>` when the VM opts in, with `<locked/>` + `<nosharepages/>` for RT profiles
-- `<cpu mode='host-passthrough'>` (profile default; override-able)
+- `<cpu mode='host-passthrough' migratable='on'>` (profile default; override-able)
 - `<clock><timer name='hpet' present='no'/>` for RT profiles
 - `<memballoon model='none'>` for RT profiles — no inflate surprises
-- No `<watchdog>` for any profile (removed per LEARNED-FIXES — false-positive reboots)
+- Explicit `<watchdog model='itco' action='none'/>` to neuter q35's auto-injected ITCO watchdog (operator opts in to a real watchdog via `watchdog: true`)
 - Disks from `vm.disks[]` with `cache='none' io='native'` by default
 - NICs from `vm.nics[]`, optionally with a preserved `<mac>` when `preserve_mac: true`
 - `<hostdev>` entries per `vm.pci_passthrough[]` for Windows passthrough VMs
+
+### RT block (rendered when the VM has `rt_priority` set, or its profile sets `rt_priority_default > 0`)
+
+- `<vcpusched scheduler='fifo' priority='X'/>` per vCPU at the per-VM `rt_priority` (40 for VPR, 50 for SSC600 in the reference profiles)
+- `<emulatorsched scheduler='fifo' priority='1'/>` and `<iothreadsched iothreads='1' scheduler='fifo' priority='1'/>` so emulator + iothread threads beat SCHED_OTHER without preempting vCPUs
+- `<numatune memory mode='strict' nodeset='{{ numa_node }}'/>` — strict pinning so the kernel never silently allocates hugepages from a remote NUMA node on multi-socket hosts
+- `<cpu><topology sockets='1' cores='N' threads='1'/>` — suppresses any in-guest hyperthread split so the guest sees N single-thread cores, matching the host-side isolation pattern
+- `<cpu><feature policy='require' name='invtsc'/>` — exposes invariant TSC for migratable RT VMs whose guest clock is pinned to TSC
+- `<features><apic eoi='on'/><kvm><hint-dedicated state='on'/><poll-control state='off'/><pv-ipi state='on'/></kvm><vmport state='off'/><pmu state='off'/></features>` — the standard KVM-RT features set; `pmu` correctly gates on RT (not on memballoon as in pre-broad-audit code)
+- `<clock><timer name='kvmclock' present='yes'/><timer name='tsc' present='yes' mode='native'/>` — without these, the guest falls back to HPET (~3.6 µs per timer read) which dominates jitter
+- `<pm><suspend-to-mem enabled='no'/><suspend-to-disk enabled='no'/></pm>` — prevents ACPI sleep paths from being triggered during pacemaker stop sequences
+
+The non-RT (Windows / engineering) profiles render none of the above; they get a plain `<features><acpi/><apic/></features>` block, no numatune, no topology override, no kvmclock/tsc-native timers, no `<pm>` element.
 
 ## Profiles
 
