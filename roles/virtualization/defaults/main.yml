@@ -56,6 +56,28 @@ virtualization_libvirt_networks:
 # useful for vPAC workloads. Toggle off only if a specific site has a reason.
 virtualization_disable_jitter_services: true
 
+# Sanlock host-side: install packages + add qemu to sanlock group + flip
+# the SELinux boolean. The full sanlock-on-RBD activation chain (lockspace
+# image, qemu-sanlock.conf with host_id, rbdmap, systemd oneshot) is
+# completed by ceph_expand — this just primes the host so libvirtd can
+# enable sanlock once that chain is in place.
+virtualization_install_sanlock_host: true
+
+# Lock manager set in /etc/libvirt/qemu.conf via in-place blockinfile.
+# Default "none" — single-node labs and pre-Ceph runs work without locks.
+# Flip to "sanlock" AFTER ceph_expand has provisioned the lockspace + per-node
+# host_id; otherwise libvirt refuses to start any VM. When set back to "none"
+# the managed block is removed.
+virtualization_lock_manager: "none"
+
+# QEMU hook: VM-name patterns whose vhost-net + kvm-pit threads should be
+# pinned to the emulator core set and raised to SCHED_FIFO. Empty list
+# leaves the hook installed but a no-op (safe default for non-vendor VMs).
+# Patterns are bash globs, e.g. ["ssc600*", "vpr*", "win-server*"].
+virtualization_qemu_hook_vm_patterns: []
+virtualization_qemu_hook_vhost_priority: 1
+virtualization_qemu_hook_kvm_pit_priority: 1
+
 # Write the kvm_intel + vhost_net modprobe drop-in. Required for RT-VM
 # determinism: PLE disabled, Intel APICv disabled, vhost zero-copy on.
 # Auto-skipped on non-Intel CPUs (the role logs a note that AMD hosts

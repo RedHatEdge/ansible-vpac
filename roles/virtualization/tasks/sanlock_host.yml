@@ -1,0 +1,29 @@
+---
+# Sanlock host-side prep. Installs the packages, adds qemu to the sanlock
+# group (otherwise libvirt's qemu-driven sanlock client cannot acquire
+# leases), and flips the SELinux boolean that allows libvirt to use sanlock.
+#
+# The full sanlock-on-RBD activation chain (lockspace image on the rbd-vms
+# pool, /etc/ceph/rbdmap, qemu-sanlock.conf with per-node host_id,
+# sanlock-lockspace.service systemd oneshot) is completed by ceph_expand
+# once Ceph is up. This task just primes the host so the chain can complete
+# without re-running stage-30 work.
+
+- name: "Install sanlock + libvirt-lock-sanlock"
+  ansible.builtin.dnf:
+    name:
+      - sanlock
+      - libvirt-lock-sanlock
+    state: present
+
+- name: "Add qemu user to sanlock group"
+  ansible.builtin.user:
+    name: qemu
+    groups: sanlock
+    append: true
+
+- name: "Allow libvirt to use sanlock (SELinux boolean)"
+  ansible.posix.seboolean:
+    name: virt_use_sanlock
+    state: true
+    persistent: true

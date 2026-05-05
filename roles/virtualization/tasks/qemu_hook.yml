@@ -1,0 +1,22 @@
+---
+# Drop the libvirt qemu hook script. The hook itself is a no-op until the
+# operator populates virtualization_qemu_hook_vm_patterns with VM-name
+# patterns to match (e.g. ["ssc600*", "vpr*"]). libvirtd executes the
+# hook on every VM lifecycle event; the script filters internally.
+
+- name: "Ensure /etc/libvirt/hooks directory exists"
+  ansible.builtin.file:
+    path: /etc/libvirt/hooks
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Render libvirt qemu hook"
+  ansible.builtin.template:
+    src: qemu.hook.j2
+    dest: /etc/libvirt/hooks/qemu
+    owner: root
+    group: root
+    mode: "0755"
+  notify: "restart libvirtd"

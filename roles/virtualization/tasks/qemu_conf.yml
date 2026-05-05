@@ -1,0 +1,23 @@
+---
+# Apply vPAC-required overrides to /etc/libvirt/qemu.conf. This is an
+# in-place blockinfile edit — we deliberately do NOT template the whole
+# file, since the stock file carries dozens of comments and defaults we
+# don't want to take ownership of. Only the knobs vPAC needs land in
+# the managed block.
+#
+# Currently managed:
+#   lock_manager   set to "sanlock" once the ceph_expand stage has
+#                  provisioned the lockspace + per-node host_id; defaults
+#                  to "none" so single-node labs and pre-Ceph runs work.
+#
+# When virtualization_lock_manager is "none" the block is removed (so
+# operators can flip back without leaving stale config).
+
+- name: "Apply vPAC overrides to /etc/libvirt/qemu.conf"
+  ansible.builtin.blockinfile:
+    path: /etc/libvirt/qemu.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK (ansible-vpac/virtualization)"
+    state: "{{ 'present' if virtualization_lock_manager != 'none' else 'absent' }}"
+    block: |
+      lock_manager = "{{ virtualization_lock_manager }}"
+  notify: "restart libvirtd"

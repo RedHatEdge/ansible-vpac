@@ -12,8 +12,11 @@ Stage 30. Prepares each cluster node to host libvirt/KVM VMs with a tuned profil
 6. **Tuned profile** — applies `virtual-host` (the base KVM-hypervisor profile from BaseOS) to every host. The `rt_tuning` role later installs the RT-specific profiles from the NFV repo and swaps hosts in the `rt_hosts` group to `realtime-virtual-host`. This role keeps the RT concern out — stage 30 only needs packages from BaseOS/AppStream.
 7. **isolated_cores** — writes `/etc/tuned/cpu-partitioning-variables.conf` from `rt_tuning.isolated_cpus`. Emits `isolated_cores=...` plus `isolate_managed_irq=Y` (moves kernel-managed IRQs off isolated cores at runtime). The `cpu-partitioning` profile (which `realtime-virtual-host` inherits later) consumes this to emit `isolcpus=`, `nohz_full=`, `rcu_nocbs=` in the kernel cmdline once that profile is active. Writing the config early means the switch in stage 50 is config-ready.
 8. **Disable jitter services** — stops + disables `irqbalance`, `ksm`, `ksmtuned`. None are useful for cluster-node workloads and all wake periodically to steal RT jitter — irqbalance silently fights `isolate_managed_irq=Y` by re-balancing IRQs onto isolated cores. Toggle with `virtualization_disable_jitter_services`.
-9. **Reboot handler** — if the tuned-driven kernel cmdline OR modprobe initramfs changes, a reboot is required for it to take effect. The handler only actually reboots when `virtualization_auto_reboot: true`; production deploys leave this at the `false` default and schedule reboots manually.
-10. **Verify** — asserts `libvirtd` is active, `virsh list` works, the expected tuned profile is the active one, and `virt-host-validate qemu` reports no FAIL lines (warnings are allowed — some hardware variants warn benignly).
+9. **Sanlock (host side)** — installs `sanlock` + `libvirt-lock-sanlock`, adds `qemu` to the `sanlock` group, flips the `virt_use_sanlock` SELinux boolean. The full sanlock-on-RBD chain (lockspace image, `qemu-sanlock.conf` with per-node `host_id`, `rbdmap`, systemd oneshot) is completed by `ceph_expand` once Ceph is up — this just primes the host. Without sanlock, two nodes can boot the same VM against the same Ceph image — instant disk corruption. Toggle with `virtualization_install_sanlock_host`.
+10. **qemu.conf overrides** — in-place `blockinfile` on `/etc/libvirt/qemu.conf` for vPAC-required knobs (currently `lock_manager`). Deliberately not a full template — the stock file carries dozens of comments and defaults we don't want to take ownership of. Default `virtualization_lock_manager: "none"`; flip to `"sanlock"` after `ceph_expand` has provisioned the lockspace + per-node `host_id`.
+11. **QEMU hook** — drops `/etc/libvirt/hooks/qemu`, a script that pins vhost-net + kvm-pit kernel threads to the emulator core set and raises them to SCHED_FIFO whenever a matching VM starts. Without this, vhost threads land on housekeeping cores at SCHED_OTHER and steal jitter from RT VMs even when vCPUs are pinned. Hook is a no-op until `virtualization_qemu_hook_vm_patterns` is populated with VM-name globs (e.g. `["ssc600*", "vpr*"]`).
+12. **Reboot handler** — if the tuned-driven kernel cmdline OR modprobe initramfs changes, a reboot is required for it to take effect. The handler only actually reboots when `virtualization_auto_reboot: true`; production deploys leave this at the `false` default and schedule reboots manually.
+13. **Verify** — asserts `libvirtd` is active, `virsh list` works, the expected tuned profile is the active one, and `virt-host-validate qemu` reports no FAIL lines (warnings are allowed — some hardware variants warn benignly).
 
 Hugepages, `kernel-rt`, cpufreq governor, and RT chrony overrides live in the `rt_tuning` role (stage 50) to keep concerns separated.
 
@@ -28,6 +31,11 @@ Hugepages, `kernel-rt`, cpufreq governor, and RT chrony overrides live in the `r
 | `virtualization_remove_default_network` | airgapped → true | mode-aware: airgapped destroys, connected keeps |
 | `virtualization_libvirt_networks` | `[br-mgmt, station-bus]` | host-bridge libvirt networks for VM XML to reference |
 | `virtualization_disable_jitter_services` | `true` | stop + disable irqbalance, ksm, ksmtuned |
+| `virtualization_install_sanlock_host` | `true` | sanlock packages + qemu→sanlock group + virt_use_sanlock sebool |
+| `virtualization_lock_manager` | `"none"` | flip to `"sanlock"` after ceph_expand has provisioned the lockspace |
+| `virtualization_qemu_hook_vm_patterns` | `[]` | populate with VM-name globs to enable vhost+kvm-pit pinning |
+| `virtualization_qemu_hook_vhost_priority` | `1` | SCHED_FIFO priority for vhost-net threads |
+| `virtualization_qemu_hook_kvm_pit_priority` | `1` | SCHED_FIFO priority for kvm-pit threads |
 | `virtualization_write_modprobe` | `true` | KVM + vhost_net modprobe drop-in; auto-skipped on non-Intel |
 
 Reads `rt_tuning.isolated_cpus` to feed the cpu-partitioning variable, `bridges.{mgmt,station}` for the libvirt network XMLs, and `deployment_mode` for the default-net mode-awareness.
@@ -35,7 +43,7 @@ Reads `rt_tuning.isolated_cpus` to feed the cpu-partitioning variable, `bridges.
 ## Tags
 
 - `virt` — everything
-- `virt-packages`, `virt-libvirtd`, `virt-modprobe`, `virt-default-net`, `virt-libvirt-networks`, `virt-tuned`, `virt-jitter`, `virt-verify` — individual groups
+- `virt-packages`, `virt-libvirtd`, `virt-modprobe`, `virt-default-net`, `virt-libvirt-networks`, `virt-tuned`, `virt-jitter`, `virt-sanlock`, `virt-qemu-conf`, `virt-qemu-hook`, `virt-verify` — individual groups
 
 ## Handlers
 

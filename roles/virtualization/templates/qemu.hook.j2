@@ -1,0 +1,60 @@
+#!/bin/bash
+# Managed by ansible-vpac / virtualization role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags virt-qemu-hook
+#
+# libvirt qemu hook — for each VM whose name matches one of the patterns
+# below, pin vhost-net and kvm-pit kernel threads to the same physical
+# cores as the qemu emulator and raise them to SCHED_FIFO. Without this,
+# vhost threads land on housekeeping cores at SCHED_OTHER and steal
+# jitter from RT VMs even when vCPUs themselves are pinned.
+#
+# Empty pattern list = no-op (safe default for non-vendor VMs).
+
+set -u
+
+VM_NAME="${1:-}"
+EVENT="${2:-}"
+
+PATTERNS=(
+{% for p in virtualization_qemu_hook_vm_patterns %}
+    "{{ p }}"
+{% endfor %}
+)
+
+VHOST_PRIO={{ virtualization_qemu_hook_vhost_priority }}
+KVM_PIT_PRIO={{ virtualization_qemu_hook_kvm_pit_priority }}
+
+# Only act on the "started" event after the VM is up.
+[[ "$EVENT" == "started" ]] || exit 0
+
+# Match VM name against patterns; exit silently if no match.
+match=0
+for p in "${PATTERNS[@]}"; do
+    if [[ -n "$p" && "$VM_NAME" == $p ]]; then
+        match=1
+        break
+    fi
+done
+[[ $match -eq 1 ]] || exit 0
+
+# Find the qemu PID for this domain.
+qemu_pid=$(pgrep -f "guest=${VM_NAME}," | head -1)
+[[ -n "$qemu_pid" ]] || exit 0
+
+# Read the emulator pin (CPU mask) for this VM via virsh.
+emulator_cpus=$(virsh emulatorpin "$VM_NAME" 2>/dev/null | awk '/^[[:space:]]*\*:/ {print $2}')
+[[ -n "$emulator_cpus" ]] || exit 0
+
+# Pin all vhost-${qemu_pid} kernel threads to the emulator core set + chrt FIFO.
+for tid in $(pgrep -P 2 -f "vhost-${qemu_pid}"); do
+    taskset -pc "$emulator_cpus" "$tid" >/dev/null 2>&1 || true
+    chrt -fp "$VHOST_PRIO" "$tid"        >/dev/null 2>&1 || true
+done
+
+# Same for kvm-pit/${qemu_pid} threads.
+for tid in $(pgrep -P 2 -f "kvm-pit/${qemu_pid}"); do
+    taskset -pc "$emulator_cpus" "$tid" >/dev/null 2>&1 || true
+    chrt -fp "$KVM_PIT_PRIO" "$tid"     >/dev/null 2>&1 || true
+done
+
+exit 0

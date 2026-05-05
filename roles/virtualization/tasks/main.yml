@@ -30,6 +30,19 @@
   when: virtualization_disable_jitter_services | bool
   tags: [virt, virt-jitter]
 
+- name: "Sanlock host-side packages + group + sebool"
+  ansible.builtin.import_tasks: sanlock_host.yml
+  when: virtualization_install_sanlock_host | bool
+  tags: [virt, virt-sanlock]
+
+- name: "Apply vPAC overrides to /etc/libvirt/qemu.conf"
+  ansible.builtin.import_tasks: qemu_conf.yml
+  tags: [virt, virt-qemu-conf]
+
+- name: "Render libvirt qemu hook"
+  ansible.builtin.import_tasks: qemu_hook.yml
+  tags: [virt, virt-qemu-hook]
+
 - name: "Verify"
   ansible.builtin.import_tasks: verify.yml
   tags: [virt, virt-verify]
