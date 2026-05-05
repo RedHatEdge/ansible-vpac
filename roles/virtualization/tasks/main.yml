@@ -7,6 +7,11 @@
   ansible.builtin.import_tasks: libvirtd.yml
   tags: [virt, virt-libvirtd]
 
+- name: "KVM + vhost-net modprobe drop-in (Intel-only)"
+  ansible.builtin.import_tasks: modprobe.yml
+  when: virtualization_write_modprobe | bool
+  tags: [virt, virt-modprobe]
+
 - name: "Remove libvirt's default NAT network"
   ansible.builtin.import_tasks: default_net.yml
   when: virtualization_remove_default_network | bool

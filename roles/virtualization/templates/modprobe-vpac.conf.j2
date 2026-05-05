@@ -1,0 +1,13 @@
+# Managed by ansible-vpac / virtualization role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags virt-modprobe
+
+# kvm_intel
+#   nested=1            allow nested virtualization
+#   enable_apicv=n      disable Intel APIC virtualization for RT determinism
+#   ple_gap=0           disable Pause-Loop Exiting — RT VMs spin-wait, PLE
+#   ple_window=0        translates that into vCPU exits and wrecks jitter
+options kvm_intel nested=1 enable_apicv=n ple_gap=0 ple_window=0
+
+# vhost_net
+#   experimental_zcopytx=1   zero-copy transmit, lower network latency for VMs
+options vhost_net experimental_zcopytx=1

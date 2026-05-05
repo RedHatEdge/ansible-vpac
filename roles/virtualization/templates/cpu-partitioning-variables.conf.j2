@@ -7,3 +7,9 @@
 # is next applied.
 
 isolated_cores={{ rt_tuning.isolated_cpus }}
+
+# Move kernel-managed IRQs (NIC queues, NVMe, etc.) off the isolated cores at
+# runtime. Without this, kernel-managed IRQs land on whatever CPU the kernel
+# picks — including isolated ones — and steal jitter from RT VMs. Requires
+# kernel support; present in stock RHEL 9 and kernel-rt.
+isolate_managed_irq=Y

@@ -1,0 +1,46 @@
+---
+# KVM + vhost-net modprobe options for RT VMs.
+#
+# kvm_intel:
+#   nested=1            allow nested virtualization
+#   enable_apicv=n      disable Intel APIC virtualization (RT determinism)
+#   ple_gap=0           disable Pause-Loop Exiting (RT spin-wait shreds it)
+#   ple_window=0        same — both knobs must be 0 to disable PLE
+# vhost_net:
+#   experimental_zcopytx=1   zero-copy transmit, lower network latency
+#
+# Module options live in /etc/modprobe.d/ and are rebuilt into initramfs via
+# dracut so they apply at next boot. Currently Intel-only — AMD hosts will
+# need an equivalent kvm_amd drop-in (avic=0 etc.); out of scope for v1.
+
+- name: "Detect CPU vendor"
+  ansible.builtin.set_fact:
+    _virt_cpu_vendor: >-
+      {{ 'Intel' if ('GenuineIntel' in ansible_facts.processor)
+         else ('AMD' if ('AuthenticAMD' in ansible_facts.processor)
+         else 'unknown') }}
+
+- name: "Note when CPU is not Intel — modprobe drop-in is Intel-only"
+  ansible.builtin.debug:
+    msg: >-
+      CPU vendor is {{ _virt_cpu_vendor }}; the kvm_intel modprobe drop-in is
+      Intel-only and will not be written. AMD hosts need an equivalent
+      kvm_amd drop-in (avic=0 etc.) — out of scope for v1.
+  when: _virt_cpu_vendor != 'Intel'
+
+- name: "Write KVM + vhost_net modprobe drop-in"
+  ansible.builtin.template:
+    src: modprobe-vpac.conf.j2
+    dest: /etc/modprobe.d/vpac.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: _virt_modprobe
+  when: _virt_cpu_vendor == 'Intel'
+
+- name: "Regenerate initramfs so module options apply at next boot"
+  ansible.builtin.command: /usr/bin/dracut -f
+  when:
+    - _virt_cpu_vendor == 'Intel'
+    - _virt_modprobe.changed
+  notify: "reboot after kernel cmdline change"

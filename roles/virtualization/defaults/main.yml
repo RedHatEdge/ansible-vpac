@@ -28,3 +28,11 @@ virtualization_auto_reboot: false
 # Remove libvirt's built-in default NAT network. vPAC VMs attach to
 # br-mgmt / br-station from the networking role — never to default.
 virtualization_remove_default_network: true
+
+# Write the kvm_intel + vhost_net modprobe drop-in. Required for RT-VM
+# determinism: PLE disabled, Intel APICv disabled, vhost zero-copy on.
+# Auto-skipped on non-Intel CPUs (the role logs a note that AMD hosts
+# need an equivalent kvm_amd drop-in, which is out of scope for v1).
+# Triggers `dracut -f` so the options land in initramfs; takes effect
+# at next reboot. See tasks/modprobe.yml for the values and rationale.
+virtualization_write_modprobe: true
