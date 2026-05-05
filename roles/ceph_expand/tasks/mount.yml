@@ -27,6 +27,14 @@
     group: root
     mode: "0600"
 
+- name: "Restore SELinux contexts under /etc/ceph/"
+  # Ansible's copy module writes files with default contexts. Without restorecon,
+  # qemu-kvm under SELinux cannot read /etc/ceph/ceph.conf, and every RBD-backed
+  # VM dies on start with permission-denied. Mount works fine; VMs don't.
+  ansible.builtin.command: /usr/sbin/restorecon -Rv /etc/ceph/
+  register: _ceph_restorecon
+  changed_when: (_ceph_restorecon.stdout | default('')) | length > 0
+
 - name: "Create mountpoint"
   ansible.builtin.file:
     path: "{{ ceph.cephfs_mountpoint }}"

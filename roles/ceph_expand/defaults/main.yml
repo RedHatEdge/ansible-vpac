@@ -17,3 +17,11 @@ ceph_expand_require_health_ok: true
 
 # fstab mount options for CephFS.
 ceph_expand_mount_opts: "noatime,_netdev"
+
+# Wipe OSD candidate disks (wipefs -a + sgdisk --zap-all) before adding them
+# as OSDs. Required at any reused-hardware site; without it, prior partition
+# tables and filesystem signatures (ESXi, vSAN, prior Ceph) cause OSD-add to
+# either skip the disk or crashloop. Refuses to wipe a disk that is currently
+# mounted. Toggle false ONLY for greenfield NVMe where you have hand-verified
+# every device is empty.
+ceph_expand_wipe_osd_disks: true

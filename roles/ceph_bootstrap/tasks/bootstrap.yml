@@ -41,6 +41,7 @@
           'bootstrap',
           '--mon-ip', _ceph_node.storage_ip,
           '--cluster-network', ceph.cluster_network,
+          '--ssh-user', (ceph.ssh_user | default('root')),
           '--allow-fqdn-hostname',
           '--skip-monitoring-stack',
         ]

@@ -11,6 +11,10 @@
   ansible.builtin.import_tasks: bootstrap.yml
   tags: [ceph, ceph-bootstrap]
 
+- name: "Set public_network + cluster_network + dashboard server_addr post-bootstrap"
+  ansible.builtin.import_tasks: network_config.yml
+  tags: [ceph, ceph-bootstrap, ceph-network-config]
+
 - name: "Point cephadm at local-registry copies of monitoring images"
   ansible.builtin.import_tasks: monitoring_config.yml
   tags: [ceph, ceph-bootstrap, ceph-monitoring]

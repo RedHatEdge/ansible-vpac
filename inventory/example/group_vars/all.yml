@@ -382,6 +382,11 @@ ceph:
   container_image: null                  # null → derived from sources.container_registry + release
   registry_credentials_file: null        # path on bootstrap node; JSON for cephadm --registry-json
   bootstrap_node: "site1-node-a"
+  # SSH user cephadm uses to manage other nodes. Default `root`; override
+  # when root SSH is locked down and cephadm should drive a sudoers admin.
+  # The user must exist on every cluster node and authorize_cephadm.yml
+  # places the cephadm pubkey under that user's authorized_keys.
+  ssh_user: "root"
 
   # Per-node OSD devices. Must be empty block devices. No auto-discovery.
   osd_devices:

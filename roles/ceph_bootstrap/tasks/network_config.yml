@@ -1,0 +1,35 @@
+---
+# Post-bootstrap network and dashboard binding. cephadm bootstrap's
+# --public-network flag is unsupported in current versions and the
+# --cluster-network flag is treated as a hint; both must be set
+# authoritatively via `ceph config set global` after bootstrap. Without
+# explicit public_network, cephadm infers it from --mon-ip, which on
+# multi-NIC nodes can pick the wrong subnet and direct client-facing
+# Ceph traffic over the operator's mgmt interface.
+#
+# Dashboard server_addr defaults to the active MGR's storage IP, which is
+# unreachable from the operator's mgmt-VLAN laptop. Binding to 0.0.0.0
+# makes it reachable everywhere; restrict via firewalld if needed.
+
+- name: "Set ceph public_network (storage subnet)"
+  ansible.builtin.command:
+    cmd: "/usr/bin/ceph config set global public_network {{ ceph.public_network }}"
+  changed_when: true
+
+- name: "Set ceph cluster_network"
+  ansible.builtin.command:
+    cmd: "/usr/bin/ceph config set global cluster_network {{ ceph.cluster_network }}"
+  changed_when: true
+
+- name: "Bind dashboard to {{ ceph_bootstrap_dashboard_server_addr }}"
+  ansible.builtin.command:
+    cmd: "/usr/bin/ceph config set mgr mgr/dashboard/server_addr {{ ceph_bootstrap_dashboard_server_addr }}"
+  when: ceph_bootstrap_enable_dashboard | bool
+  changed_when: true
+
+- name: "Restart MGR daemons so the dashboard rebinds"
+  ansible.builtin.command:
+    cmd: "/usr/bin/ceph orch restart mgr"
+  when: ceph_bootstrap_enable_dashboard | bool
+  changed_when: true
+  register: _ceph_mgr_restart

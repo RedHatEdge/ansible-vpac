@@ -7,9 +7,9 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 1. **Load facts** — reads FSID + ceph.conf + admin keyring from the bootstrap node, sets an Ansible fact for downstream tasks.
 2. **Authorize cephadm SSH key** — cephadm manages daemons via root SSH from the bootstrap node; authorize its pubkey on every other cluster node.
 3. **Add hosts to the orchestrator** — `ceph orch host add <hostname> <storage_ip>` for each non-bootstrap node. Idempotent.
-4. **Add OSDs** — from `ceph.osd_devices[hostname]` per node. No auto-discovery; inventory is the source of truth. Waits until all OSDs are up.
+4. **Add OSDs** — from `ceph.osd_devices[hostname]` per node. No auto-discovery; inventory is the source of truth. Pre-wipes each declared device with `wipefs -a` + `sgdisk --zap-all` before `ceph orch daemon add osd` (refuses to wipe if the device is currently mounted) — required at reused-hardware sites where prior partition tables would otherwise cause OSDs to crashloop. Toggle off via `ceph_expand_wipe_osd_disks: false` only when devices are hand-verified empty. Waits until all OSDs are up.
 5. **Create CephFS** — one filesystem per entry in `ceph.pools[]` with `type: cephfs`. `ceph fs volume create` creates data + metadata pools + deploys MDS. (v1 only handles the first cephfs-type entry; RBD support comes later.)
-6. **Mount on every cluster node** — installs `ceph-common`, distributes `ceph.conf` + admin keyring, creates the mountpoint, writes the fstab entry, mounts. All cluster nodes need shared CephFS access for Pacemaker VM migration.
+6. **Mount on every cluster node** — installs `ceph-common`, distributes `ceph.conf` + admin keyring, runs `restorecon -Rv /etc/ceph/` (without it qemu-kvm cannot read `/etc/ceph/ceph.conf` under SELinux and every RBD-backed VM dies on start), creates the mountpoint, writes the fstab entry, mounts. All cluster nodes need shared CephFS access for Pacemaker VM migration.
 7. **Monitoring deploy** — `ceph orch apply` for prometheus, alertmanager, grafana, and node-exporter. cephadm pulls images from the paths configured by `ceph_bootstrap/monitoring_config.yml` (local registry in air-gapped mode, registry.redhat.io in connected mode).
 8. **Verify** — waits for `HEALTH_OK` (or `HEALTH_WARN` if `ceph_expand_require_health_ok: false`), then reports FSID, OSD count, and CephFS names.
 
@@ -21,6 +21,7 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 | `ceph_expand_health_timeout_s` | `600` | max wait for final health state |
 | `ceph_expand_require_health_ok` | `true` | flip `false` if accepting `HEALTH_WARN` (e.g. minimal lab without enough OSDs for proper redundancy) |
 | `ceph_expand_mount_opts` | `"noatime,_netdev"` | fstab options for CephFS |
+| `ceph_expand_wipe_osd_disks` | `true` | wipefs + sgdisk OSD devices before add; refuses if mounted |
 
 Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_node`, `osd_devices`, `pools`, `cephfs_mountpoint`).
 

@@ -5,6 +5,44 @@
 # Target host MUST be the FQDN that `ceph orch host ls` reports; passing a
 # short hostname makes cephadm silently no-op with rc=0.
 
+# ---- Pre-wipe OSD candidate disks ----
+# At any reused-hardware site (which is most utility upgrades, replacing
+# ESXi / vSAN), every OSD disk has prior partition tables and filesystem
+# signatures. Without wipefs + sgdisk, `ceph orch daemon add osd` either
+# skips the disk or accepts it with leftovers and the OSD crashloops.
+# Refuses to wipe a disk that's currently mounted — operator's safety net.
+
+- name: "Verify each declared OSD device is unmounted before wipe"
+  ansible.builtin.command: "lsblk -no MOUNTPOINT {{ item }}"
+  loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
+  register: _ceph_osd_mounts
+  changed_when: false
+  when: ceph_expand_wipe_osd_disks | bool
+
+- name: "Assert no declared OSD device is mounted"
+  ansible.builtin.assert:
+    that: (item.stdout | trim) | length == 0
+    fail_msg: >-
+      OSD candidate {{ item.item }} is currently mounted at
+      '{{ item.stdout | trim }}'. Refusing to wipe. Either unmount it or
+      remove it from ceph.osd_devices for this host.
+  loop: "{{ _ceph_osd_mounts.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('?') }}"
+  when:
+    - ceph_expand_wipe_osd_disks | bool
+    - _ceph_osd_mounts.results is defined
+
+- name: "wipefs -a + sgdisk --zap-all on each OSD device"
+  ansible.builtin.shell: |
+    set -e
+    wipefs -a {{ item }}
+    sgdisk --zap-all {{ item }}
+  loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
+  register: _ceph_osd_wipe
+  changed_when: true
+  when: ceph_expand_wipe_osd_disks | bool
+
 - name: "Add OSD on each device declared in ceph.osd_devices for this host"
   # On a freshly-bootstrapped cluster, `ceph orch daemon add osd` can
   # return rc=0 with empty output for the first device on a newly-added

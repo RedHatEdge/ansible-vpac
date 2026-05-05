@@ -28,3 +28,9 @@ ceph_bootstrap_mon_health_timeout_s: 120
 
 # Max time for `cephadm bootstrap` itself to run before we consider it stuck.
 ceph_bootstrap_cmd_timeout_s: 600
+
+# Address the Ceph dashboard MGR module binds to. Default 0.0.0.0 binds all
+# interfaces so the operator's mgmt-VLAN laptop can reach it (default binds
+# only to the active MGR's storage IP, unreachable from mgmt). Set to a
+# specific IP if you want to restrict the dashboard to one network.
+ceph_bootstrap_dashboard_server_addr: "0.0.0.0"
