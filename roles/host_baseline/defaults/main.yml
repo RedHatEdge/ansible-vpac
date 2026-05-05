@@ -33,3 +33,12 @@ firewalld_default_zone: "public"
 # have an RHSM activation key / Satellite / local mirror. Production deploys
 # always leave this false.
 host_baseline_skip_repo: false
+
+# Optional: enroll the host with Red Hat Insights via `rhc connect`.
+# When true (and sources.repo_source is "rhsm"), the host appears in
+# console.redhat.com with Insights advisor / vulnerability / compliance
+# data and can be managed remotely via the Red Hat connector daemon.
+# Reuses rhsm_activation_key + rhsm_org_id — no extra credentials.
+# Skipped automatically on satellite and local_mirror paths since rhc
+# pushes telemetry to console.redhat.com (unreachable from air-gapped sites).
+host_baseline_enable_insights: false

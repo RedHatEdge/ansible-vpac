@@ -29,6 +29,14 @@
   when: host_baseline_skip_repo | bool
   tags: [baseline, baseline-repo]
 
+- name: "Insights enrollment (optional, RHSM-connected only)"
+  ansible.builtin.import_tasks: insights.yml
+  when:
+    - host_baseline_enable_insights | bool
+    - sources.repo_source == "rhsm"
+    - not (host_baseline_skip_repo | bool)
+  tags: [baseline, baseline-insights]
+
 - name: "Baseline packages"
   ansible.builtin.import_tasks: packages.yml
   tags: [baseline, baseline-packages]

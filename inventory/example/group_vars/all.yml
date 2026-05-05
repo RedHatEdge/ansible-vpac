@@ -85,7 +85,27 @@ sources:
 rhsm_activation_key: "{{ vault_rhsm_activation_key | default('') }}"
 rhsm_org_id: "{{ vault_rhsm_org_id | default('') }}"
 rhsm_server_url: "subscription.rhsm.redhat.com"
-rhsm_pool: ""                            # optional pool override
+
+# Subscription model: this contract assumes Simple Content Access (SCA),
+# which is the default on Red Hat accounts created since ~2022. With SCA
+# on, registering with the activation key above is enough — every repo
+# in rhsm_repos lights up immediately, no per-host pool attach needed.
+#
+# If your account is NOT on SCA (legacy attach-a-pool model), set
+# rhsm_pool to the pool ID covering RHEL + HA + Resilient Storage + NFV
+# + Ceph Storage 7. host_baseline (repo_rhsm.yml) and builder_rhsm both
+# pass it to community.general.redhat_subscription as the pool to attach.
+# To check which model your account uses, log in to console.redhat.com
+# → Subscriptions → "Simple Content Access" status banner.
+rhsm_pool: ""
+
+# Optional: enrol cluster nodes with Red Hat Insights via `rhc connect`
+# (host_baseline). When true, hosts appear in console.redhat.com with
+# advisor/vulnerability/compliance data. Reuses the activation key + org
+# above. Only takes effect when sources.repo_source is "rhsm" — air-gapped
+# and satellite-only sites cannot reach console.redhat.com so the role
+# auto-skips this even if the toggle is on.
+host_baseline_enable_insights: false
 
 # Repos enabled on the builder (by builder_rhsm) AND on cluster nodes (by
 # host_baseline, when sources.repo_source is rhsm). The builder reposyncs

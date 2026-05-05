@@ -1,0 +1,32 @@
+---
+# Optional: enroll the host with Red Hat Insights via the Red Hat connector
+# (`rhc`). Gated by host_baseline_enable_insights and sources.repo_source ==
+# "rhsm" — see main.yml for the gate.
+#
+# rhc connect's job is to bring the host to a "connected" state: register if
+# not already (we already did via repo_rhsm.yml), enrol with insights-client,
+# enable + start rhcd. We use the same activation key + org as RHSM so no
+# extra credentials are introduced. We probe rhcd first to make the role
+# idempotent without parsing rhc's stdout.
+
+- name: "Install rhc"
+  ansible.builtin.dnf:
+    name: rhc
+    state: present
+
+- name: "Probe rhcd state (idempotency gate)"
+  ansible.builtin.systemd_service:
+    name: rhcd
+  register: _baseline_rhcd
+  failed_when: false
+
+- name: "Connect host to Red Hat Insights"
+  ansible.builtin.command:
+    cmd: >-
+      rhc connect
+      --activation-key={{ rhsm_activation_key }}
+      --organization={{ rhsm_org_id }}
+  register: _baseline_rhc
+  changed_when: true
+  no_log: true
+  when: (_baseline_rhcd.status.ActiveState | default('inactive')) != 'active'
