@@ -1,0 +1,20 @@
+# Managed by ansible-vpac / ceph_expand role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags ceph-sanlock
+#
+# See https://libvirt.org/locking-sanlock.html for full option reference.
+
+# Operator-managed leases (we add the lockspace via systemd oneshot, not
+# via libvirt's auto-add). Keeps the lockspace lifecycle independent of
+# libvirtd restarts.
+auto_disk_leases = 0
+
+# Refuse to start any VM that doesn't have a lease. This is the knob that
+# closes the split-brain window: even if Pacemaker location constraints fail
+# and the same VM is requested on two nodes, only the lease holder can
+# actually start it.
+require_lease_for_disks = 1
+
+# Per-node identity. 1-based index assigned from vpac_nodes order by
+# ceph_expand/sanlock_ceph.yml. Must be unique per node and stable across
+# reboots — the lockspace stores leases keyed by host_id.
+host_id = {{ _ceph_sanlock_host_id }}

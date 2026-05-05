@@ -1,0 +1,131 @@
+---
+# Sanlock-on-RBD chain (Ceph side). Provisions:
+#   1. <rbd_pool>/<lockspace> RBD image (size from ceph_expand_sanlock_lockspace_size_mb)
+#   2. /etc/ceph/rbdmap entry + rbdmap.service enabled (so the lockspace
+#      device auto-maps at boot)
+#   3. sanlock direct init on the lockspace (one-time, on bootstrap node)
+#   4. /etc/libvirt/qemu-sanlock.conf with auto_disk_leases=0,
+#      require_lease_for_disks=1, per-node host_id (1-based from
+#      vpac_nodes order)
+#   5. sanlock-lockspace.service systemd oneshot — calls
+#      `sanlock client add_lockspace` on every boot (sanlock does NOT
+#      persist lockspace registration across reboots)
+#
+# AFTER this chain is in place on every cluster node, the operator flips
+# virtualization_lock_manager to "sanlock" in inventory and re-runs the
+# virtualization role. libvirtd then refuses to start any VM without a
+# sanlock lease — preventing the cluster-wide split-brain failure mode
+# where two nodes start the same VM against the same Ceph image.
+#
+# Skipped silently when no RBD pool is declared.
+
+- name: "Find RBD pool name"
+  ansible.builtin.set_fact:
+    _ceph_rbd_pool: "{{ (ceph.pools | selectattr('type', 'equalto', 'rbd') | list | first | default({})).name | default('') }}"
+  run_once: true
+
+- name: "Skip sanlock chain when no RBD pool is declared"
+  ansible.builtin.meta: end_play
+  when: _ceph_rbd_pool | length == 0
+
+- name: "Compute per-node host_id (1-based index in vpac_nodes)"
+  ansible.builtin.set_fact:
+    _ceph_sanlock_host_id: >-
+      {{ (vpac_nodes | map(attribute='hostname') | list).index(inventory_hostname) + 1 }}
+
+# ---- Lockspace image (run once from bootstrap node) ----
+
+- name: "List existing RBD images in the pool"
+  ansible.builtin.command: "/usr/bin/rbd ls {{ _ceph_rbd_pool }}"
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  register: _ceph_lockspace_ls
+  changed_when: false
+
+- name: "Create sanlock lockspace RBD image"
+  ansible.builtin.command: >-
+    /usr/bin/rbd create
+    --size {{ ceph_expand_sanlock_lockspace_size_mb }}
+    {{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  when: ceph_expand_sanlock_lockspace_name not in (_ceph_lockspace_ls.stdout_lines | default([]))
+  changed_when: true
+
+# ---- rbdmap: persist the device map across reboots ----
+
+- name: "Ensure /etc/ceph/rbdmap exists"
+  ansible.builtin.file:
+    path: /etc/ceph/rbdmap
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+- name: "Add lockspace image to /etc/ceph/rbdmap"
+  ansible.builtin.lineinfile:
+    path: /etc/ceph/rbdmap
+    regexp: "^{{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}\\s"
+    line: "{{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}\tid=admin,keyring=/etc/ceph/ceph.client.admin.keyring"
+
+- name: "Enable rbdmap.service (processes /etc/ceph/rbdmap at boot)"
+  ansible.builtin.systemd_service:
+    name: rbdmap
+    state: started
+    enabled: true
+
+- name: "Map the lockspace image now (for first run)"
+  ansible.builtin.command: /usr/bin/rbdmap map
+  register: _ceph_rbdmap
+  changed_when: "'mapped' in (_ceph_rbdmap.stdout | default('') | lower)"
+
+- name: "Wait for /dev/rbd/<pool>/<lockspace> device to appear"
+  ansible.builtin.wait_for:
+    path: "/dev/rbd/{{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}"
+    timeout: 30
+
+# ---- One-time sanlock direct init on the lockspace ----
+
+- name: "sanlock direct init on the lockspace device"
+  # Re-running is safe (writes the same lockspace structure) but only one
+  # node needs to do the init. Subsequent nodes just add their host_id slot.
+  ansible.builtin.command: >-
+    /usr/sbin/sanlock direct init
+    -s libvirt:0:/dev/rbd/{{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}:0
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: true
+
+# ---- Per-node libvirt sanlock config + systemd oneshot ----
+
+- name: "Render /etc/libvirt/qemu-sanlock.conf with this node's host_id"
+  ansible.builtin.template:
+    src: qemu-sanlock.conf.j2
+    dest: /etc/libvirt/qemu-sanlock.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Render sanlock-lockspace systemd oneshot"
+  ansible.builtin.template:
+    src: sanlock-lockspace.service.j2
+    dest: /etc/systemd/system/sanlock-lockspace.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _ceph_sanlock_service
+
+- name: "Ensure sanlock daemon is enabled + running"
+  ansible.builtin.systemd_service:
+    name: sanlock
+    state: started
+    enabled: true
+
+- name: "Enable + start sanlock-lockspace.service"
+  ansible.builtin.systemd_service:
+    name: sanlock-lockspace
+    state: started
+    enabled: true
+    daemon_reload: "{{ _ceph_sanlock_service.changed }}"

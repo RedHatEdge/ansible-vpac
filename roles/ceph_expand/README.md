@@ -12,8 +12,9 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 6. **Create CephFS** — one filesystem per entry in `ceph.pools[]` with `type: cephfs`. `ceph fs volume create` creates data + metadata pools + deploys MDS. (v1 only handles the first cephfs-type entry.)
 7. **Mount on every cluster node** — installs `ceph-common`, distributes `ceph.conf` + admin keyring, runs `restorecon -Rv /etc/ceph/` (without it qemu-kvm cannot read `/etc/ceph/ceph.conf` under SELinux and every RBD-backed VM dies on start), creates the mountpoint, writes the fstab entry, mounts. All cluster nodes need shared CephFS access for Pacemaker VM migration.
 8. **Define libvirt cephx secret** — creates `ceph.libvirt_cephx_user` (default `client.libvirt`) on the bootstrap node with caps `mon "profile rbd" osd "profile rbd pool=<first rbd pool>"`, then defines a libvirt secret with the fixed `ceph.libvirt_secret_uuid` on every cluster node and sets the value to that user's cephx key. The UUID must be the same on every node — different UUIDs silently break live migration. The role refuses the placeholder all-zeros UUID. Skipped when no RBD pool is declared.
-9. **Monitoring deploy** — `ceph orch apply` for prometheus, alertmanager, grafana, and node-exporter. cephadm pulls images from the paths configured by `ceph_bootstrap/monitoring_config.yml` (local registry in air-gapped mode, registry.redhat.io in connected mode).
-10. **Verify** — waits for `HEALTH_OK` (or `HEALTH_WARN` if `ceph_expand_require_health_ok: false`), then reports FSID, OSD count, and CephFS names.
+9. **Sanlock Ceph-side chain** — provisions the production storage backend's split-brain protection. Steps: create a 1 GiB `<rbd_pool>/<lockspace>` RBD image; add it to `/etc/ceph/rbdmap` and enable `rbdmap.service` so it auto-maps at boot; `sanlock direct init` on the lockspace device (one-time, from bootstrap node); render `/etc/libvirt/qemu-sanlock.conf` with `auto_disk_leases=0`, `require_lease_for_disks=1`, per-node `host_id` (1-based index from `vpac_nodes` order); drop `sanlock-lockspace.service` systemd oneshot that runs `sanlock client add_lockspace` on every boot (sanlock does NOT persist lockspace registration across reboots); enable + start `sanlock.service` and the oneshot. Skipped when no RBD pool is declared. **After this chain is in place on every cluster node, the operator flips `virtualization_lock_manager` to `sanlock` in inventory and re-runs the virtualization role; libvirtd then refuses to start any VM without a sanlock lease.**
+10. **Monitoring deploy** — `ceph orch apply` for prometheus, alertmanager, grafana, and node-exporter. cephadm pulls images from the paths configured by `ceph_bootstrap/monitoring_config.yml` (local registry in air-gapped mode, registry.redhat.io in connected mode).
+11. **Verify** — waits for `HEALTH_OK` (or `HEALTH_WARN` if `ceph_expand_require_health_ok: false`), then reports FSID, OSD count, and CephFS names.
 
 ## Variables
 
@@ -24,6 +25,8 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 | `ceph_expand_require_health_ok` | `true` | flip `false` if accepting `HEALTH_WARN` (e.g. minimal lab without enough OSDs for proper redundancy) |
 | `ceph_expand_mount_opts` | `"noatime,_netdev"` | fstab options for CephFS |
 | `ceph_expand_wipe_osd_disks` | `true` | wipefs + sgdisk OSD devices before add; refuses if mounted |
+| `ceph_expand_sanlock_lockspace_name` | `"sanlock-leases"` | RBD image name for the sanlock lockspace; pick once, never rename |
+| `ceph_expand_sanlock_lockspace_size_mb` | `1024` | lockspace image size; 1 GiB is enough for hundreds of VMs |
 
 Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_node`, `osd_devices`, `pools`, `cephfs_mountpoint`).
 
@@ -36,7 +39,7 @@ Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_n
 
 - `ceph` — everything Ceph (also applies in `ceph_bootstrap`)
 - `ceph-expand` — this role specifically
-- `ceph-facts`, `ceph-hosts`, `ceph-osds`, `ceph-rbd-pools`, `ceph-fs`, `ceph-mount`, `ceph-libvirt-secret`, `ceph-monitoring`, `ceph-verify` — sub-steps
+- `ceph-facts`, `ceph-hosts`, `ceph-osds`, `ceph-rbd-pools`, `ceph-fs`, `ceph-mount`, `ceph-libvirt-secret`, `ceph-sanlock`, `ceph-monitoring`, `ceph-verify` — sub-steps
 
 ## Simplifications in v1
 
@@ -44,4 +47,4 @@ Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_n
 - Admin keyring is pushed to every node for the CephFS mount. RBD-backed VMs use the scoped `client.libvirt` keyring via the libvirt secret, NOT the admin keyring.
 - No pool-level placement rules, PG autoscaling is left at cephadm defaults.
 - MDS is deployed by `ceph fs volume create` on the bootstrap node only. For HA MDS, future work layers a second standby MDS on another node.
-- The sanlock-on-RBD chain (lockspace image, `qemu-sanlock.conf` with per-node `host_id`, `rbdmap`, `sanlock-lockspace.service` systemd oneshot) lands in a follow-up commit. Without it, RBD-backed VMs work but are not protected against the cluster-wide split-brain failure mode where two nodes start the same VM against the same Ceph image.
+- Activating sanlock requires one final operator step after this role runs cleanly: flip `virtualization_lock_manager` to `"sanlock"` in inventory and re-run the virtualization role (`ansible-playbook site.yml --tags virt-qemu-conf`). Until that flip, libvirtd ignores the sanlock chain even though it's fully deployed — the chain is configured but inactive.

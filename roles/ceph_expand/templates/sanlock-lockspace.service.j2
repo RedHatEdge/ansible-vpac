@@ -1,0 +1,20 @@
+# Managed by ansible-vpac / ceph_expand role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags ceph-sanlock
+#
+# sanlock client add_lockspace does NOT persist across reboots, so we wrap
+# it in a systemd oneshot ordered after rbdmap (device must exist) and
+# sanlock.service (daemon must be running).
+
+[Unit]
+Description=Add sanlock lockspace for libvirt RBD-backed VMs
+After=rbdmap.service sanlock.service
+Requires=rbdmap.service sanlock.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/sanlock client add_lockspace -s libvirt:{{ _ceph_sanlock_host_id }}:/dev/rbd/{{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}:0
+ExecStop=/usr/sbin/sanlock client rem_lockspace -s libvirt:{{ _ceph_sanlock_host_id }}:/dev/rbd/{{ _ceph_rbd_pool }}/{{ ceph_expand_sanlock_lockspace_name }}:0
+
+[Install]
+WantedBy=multi-user.target

@@ -25,3 +25,10 @@ ceph_expand_mount_opts: "noatime,_netdev"
 # mounted. Toggle false ONLY for greenfield NVMe where you have hand-verified
 # every device is empty.
 ceph_expand_wipe_osd_disks: true
+
+# Sanlock-on-RBD lockspace. The role provisions this image in the first
+# RBD pool declared in ceph.pools[]. 1 GiB is enough for hundreds of VMs;
+# the structure is mostly slot metadata, not data. Name change is not
+# supported across re-runs — pick once, never rename.
+ceph_expand_sanlock_lockspace_name: "sanlock-leases"
+ceph_expand_sanlock_lockspace_size_mb: 1024

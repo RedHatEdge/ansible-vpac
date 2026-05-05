@@ -35,6 +35,10 @@
   ansible.builtin.import_tasks: libvirt_secret.yml
   tags: [ceph, ceph-expand, ceph-libvirt-secret]
 
+- name: "Sanlock Ceph-side chain (lockspace + qemu-sanlock.conf + systemd oneshot)"
+  ansible.builtin.import_tasks: sanlock_ceph.yml
+  tags: [ceph, ceph-expand, ceph-sanlock]
+
 - name: "Deploy monitoring stack (prometheus + alertmanager + grafana + node-exporter)"
   ansible.builtin.import_tasks: monitoring_deploy.yml
   tags: [ceph, ceph-expand, ceph-monitoring]
