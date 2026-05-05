@@ -1,0 +1,54 @@
+---
+# Define libvirt virtual networks for each VM-facing bridge so VM XMLs can
+# reference `<source network='X'/>` instead of `<source bridge='Y'/>`. This
+# matches the production convention where the network NAME (e.g. station-bus)
+# decouples vendor VM XMLs from the underlying bridge name. forward=bridge
+# means libvirt references an existing host bridge rather than creating
+# its own NAT bridge.
+
+- name: "Render libvirt virtual network XMLs"
+  ansible.builtin.template:
+    src: libvirt-network.xml.j2
+    dest: "/etc/libvirt/qemu/networks/{{ item.name }}.xml"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ virtualization_libvirt_networks }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: "Define libvirt networks"
+  ansible.builtin.command:
+    cmd: "/usr/bin/virsh net-define /etc/libvirt/qemu/networks/{{ item.name }}.xml"
+  loop: "{{ virtualization_libvirt_networks }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _virt_lvnet_define
+  changed_when: _virt_lvnet_define.rc == 0
+  failed_when:
+    - _virt_lvnet_define.rc != 0
+    - "'already exists' not in (_virt_lvnet_define.stderr | default(''))"
+
+- name: "Set libvirt networks to autostart"
+  ansible.builtin.command:
+    cmd: "/usr/bin/virsh net-autostart {{ item.name }}"
+  loop: "{{ virtualization_libvirt_networks }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _virt_lvnet_autostart
+  changed_when: _virt_lvnet_autostart.rc == 0
+  failed_when:
+    - _virt_lvnet_autostart.rc != 0
+    - "'already' not in (_virt_lvnet_autostart.stderr | default(''))"
+
+- name: "Activate libvirt networks"
+  ansible.builtin.command:
+    cmd: "/usr/bin/virsh net-start {{ item.name }}"
+  loop: "{{ virtualization_libvirt_networks }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _virt_lvnet_start
+  changed_when: _virt_lvnet_start.rc == 0
+  failed_when:
+    - _virt_lvnet_start.rc != 0
+    - "'already active' not in (_virt_lvnet_start.stderr | default(''))"

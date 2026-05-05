@@ -17,9 +17,18 @@
   when: virtualization_remove_default_network | bool
   tags: [virt, virt-default-net]
 
+- name: "Define libvirt virtual networks (forward=bridge over br-mgmt + station-bus)"
+  ansible.builtin.import_tasks: libvirt_networks.yml
+  tags: [virt, virt-libvirt-networks]
+
 - name: "Configure tuned profile (cpu-partitioning / realtime-virtual-host)"
   ansible.builtin.import_tasks: tuned_profile.yml
   tags: [virt, virt-tuned]
+
+- name: "Disable jitter-causing services (irqbalance, ksm, ksmtuned)"
+  ansible.builtin.import_tasks: disable_jitter.yml
+  when: virtualization_disable_jitter_services | bool
+  tags: [virt, virt-jitter]
 
 - name: "Verify"
   ansible.builtin.import_tasks: verify.yml

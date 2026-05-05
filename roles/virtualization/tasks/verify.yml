@@ -26,3 +26,19 @@
       Tuned profile '{{ _virt_tuned_profile }}' not active.
       Current: {{ _virt_tuned_check.stdout | trim }}
     success_msg: "Tuned profile '{{ _virt_tuned_profile }}' active"
+
+- name: "Run virt-host-validate"
+  ansible.builtin.command: /usr/bin/virt-host-validate qemu
+  register: _virt_host_validate
+  changed_when: false
+  failed_when: false
+
+- name: "Assert virt-host-validate has no FAIL lines"
+  ansible.builtin.assert:
+    that: _virt_host_validate.stdout_lines | select('search', ':\\s*FAIL') | list | length == 0
+    fail_msg: >-
+      virt-host-validate reports FAIL conditions on {{ inventory_hostname }}.
+      Common causes: IOMMU not enabled in BIOS, missing kernel modules,
+      cgroup controllers misconfigured. Full output:
+      {{ _virt_host_validate.stdout }}
+    success_msg: "virt-host-validate clean (warnings allowed)"

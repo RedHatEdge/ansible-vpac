@@ -1,0 +1,22 @@
+---
+# Disable services that wake periodically and steal jitter from RT VMs even
+# when individual VMs set <nosharepages/> or pin their CPUs:
+#   irqbalance — silently fights `isolate_managed_irq=Y` by re-balancing
+#                IRQs onto isolated cores
+#   ksm        — same-page-merging scanner (CPU work)
+#   ksmtuned   — tunes ksm aggressiveness; same problem
+#
+# Safe to run on non-RT hosts too — none are useful for cluster-node
+# workloads. Skipped silently if the unit isn't installed.
+
+- name: "Stop and disable jitter-causing services"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - irqbalance
+    - ksm
+    - ksmtuned
+  failed_when: false
+  register: _virt_jitter

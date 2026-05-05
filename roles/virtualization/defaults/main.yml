@@ -3,14 +3,24 @@
 # packages (kernel-rt, tuned-profiles-realtime, tuned-profiles-nfv-host) land
 # in the rt_tuning role to keep concerns separated — those come from the
 # rhel-9-for-x86_64-nfv-rpms repo, which the rt_tuning role enables.
+#   swtpm-tools     TPM state init for Windows-11 / TPM-required guests
+#   intel-cmt-cat   `pqos` for cache monitoring + partitioning (Intel CAT)
+#   virt-viewer     operator console
+#   cabextract      vendor SW bundle extraction (e.g. SSC600 .cab files)
+#   cockpit-machines Cockpit's VM management panel
 virtualization_packages:
   - libvirt
   - libvirt-client
   - qemu-kvm
   - qemu-img
   - virt-install
+  - virt-viewer
   - swtpm
+  - swtpm-tools
   - edk2-ovmf
+  - intel-cmt-cat
+  - cabextract
+  - cockpit-machines
   - tuned
   - tuned-profiles-cpu-partitioning
 
@@ -25,9 +35,26 @@ virtualization_tuned_profile_nonrt: "virtual-host"
 # set it true to drive the role unattended.
 virtualization_auto_reboot: false
 
-# Remove libvirt's built-in default NAT network. vPAC VMs attach to
-# br-mgmt / br-station from the networking role — never to default.
-virtualization_remove_default_network: true
+# Remove libvirt's built-in default NAT network. By default this only fires
+# on airgapped deployments; connected sites keep the default NAT active so
+# Windows installer workflows (`virt-install --network default`) work without
+# operator footwork. Override to true/false explicitly to force.
+virtualization_remove_default_network: "{{ (deployment_mode | default('connected')) == 'airgapped' }}"
+
+# Define libvirt virtual networks (forward=bridge) for each VM-facing host
+# bridge. The network NAME is what VM XMLs reference (`<source network='X'/>`);
+# the bridge attribute is the host bridge to attach to. station-bus matches
+# the established production convention used by vendor VM XMLs (SSC600 etc.).
+virtualization_libvirt_networks:
+  - name: br-mgmt
+    bridge: "{{ bridges.mgmt }}"
+  - name: station-bus
+    bridge: "{{ bridges.station }}"
+
+# Disable services that wake periodically and steal RT jitter:
+# irqbalance, ksm, ksmtuned. Default true on every cluster node — none are
+# useful for vPAC workloads. Toggle off only if a specific site has a reason.
+virtualization_disable_jitter_services: true
 
 # Write the kvm_intel + vhost_net modprobe drop-in. Required for RT-VM
 # determinism: PLE disabled, Intel APICv disabled, vhost zero-copy on.
