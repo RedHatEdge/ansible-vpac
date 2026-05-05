@@ -301,6 +301,14 @@ time_sync:
   sync_timeout_s: 120
   max_offset_ms: 50
 
+  # Intra-cluster chrony peer mesh on the storage network. Keeps the
+  # cluster clock-consistent if upstream NTP becomes unreachable. Each
+  # node peers with every other node's storage_ip; nodes also advertise
+  # `local stratum 10` with `allow networks.storage.cidr`. Required for
+  # Ceph clock-skew defense — leave true unless you have an external
+  # site-wide PTP/NTP fabric every node also uses.
+  intra_cluster_peer: true
+
   # PTP configuration — used by stage 40 (ptp_timesync).
   ptp:
     domain: 0

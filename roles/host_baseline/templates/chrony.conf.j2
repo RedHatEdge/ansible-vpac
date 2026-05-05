@@ -4,10 +4,25 @@
 # Sources from inventory time_sync.ntp_servers. When ptp_timesync (stage 40)
 # runs with time_sync.mode set to 'ptp', it strips these and replaces them
 # with a PTP reference clock. 'ptp_with_ntp' keeps both.
+#
+# Intra-cluster peer mesh on the storage network (when enabled in inventory)
+# keeps the cluster clock-consistent if the upstream NTP path goes down.
+# Without it, Ceph drops to HEALTH_WARN with clock-skew on every NTP wobble.
 
 {% for s in time_sync.ntp_servers %}
 server {{ s }} iburst
 {% endfor %}
+
+{% if time_sync.intra_cluster_peer | default(false) | bool %}
+{% for n in vpac_nodes if n.hostname != inventory_hostname %}
+peer {{ n.storage_ip }} iburst
+{% endfor %}
+
+# Serve time to the storage network at stratum 10 so peers can keep each
+# other in sync if upstream NTP is unreachable.
+local stratum 10
+allow {{ networks.storage.cidr }}
+{% endif %}
 
 # Record the rate at which the system clock gains/loses time.
 driftfile /var/lib/chrony/drift

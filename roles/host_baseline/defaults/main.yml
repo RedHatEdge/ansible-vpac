@@ -25,8 +25,28 @@ journald_max_use_mb: 2048
 local_mirror_gpgcheck: false
 local_mirror_gpgkey_url: ""
 
+# SELinux target mode. Default is permissive because qemu-kvm under
+# enforcing cannot read /etc/ceph/ceph.conf without context tweaks,
+# breaking every RBD-backed VM on start. Sites that have proven SELinux
+# contexts can override to "enforcing". Disabled is rejected — selinux=0
+# on the kernel cmdline removes /sys/fs/selinux and breaks Ceph OSD
+# containers. See tasks/selinux.yml.
+selinux_target_mode: "permissive"
+
 # Firewalld zone used by default. Other roles add services to this zone.
 firewalld_default_zone: "public"
+
+# Firewalld baseline services and ports. Roles for downstream stages
+# (ceph_*, pacemaker_*) add their own service-specific ports later.
+# These are baseline-shaped: SSH, operator UI, Pacemaker pcsd,
+# QEMU live migration, VNC consoles.
+firewalld_baseline_services:
+  - ssh
+  - cockpit
+  - high-availability
+firewalld_baseline_ports:
+  - "49152-49215/tcp"   # QEMU live migration
+  - "5900-5910/tcp"     # VNC consoles
 
 # Skip the repo-source setup entirely. Useful for lab runs where the VMs were
 # installed from a DVD ISO and already have packages baked in, and you don't

@@ -4,7 +4,7 @@ Stage 10. Brings each cluster node to a known, minimal state before any networki
 
 ## What it does
 
-1. **SELinux** — assert enabled (does not change mode)
+1. **SELinux** — set persistently to `selinux_target_mode` (default `permissive`). Rejects `selinux=0` on the kernel cmdline (which would remove `/sys/fs/selinux` and break Ceph OSD containers). Permissive is the default because qemu-kvm under Enforcing cannot read `/etc/ceph/ceph.conf` without additional context tweaks, breaking every RBD-backed VM on start. Sites with proven SELinux contexts can override to `enforcing`.
 2. **Timezone** — set from `site_timezone`
 3. **Hostname** — set from the node's `vpac_nodes` entry
 4. **/etc/hosts** — write mgmt + storage entries for every node from `vpac_nodes`. Ceph bootstrap and Pacemaker both need hostnames that resolve *without* DNS, since storage networks are L2-only at many sites.
@@ -13,9 +13,9 @@ Stage 10. Brings each cluster node to a known, minimal state before any networki
    - `satellite` → register against the Satellite URL with the same key
    - `local_mirror` → write dnf repo files pointing at `sources.local_mirror_url`; no subscription
 6. **Packages** — install the baseline toolset (networking, tracing, cluster-adjacent utilities)
-7. **Chrony** — write `/etc/chrony.conf` from `time_sync.ntp_servers`, start `chronyd`, then block on `chronyc waitsync` until chrony reports offset within `time_sync.max_offset_ms` (or fail after `time_sync.sync_timeout_s`). Every downstream stage — Ceph especially — can assume clocks are within NTP tolerance after this runs. `ptp_timesync` (stage 40) may later replace the NTP sources with a PTP reference.
+7. **Chrony** — write `/etc/chrony.conf` from `time_sync.ntp_servers`, start `chronyd`, then block on `chronyc waitsync` until chrony reports offset within `time_sync.max_offset_ms` (or fail after `time_sync.sync_timeout_s`). Every downstream stage — Ceph especially — can assume clocks are within NTP tolerance after this runs. When `time_sync.intra_cluster_peer` is true (default), additionally emits a `peer <storage_ip>` line for every other node plus `local stratum 10` + `allow <storage cidr>` — a peer mesh on the storage network so the cluster stays clock-consistent if upstream NTP wobbles. `ptp_timesync` (stage 40) may later replace the NTP sources with a PTP reference.
 8. **Insights** *(optional)* — when `host_baseline_enable_insights: true` and `sources.repo_source: rhsm`, install `rhc` and run `rhc connect --activation-key --organization` to enrol the host with Red Hat Insights (advisor / vulnerability / compliance data, remote management via rhcd). Reuses the RHSM activation key — no extra credentials. Auto-skipped on `satellite` and `local_mirror` paths since rhc pushes telemetry to `console.redhat.com`.
-9. **Firewalld** — start + enable; allow SSH. Other services open their own ports in their own roles.
+9. **Firewalld** — start + enable; set the default zone; allow `firewalld_baseline_services` (SSH, cockpit, high-availability) and `firewalld_baseline_ports` (QEMU live migration `49152-49215/tcp`, VNC `5900-5910/tcp`). Downstream roles (ceph_*, pacemaker_*) add their own service-specific ports.
 10. **Journald** — persistent storage under `/var/log/journal`, sized to `journald_max_use_mb`
 
 ## Variables (with defaults)
@@ -28,6 +28,9 @@ Stage 10. Brings each cluster node to a known, minimal state before any networki
 | `local_mirror_gpgcheck` | `false` | flip to `true` + set `local_mirror_gpgkey_url` for prod |
 | `local_mirror_gpgkey_url` | `""` | required when `local_mirror_gpgcheck: true` |
 | `firewalld_default_zone` | `"public"` | |
+| `firewalld_baseline_services` | `[ssh, cockpit, high-availability]` | extendable |
+| `firewalld_baseline_ports` | `[49152-49215/tcp, 5900-5910/tcp]` | live migration + VNC |
+| `selinux_target_mode` | `"permissive"` | flip to `"enforcing"` only if SELinux contexts are proven on the site |
 | `host_baseline_skip_repo` | `false` | true = skip RHSM/Satellite/mirror setup (lab DVD installs) |
 | `host_baseline_enable_insights` | `false` | true = `rhc connect` to console.redhat.com (RHSM path only) |
 

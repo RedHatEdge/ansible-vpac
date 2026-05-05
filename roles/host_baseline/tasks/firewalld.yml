@@ -1,4 +1,10 @@
 ---
+# Baseline firewalld: zone + service set + port set. Downstream roles
+# (ceph_*, pacemaker_*) add their own service-specific ports later. The
+# baseline here covers SSH, the operator UI (cockpit), Pacemaker pcsd
+# (high-availability), QEMU live migration, and VNC consoles — anything
+# an operator expects to be reachable on a freshly-baselined host.
+
 - name: "Start + enable firewalld"
   ansible.builtin.systemd_service:
     name: firewalld
@@ -13,10 +19,20 @@
     - _baseline_fw_zone.rc != 0
     - "'ZONE_ALREADY_SET' not in _baseline_fw_zone.stderr"
 
-- name: "Allow SSH in default zone"
+- name: "Allow baseline services in default zone"
   ansible.posix.firewalld:
     zone: "{{ firewalld_default_zone }}"
-    service: ssh
+    service: "{{ item }}"
     state: enabled
     permanent: true
     immediate: true
+  loop: "{{ firewalld_baseline_services }}"
+
+- name: "Allow baseline ports in default zone"
+  ansible.posix.firewalld:
+    zone: "{{ firewalld_default_zone }}"
+    port: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewalld_baseline_ports }}"
