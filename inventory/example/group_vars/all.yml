@@ -240,31 +240,50 @@ networking_defaults:
   # macvtap target. Verified by the ptp_isolation role.
   ptp_nic: "ens4f2"
 
-  # Bond for management bridge (br-mgmt)
+  # Bond for management bridge.
+  # active-backup: primary= names the preferred member; failover happens on
+  # carrier loss only when miimon polls (here 100 ms). Without miimon, the
+  # kernel uses ARP probes — much slower failure detection.
   mgmt_bond:
     name: "bond0"
     mode: "active-backup"
     members: ["eno1", "eno2"]
+    options:
+      miimon: 100
+      primary: "eno1"
 
-  # Bond for storage (no bridge — raw IP on the bond)
+  # Bond for storage (no bridge — raw IP on the bond).
+  # 802.3ad (LACP): xmit_hash_policy=layer3+4 spreads flows across links
+  # by IP+port (best for many small Ceph connections). lacp_rate=fast
+  # cuts failover from ~30s to ~3s.
   storage_bond:
     name: "bond1"
     mode: "802.3ad"                      # LACP when ToR supports it
     members: ["ens1f0", "ens1f1"]
+    options:
+      miimon: 100
+      xmit_hash_policy: "layer3+4"
+      lacp_rate: "fast"
 
-  # Bond for station bus bridge (br-station)
+  # Bond for station bus bridge.
   station_bond:
     name: "bond2"
     mode: "active-backup"
     members: ["ens2f0", "ens2f1"]
+    options:
+      miimon: 100
+      primary: "ens2f0"
 
   # Dedicated NIC for cluster heartbeat — NOT a bridge member
   heartbeat_nic: "ens3f0"
 
-# Bridge names presented to VMs. Kept simple and stable across nodes.
+# Bridge names presented to VMs. station-nic matches the established
+# production convention (vendor VM XMLs and the libvirt `station-bus`
+# network reference this name). Override only if you have a documented
+# reason to differ.
 bridges:
   mgmt: "br-mgmt"
-  station: "br-station"
+  station: "station-nic"
 
 # --------------------------------------------------------------------
 # 7. Time sync (chrony + PTP)

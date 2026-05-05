@@ -47,3 +47,40 @@
       current state shows an IPv4 address assigned. The ptp_timesync role needs
       an unconfigured NIC.
   when: not (networking_skip_ptp | bool)
+
+# ---- Defense-in-depth: re-verify post-apply state ----
+
+- name: "List routes with linkdown annotation"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip route show | grep linkdown || true
+  register: _net_linkdown
+  changed_when: false
+
+- name: "Assert no routes are masked by linkdown carrier"
+  ansible.builtin.assert:
+    that: _net_linkdown.stdout | length == 0
+    fail_msg: >-
+      Routes are present but their next-hop interface has no carrier (linkdown).
+      A linkdown bridge can mask duplicate-subnet collisions and let bad configs
+      pass validation. Bring carrier up on every configured bridge before
+      proceeding. Routes:
+      {{ _net_linkdown.stdout }}
+
+- name: "Re-enumerate IPv4 networks after apply"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip -4 -br addr | grep -oE '\b[0-9.]+/[0-9]+\b' | while read -r cidr; do
+      python3 -c "import ipaddress; print(ipaddress.ip_network('$cidr', strict=False))"
+    done | sort
+  register: _net_subnets
+  changed_when: false
+
+- name: "Assert each IPv4 network is unique to one interface (post-apply)"
+  ansible.builtin.assert:
+    that: (_net_subnets.stdout_lines | length) == (_net_subnets.stdout_lines | unique | length)
+    fail_msg: >-
+      After nmstate apply, multiple interfaces share an IPv4 network — preflight
+      passed but the apply rendered a duplicate. The kernel will oscillate
+      source-NIC selection; corosync reads it as link flap. Networks observed:
+      {{ _net_subnets.stdout_lines }}.

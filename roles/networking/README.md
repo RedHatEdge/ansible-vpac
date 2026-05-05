@@ -12,11 +12,20 @@ From the inventory shape in `group_vars/all.yml`:
 |---|---|---|
 | `mgmt` | bond → bridge | bond on declared members → `br-mgmt` with `mgmt_ip`; default route out |
 | `storage` | bond → raw IP | bond on declared members → `storage_ip` directly on the bond |
-| `station` | bond → bridge | bond on declared members → `br-station` with `station_ip`; relay VMs attach here |
+| `station` | bond → bridge | bond on declared members → `station-nic` (matches production) with `station_ip`; relay VMs attach here |
 | `heartbeat` | raw NIC → raw IP | `heartbeat_ip` on a dedicated NIC (not a bridge, not a bond slave) |
 | `ptp` | raw NIC, **no IP** | NIC up but untouched — neither bridged nor bonded, no IP config |
 
 VLAN fields (`networks.<name>.vlan`) are honored — when set, a VLAN subinterface is inserted between the bond and the bridge (or between the bond and the raw IP for storage).
+
+## Bond options
+
+Each `networking_defaults.<bond>` entry carries an `options` map that is rendered into nmstate's `link-aggregation.options`. Defaults shipped in `inventory/example/group_vars/all.yml`:
+
+- **active-backup bonds** (`mgmt_bond`, `station_bond`) — `miimon: 100` (carrier polling every 100 ms; far faster than the ARP-probe default), `primary: <first member>` (preferred member when both are healthy).
+- **802.3ad bonds** (`storage_bond`) — `miimon: 100`, `xmit_hash_policy: layer3+4` (spread flows by IP+port, best for many small Ceph connections), `lacp_rate: fast` (~3 s failover vs the ~30 s slow default).
+
+Override per-site by editing `networking_defaults.<bond>.options` in inventory.
 
 ## Firewalld zones
 
@@ -33,6 +42,13 @@ After apply, interfaces are assigned to firewalld zones:
 ## Safety
 
 Each apply uses `nmstatectl apply --timeout 60` — if the SSH session drops during apply (e.g. because we misconfigured the mgmt interface), NetworkManager auto-rolls back. Operators still lose one iteration, but the cluster stays reachable.
+
+After apply, `verify.yml` additionally:
+
+- Asserts every declared IP landed on its expected interface (`mgmt_ip`, `storage_ip`, `station_ip`, `heartbeat_ip`).
+- Asserts the PTP NIC is up but has no IPv4 address.
+- Lists `ip route show | grep linkdown` and fails if any next-hop interface has no carrier — a linkdown bridge can mask duplicate-subnet collisions and let bad configs pass validation.
+- Re-enumerates host IPv4 networks (resolved via `ipaddress.ip_network`) and asserts each subnet is unique to one interface — defense-in-depth against an apply that introduces a new collision after preflight cleared.
 
 ## Variables
 

@@ -62,6 +62,12 @@ interfaces:
 {% for p in networking_defaults.mgmt_bond.members %}
         - {{ p }}
 {% endfor %}
+{% if networking_defaults.mgmt_bond.options is defined %}
+      options:
+{% for k, v in networking_defaults.mgmt_bond.options.items() %}
+        {{ k }}: {{ v }}
+{% endfor %}
+{% endif %}
     ipv4:
       enabled: false
     ipv6:
@@ -109,6 +115,12 @@ interfaces:
 {% for p in networking_defaults.storage_bond.members %}
         - {{ p }}
 {% endfor %}
+{% if networking_defaults.storage_bond.options is defined %}
+      options:
+{% for k, v in networking_defaults.storage_bond.options.items() %}
+        {{ k }}: {{ v }}
+{% endfor %}
+{% endif %}
 {% if not networks.storage.vlan %}
     ipv4:
       enabled: true
@@ -150,6 +162,12 @@ interfaces:
 {% for p in networking_defaults.station_bond.members %}
         - {{ p }}
 {% endfor %}
+{% if networking_defaults.station_bond.options is defined %}
+      options:
+{% for k, v in networking_defaults.station_bond.options.items() %}
+        {{ k }}: {{ v }}
+{% endfor %}
+{% endif %}
     ipv4:
       enabled: false
     ipv6:
