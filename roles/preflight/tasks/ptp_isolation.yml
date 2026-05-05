@@ -1,7 +1,8 @@
 ---
-# Verify the PTP NIC is genuinely isolated. The field deployment bug was that ptp4l ran on
-# a NIC that was also the macvtap target for guest VMs; guest traffic stole
-# PTP frames causing SYNCHRONIZATION_FAULT every ~10 seconds for days.
+# Verify the PTP NIC is genuinely isolated. A documented field regression
+# had ptp4l running on a NIC that was also the macvtap target for guest VMs;
+# guest traffic stole PTP frames, producing SYNCHRONIZATION_FAULT every
+# ~10 seconds for multiple days.
 #
 # This file is only imported when networking_defaults.ptp_nic is set — the
 # orchestrator gates on that, so no per-task skip here.
@@ -58,7 +59,7 @@
     that: _preflight_macvtap.stdout | length == 0
     fail_msg: >-
       PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap steals
-      PTP frames (field deployment March 2026 incident). Move those guests to a different NIC before proceeding.
+      PTP frames. Move those guests to a different NIC before proceeding.
 
 # ---- PTP NIC capability: hardware timestamping ----
 # ptp4l cannot deliver sub-microsecond accuracy on a NIC without HW

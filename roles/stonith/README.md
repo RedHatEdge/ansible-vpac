@@ -4,7 +4,7 @@
 
 Stage 75 of the vPAC site deployment.
 
-Runs **before** VM deploy (stage 80) — no production VM lands on a cluster without working fencing. See LEARNED-FIXES: field deployment April 15 ran without STONITH, hit a 20-second bridge churn, and a VM ran concurrently on two nodes against shared storage.
+Runs **before** VM deploy (stage 80) — no production VM lands on a cluster without working fencing. See LEARNED-FIXES: a documented field incident ran without STONITH, hit a ~20-second bridge churn, and the same VM ran concurrently on two nodes against shared storage (corruption window).
 
 ## Planned behavior
 

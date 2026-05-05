@@ -1,6 +1,7 @@
 ---
 # Networking: bonds, bridges, VLANs via nmstate. Verifies PTP NIC isolation
-# (the field deployment bug: PTP on a NIC that was also a macvtap target for guest VMs).
+# (defends against a documented field regression where PTP ran on a NIC that
+# was also a macvtap target for guest VMs, and guests stole the PTP frames).
 
 - name: Networking
   hosts: vpac_cluster

@@ -23,7 +23,8 @@ hpet_present: true
 # Memballoon ON — memory-growth is fine for an engineering VM.
 memballoon: true
 
-# Watchdog: still disabled cluster-wide (field deployment incident didn't spare Windows).
+# Watchdog: still disabled cluster-wide (false-positive reboot incidents
+# burned Windows guests too, not just relay VMs).
 # The cluster's HA model handles guest liveness via Pacemaker monitors
 # rather than in-guest watchdogs.
 watchdog: false

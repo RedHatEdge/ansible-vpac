@@ -56,7 +56,7 @@ After apply, `verify.yml` additionally:
 |---|---|---|
 | `nmstate_apply_timeout` | `60` | seconds; nmstate rolls back if apply doesn't confirm in time |
 | `networking_skip_heartbeat` | computed | auto-skips heartbeat if `networking_defaults.heartbeat_nic` is empty |
-| `networking_disable_stp` | `true` | STP off on the VM-facing bridges; field deployment April 15 showed STP churn starves corosync |
+| `networking_disable_stp` | `true` | STP off on the VM-facing bridges; STP churn under guest-bridge load is documented to starve corosync heartbeats |
 
 Reads the full `networks`, `networking_defaults`, `bridges`, and `vpac_nodes` trees.
 

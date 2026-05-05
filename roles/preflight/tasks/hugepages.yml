@@ -1,7 +1,7 @@
 ---
 # Validate that declared hugepage allocation fits in RAM with margin.
-# The field deployment bug was nr_hugepages=3072 with default_hugepagesz=1GB — which
-# asked for 3 TiB on a 128 GiB node.
+# A documented field bug had nr_hugepages=3072 with default_hugepagesz=1GB —
+# which asked for 3 TiB on a 128 GiB node.
 #
 # This file is only imported when rt_tuning.nr_hugepages_override is set;
 # the orchestrator gates on that.

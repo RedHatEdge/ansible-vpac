@@ -6,7 +6,7 @@ The same checks run inside the `preflight` role before any changes. This role re
 
 ## Why this exists as its own role
 
-The field deployment March 2026 incident: `ptp4l` was bound to a NIC that was also the macvtap target for guest VMs. Guests stole PTP frames and produced `SYNCHRONIZATION_FAULT` every ~10 seconds for multiple days. Making this a dedicated, re-runnable role keeps the check visible and tag-addressable — any change to networking gets this gate for free.
+Documented field incident: `ptp4l` was bound to a NIC that was also the macvtap target for guest VMs. Guests stole PTP frames and produced `SYNCHRONIZATION_FAULT` every ~10 seconds for multiple days. Making this a dedicated, re-runnable role keeps the check visible and tag-addressable — any change to networking gets this gate for free.
 
 ## Tags
 

@@ -25,7 +25,7 @@ hpet_present: false
 
 # Device presence toggles
 memballoon: false              # no memballoon (no inflate surprises)
-watchdog: false                # no watchdog (false-positive reboots burned field deployment)
+watchdog: false                # no watchdog (false-positive reboots burned past field deployments)
 
 # Disk tuning — cache=none + io=native is the RT-safe pattern
 disk_cache: "none"

@@ -116,8 +116,8 @@
 {% endif %}
 {#   libvirt + q35 auto-injects <watchdog model='itco' action='reset'/> if
      we don't emit anything — the ITCO watchdog is part of the PCH chipset
-     emulation. Leaving it with action='reset' is what tripped field deployment
-     (false-positive watchdog reboots under load). We always emit an
+     emulation. Leaving it with action='reset' is what tripped past field
+     deployments (false-positive watchdog reboots under load). We always emit an
      explicit <watchdog> so the action is deterministic:
        watchdog: false (default, RT profiles) → action='none' — present
          but neutered; libvirt schema requires the element to exist on

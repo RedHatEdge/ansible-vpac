@@ -3,9 +3,9 @@
 # this many seconds — e.g. when we broke our own SSH connection.
 nmstate_apply_timeout: 60
 
-# Disable STP on VM-facing bridges. field deployment April 15: STP churn on br-mgmt (driven
-# by guest vnet* interfaces thrashing) starved corosync heartbeats. We don't
-# need STP for this topology.
+# Disable STP on VM-facing bridges. STP churn on VM-facing bridges (driven by
+# guest vnet* interfaces appearing and disappearing) is documented to starve
+# corosync heartbeats under load. We don't need STP for this topology.
 networking_disable_stp: true
 
 # Skip the heartbeat interface if the inventory doesn't declare one. Used in

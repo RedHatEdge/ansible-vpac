@@ -25,6 +25,8 @@
     fail_msg: >-
       Multiple host interfaces share the same IPv4 network. The kernel will
       oscillate source-NIC selection on a ~45-second beat, which corosync reads
-      as link flap (the cause of the field deployment April 2026 reboot loop). Each
-      interface must own a distinct subnet. Networks observed:
+      as link flap. With STONITH armed this amplifies into a reboot loop —
+      the documented worst-case incident here is ~300 IPMI power cycles
+      before the operator manually flipped fencing off. Each interface
+      must own a distinct subnet. Networks observed:
       {{ _preflight_subnets.stdout_lines }}.

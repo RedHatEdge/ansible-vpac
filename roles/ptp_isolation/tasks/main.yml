@@ -58,10 +58,10 @@
   failed_when: false
   tags: [ptp-isolation]
 
-- name: "Assert PTP NIC has no macvtap children (field deployment March 2026 regression guard)"
+- name: "Assert PTP NIC has no macvtap children (PTP-on-macvtap regression guard)"
   ansible.builtin.assert:
     that: _ptp_macvtap.stdout | length == 0
     fail_msg: >-
       PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap
-      steals PTP frames (field deployment March 2026). Move those guests to a different NIC.
+      steals PTP frames. Move those guests to a different NIC.
   tags: [ptp-isolation]
