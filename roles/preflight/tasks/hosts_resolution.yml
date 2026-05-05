@@ -1,0 +1,71 @@
+---
+# Assert every cluster hostname (mgmt + storage variants) resolves to the
+# expected IP, and that each declared hostname appears on exactly one line
+# in /etc/hosts. The silent-failure mode this defends against: two entries
+# accidentally concatenated onto a single line, where the kernel returns
+# the first match and node2's hostname silently resolves to node1's IP.
+# Live migration and Ceph both depend on hostname URIs.
+
+- name: "Forward resolution: mgmt hostnames"
+  ansible.builtin.command: "getent hosts {{ item.hostname }}"
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  register: _preflight_resolve_mgmt
+  changed_when: false
+  failed_when: false
+
+- name: "Assert mgmt-hostname resolution returns the expected mgmt_ip"
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.item.mgmt_ip in (item.stdout | default(''))
+    fail_msg: >-
+      getent hosts {{ item.item.hostname }} returned '{{ item.stdout | default('(no answer)') }}';
+      expected to contain mgmt_ip {{ item.item.mgmt_ip }}. /etc/hosts may have entries
+      concatenated onto one line (silent failure mode), or DNS is misconfigured.
+  loop: "{{ _preflight_resolve_mgmt.results }}"
+  loop_control:
+    label: "{{ item.item.hostname }}"
+
+- name: "Forward resolution: storage-network hostnames (<host>-storage)"
+  ansible.builtin.command: "getent hosts {{ item.hostname }}-storage"
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}-storage"
+  register: _preflight_resolve_storage
+  changed_when: false
+  failed_when: false
+
+- name: "Assert storage-hostname resolution returns the expected storage_ip"
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.item.storage_ip in (item.stdout | default(''))
+    fail_msg: >-
+      getent hosts {{ item.item.hostname }}-storage returned '{{ item.stdout | default('(no answer)') }}';
+      expected to contain storage_ip {{ item.item.storage_ip }}. host_baseline must populate
+      <hostname>-storage entries in /etc/hosts (required for live migration and Ceph private mons).
+  loop: "{{ _preflight_resolve_storage.results }}"
+  loop_control:
+    label: "{{ item.item.hostname }}-storage"
+
+- name: "Read /etc/hosts to verify entry-per-line discipline"
+  ansible.builtin.slurp:
+    src: /etc/hosts
+  register: _preflight_hosts_file
+
+- name: "Assert each cluster hostname appears on exactly one line in /etc/hosts"
+  ansible.builtin.assert:
+    that:
+      - >-
+        ((_preflight_hosts_file.content | b64decode).split('\n')
+         | select('search', '(^|\\s)' ~ item.hostname ~ '(\\s|$)') | list | length) == 1
+    fail_msg: >-
+      Hostname {{ item.hostname }} appears on either zero or multiple lines in /etc/hosts.
+      If two entries got concatenated onto one line, hostname resolution breaks silently —
+      one node's hostname may resolve to another node's IP. Inspect /etc/hosts and split
+      entries onto separate lines.
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"

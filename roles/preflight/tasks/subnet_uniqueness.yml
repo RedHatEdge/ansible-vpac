@@ -1,0 +1,30 @@
+---
+# Assert no two host interfaces share an IPv4 network. Documented root cause
+# of the most expensive cluster outage: when two bridges/NICs both own the
+# same subnet, the kernel oscillates source-NIC selection on a ~45-second
+# beat, which corosync reads as link flap, which (with STONITH armed)
+# amplifies into a reboot loop.
+#
+# Network-vs-network comparison via the python3 ipaddress module — handles
+# different prefix lengths correctly (e.g. .0/24 vs .0/16 overlap is also
+# a duplicate at the broader prefix). python3 is in baseline_packages so
+# always present here.
+
+- name: "Enumerate IPv4 networks assigned to host interfaces"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip -4 -br addr | grep -oE '\b[0-9.]+/[0-9]+\b' | while read -r cidr; do
+      python3 -c "import ipaddress; print(ipaddress.ip_network('$cidr', strict=False))"
+    done | sort
+  register: _preflight_subnets
+  changed_when: false
+
+- name: "Assert each IPv4 network is unique to one interface"
+  ansible.builtin.assert:
+    that: (_preflight_subnets.stdout_lines | length) == (_preflight_subnets.stdout_lines | unique | length)
+    fail_msg: >-
+      Multiple host interfaces share the same IPv4 network. The kernel will
+      oscillate source-NIC selection on a ~45-second beat, which corosync reads
+      as link flap (the cause of the field deployment April 2026 reboot loop). Each
+      interface must own a distinct subnet. Networks observed:
+      {{ _preflight_subnets.stdout_lines }}.

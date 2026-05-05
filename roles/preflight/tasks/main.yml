@@ -16,6 +16,16 @@
   when: preflight_check_network | bool
   tags: [preflight, preflight-network]
 
+- name: "Subnet uniqueness across all host interfaces"
+  ansible.builtin.import_tasks: subnet_uniqueness.yml
+  when: preflight_check_subnet_uniqueness | bool
+  tags: [preflight, preflight-subnet-uniqueness]
+
+- name: "Hostname resolution (mgmt + storage) for every cluster node"
+  ansible.builtin.import_tasks: hosts_resolution.yml
+  when: preflight_check_hosts_resolution | bool
+  tags: [preflight, preflight-hosts]
+
 - name: "PTP NIC isolation (no bridge/bond/macvtap)"
   ansible.builtin.import_tasks: ptp_isolation.yml
   when:

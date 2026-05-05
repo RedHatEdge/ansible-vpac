@@ -13,7 +13,10 @@ Inventory + host validation. Runs before any stage that mutates a target node. F
 | Inventory shape | `preflight-inventory` | once | `vpac_nodes` non-empty; hostnames match inventory |
 | Network CIDRs | `preflight-network` | once | Heartbeat vs mgmt overlap (gated on `len(vpac_nodes) >= 3`) |
 | Declared NICs | `preflight-network` | per host | Each NIC in `networking_defaults` exists on the host |
+| Subnet uniqueness | `preflight-subnet-uniqueness` | per host | No two interfaces share an IPv4 network (defends against the field deployment April 2026 reboot loop) |
+| Hostname resolution | `preflight-hosts` | per host | `getent hosts <node>` and `getent hosts <node>-storage` return the expected IPs; each name on its own line in `/etc/hosts` |
 | PTP NIC isolation | `preflight-ptp` | per host | Not a bridge member, bond slave, or macvtap target |
+| PTP NIC capability | `preflight-ptp` | per host | `ethtool -T` reports hardware timestamping support |
 | Hugepage math | `preflight-hugepages` | per host | `nr_hugepages × size < node_ram × 0.9` |
 | STONITH reach | `preflight-stonith` | per host | `fence_ipmilan`: BMC answers; `fence_virsh`: SSH identity works |
 | Mode: connected | `preflight-mode` | once | RHSM/Satellite URL reachable + creds auth |

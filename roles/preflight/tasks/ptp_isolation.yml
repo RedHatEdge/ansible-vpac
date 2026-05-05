@@ -59,3 +59,35 @@
     fail_msg: >-
       PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap steals
       PTP frames (field deployment March 2026 incident). Move those guests to a different NIC before proceeding.
+
+# ---- PTP NIC capability: hardware timestamping ----
+# ptp4l cannot deliver sub-microsecond accuracy on a NIC without HW
+# timestamping. ethtool -T reports the supported modes; we require both
+# hardware-transmit and hardware-receive plus a non-"none" PHC index.
+
+- name: "Read PTP NIC timestamping capabilities (ethtool -T)"
+  ansible.builtin.command: "ethtool -T {{ networking_defaults.ptp_nic }}"
+  register: _preflight_ptp_caps
+  changed_when: false
+  failed_when: false
+
+- name: "Assert ethtool -T succeeded"
+  ansible.builtin.assert:
+    that: _preflight_ptp_caps.rc == 0
+    fail_msg: >-
+      ethtool -T {{ networking_defaults.ptp_nic }} failed (rc={{ _preflight_ptp_caps.rc }}).
+      Install ethtool or pick a NIC the kernel recognizes.
+      stderr: {{ _preflight_ptp_caps.stderr | default('') }}
+
+- name: "Assert PTP NIC supports hardware timestamping"
+  ansible.builtin.assert:
+    that:
+      - "'PTP Hardware Clock: none' not in _preflight_ptp_caps.stdout"
+      - "'hardware-transmit' in _preflight_ptp_caps.stdout"
+      - "'hardware-receive' in _preflight_ptp_caps.stdout"
+    fail_msg: >-
+      PTP NIC {{ networking_defaults.ptp_nic }} lacks hardware timestamping.
+      ptp_timesync cannot deliver sub-microsecond accuracy on this NIC.
+      Pick a different NIC (most modern Intel/Mellanox 10G+ NICs support it)
+      or accept the SW-timestamp tradeoff explicitly. ethtool -T output:
+      {{ _preflight_ptp_caps.stdout }}

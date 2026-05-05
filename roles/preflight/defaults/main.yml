@@ -23,6 +23,8 @@ preflight_max_hugepage_ram_fraction: 0.9
 preflight_check_connectivity: true
 preflight_check_inventory: true
 preflight_check_network: true
+preflight_check_subnet_uniqueness: true
+preflight_check_hosts_resolution: true
 preflight_check_ptp: true
 preflight_check_hugepages: true
 preflight_check_stonith: true
