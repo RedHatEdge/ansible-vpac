@@ -47,14 +47,39 @@ The non-RT (Windows / engineering) profiles render none of the above; they get a
 
 Add more profiles under `vars/profiles/<name>.yml` — the `profile:` field in a `vm_catalog` entry picks one by filename. Catalog entries override any profile default.
 
-## Disk paths
+## Disk shapes
 
-`vm_catalog[].disks[].source` supports two notations:
+`vm_catalog[].disks[]` accepts two shapes:
 
+**File-backed disks** (`source` is a string):
 - `"cephfs:/vms/foo.qcow2"` — the role strips the `cephfs:` prefix and renders `<source file='/vms/foo.qcow2'/>`. Use this for qcow2s that live on the CephFS mount.
 - `"/absolute/path.qcow2"` — absolute path rendered as-is.
+- Per-disk knobs: `format` (`qcow2` default), `cache`, `io`, `bus`, `device` (`disk` default; set to `cdrom` for installer media), `readonly`.
 
-v1 does **not** create the qcow2 — it must already exist at the path before `vm_deploy` tries to start the VM. Provisioning empty disks + seed ISOs is a follow-up.
+**RBD-backed disks** (`type: rbd` plus `pool` + `image`):
+- Renders `<disk type='network' protocol='rbd'>` with one `<host name='<storage_ip>' port='6789'/>` per node from `vpac_nodes[*].storage_ip`.
+- `<auth username='libvirt'>` (computed from `ceph.libvirt_cephx_user`, with the `client.` prefix stripped) referencing `ceph.libvirt_secret_uuid` via `<secret type='ceph'/>`. The secret itself is defined per-node by `ceph_expand/tasks/libvirt_secret.yml`.
+- Per-disk knobs: `cache` (default `none`), `io` (default `threads` on RT, `native` otherwise), `discard` (default `unmap`), `bus` (default `virtio`), `target_dev`, `device`, `readonly`.
+- On RT VMs the disk's `<driver>` element also carries `iothread='1'` so completion offloads to the iothread thread (which is FIFO-1 pinned to the emulator core set).
+- Shorthand: `source: "rbd:<pool>/<image>"` URI form is also accepted in place of the explicit `type:`/`pool:`/`image:` triple.
+
+v1 does **not** create the qcow2 or RBD image — they must already exist before `vm_deploy` tries to start the VM. Empty-disk provisioning is a follow-up.
+
+## NIC shapes
+
+`vm_catalog[].nics[]` accepts two shapes:
+
+- `network: <name>` — references a libvirt virtual network defined by `virtualization` stage 30 (e.g. `br-mgmt`, `station-bus`). **Preferred** — decouples the VM XML from the underlying host bridge name so a bridge rename doesn't break VMs.
+- `bridge: <name>` — raw host bridge attachment. Legacy fallback for bridges not declared as libvirt networks.
+
+## Sanlock lease
+
+When `vm_catalog[].lease_offset` is set, the role emits:
+
+- A `<lease>` element inside `<devices>` referencing the sanlock lockspace at `/dev/rbd/<first rbd pool>/sanlock-leases` (overridable per-VM via `lease_path`). The `<lockspace>` is `__LIBVIRT__DISKS__` matching `qemu-sanlock.conf` defaults; the `<key>` is the VM name.
+- A `<seclabel type='none'/>` at domain scope so libvirt's dynamic SELinux labelling does not collide with the shared RBD lockspace block device.
+
+`lease_offset` is per-VM, **must be 1 MiB-aligned and unique across the cluster** (operator allocates and tracks; a future preflight will validate uniqueness). Without a `lease_offset`, the VM gets neither `<lease>` nor `<seclabel>` and will refuse to start once `virtualization_lock_manager` is flipped to `sanlock` — file-backed cephfs VMs (qcow2 on shared FS via flock) do not need the sanlock contract.
 
 ## UUID stability
 

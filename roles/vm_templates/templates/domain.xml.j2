@@ -156,18 +156,73 @@
   <devices>
     <emulator>/usr/libexec/qemu-kvm</emulator>
 {% for disk in _vm.disks | default([]) %}
-{#   _resolve_disk_path: sources like "cephfs:/vms/foo.qcow2" become "/vms/foo.qcow2";
-     "/absolute/path.qcow2" stays as-is. #}
-{%   set _path = disk.source.split(":", 1)[1] if (":" in disk.source) else disk.source %}
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2' cache='{{ disk.cache | default(_profile.disk_cache) | default("none") }}' io='{{ disk.io | default(_profile.disk_io) | default("native") }}'/>
-      <source file='{{ _path }}'/>
-      <target dev='vd{{ "abcdefgh"[loop.index0] }}' bus='{{ disk.bus | default(_profile.disk_bus) | default("virtio") }}'/>
+{#  Two disk shapes are supported:
+      RBD:   disk.type == "rbd" with disk.pool + disk.image
+             OR shorthand URI source = "rbd:<pool>/<image>"
+      File:  disk.source = "cephfs:/vms/foo.qcow2" (cephfs: prefix stripped)
+             OR an absolute path. Default device is "disk"; cdrom is opt-in. #}
+{%   set _is_rbd = (disk.type | default('') == 'rbd') or (disk.source is defined and (disk.source | string).startswith('rbd:')) %}
+{%   if _is_rbd %}
+{%     if disk.source is defined and ":" in (disk.source | string) %}
+{%       set _rbd_path = disk.source.split(":", 1)[1] %}
+{%       set _rbd_pool = _rbd_path.split("/")[0] %}
+{%       set _rbd_image = _rbd_path.split("/")[1] %}
+{%     else %}
+{%       set _rbd_pool = disk.pool %}
+{%       set _rbd_image = disk.image %}
+{%     endif %}
+{%     set _cephx_user = (ceph.libvirt_cephx_user | default('client.libvirt')) | regex_replace('^client\\.', '') %}
+    <disk type='network' device='{{ disk.device | default("disk") }}'>
+      <driver name='qemu' type='raw'
+              cache='{{ disk.cache | default("none") }}'
+              io='{{ disk.io | default("threads" if _is_rt else "native") }}'
+              discard='{{ disk.discard | default("unmap") }}'
+{%     if _is_rt %}
+              iothread='1'
+{%     endif %}
+              />
+      <auth username='{{ _cephx_user }}'>
+        <secret type='ceph' uuid='{{ ceph.libvirt_secret_uuid }}'/>
+      </auth>
+      <source protocol='rbd' name='{{ _rbd_pool }}/{{ _rbd_image }}'>
+{%     for n in vpac_nodes %}
+        <host name='{{ n.storage_ip }}' port='6789'/>
+{%     endfor %}
+      </source>
+      <target dev='{{ disk.target_dev | default("vd" + "abcdefgh"[loop.index0]) }}' bus='{{ disk.bus | default("virtio") }}'/>
+{%     if disk.readonly | default(false) %}
+      <readonly/>
+{%     endif %}
     </disk>
+{%   else %}
+{#   File-backed disk (CephFS qcow2 or absolute path). The cephfs: prefix
+     is stripped; "/absolute/path.qcow2" stays as-is. #}
+{%     set _path = disk.source.split(":", 1)[1] if (":" in (disk.source | string)) else disk.source %}
+    <disk type='file' device='{{ disk.device | default("disk") }}'>
+      <driver name='qemu' type='{{ disk.format | default("qcow2") }}' cache='{{ disk.cache | default(_profile.disk_cache) | default("none") }}' io='{{ disk.io | default(_profile.disk_io) | default("native") }}'/>
+      <source file='{{ _path }}'/>
+      <target dev='{{ disk.target_dev | default("vd" + "abcdefgh"[loop.index0]) }}' bus='{{ disk.bus | default(_profile.disk_bus) | default("virtio") }}'/>
+{%     if disk.readonly | default(false) %}
+      <readonly/>
+{%     endif %}
+    </disk>
+{%   endif %}
 {% endfor %}
 {% for nic in _vm.nics | default([]) %}
+{#  Two NIC shapes:
+      network: <name>  → libvirt virtual network reference
+                         (preferred — decouples VM XML from the underlying
+                         bridge name so renames don't break VMs; the
+                         virtualization role defines br-mgmt and
+                         station-bus as forward=bridge networks).
+      bridge:  <name>  → raw host bridge attachment (legacy fallback). #}
+{%   if nic.network is defined %}
+    <interface type='network'>
+      <source network='{{ nic.network }}'/>
+{%   else %}
     <interface type='bridge'>
       <source bridge='{{ nic.bridge }}'/>
+{%   endif %}
 {%   if (_vm.preserve_mac | default(false)) and _vm.mac_address is defined %}
       <mac address='{{ _vm.mac_address }}'/>
 {%   endif %}
@@ -212,5 +267,29 @@
       <target type='serial' port='0'/>
     </console>
     <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
+{# Sanlock <lease> element. With qemu.conf's lock_manager flipped to
+   "sanlock" by the operator after ceph_expand provisions the lockspace,
+   libvirtd refuses to start any shared-storage VM without a <lease>.
+   The lockspace name __LIBVIRT__DISKS__ matches qemu-sanlock.conf's
+   default. lease_offset is per-VM, 1 MiB-aligned, monotonic per cluster
+   — operator allocates and validates uniqueness. The target path resolves
+   to /dev/rbd/<first rbd pool>/<sanlock lockspace image>; override
+   per-VM via _vm.lease_path when the deployment uses a non-default name. #}
+{% if _vm.lease_offset is defined %}
+{%   set _rbd_pool_name = (ceph.pools | selectattr('type', 'equalto', 'rbd') | list | first | attr('name')) %}
+{%   set _lease_path = _vm.lease_path | default('/dev/rbd/' ~ _rbd_pool_name ~ '/' ~ (ceph.sanlock_lockspace_image | default('sanlock-leases'))) %}
+    <lease>
+      <lockspace>__LIBVIRT__DISKS__</lockspace>
+      <key>{{ _vm.name }}</key>
+      <target path='{{ _lease_path }}' offset='{{ _vm.lease_offset }}'/>
+    </lease>
+{% endif %}
   </devices>
+{# <seclabel type='none'/> at domain scope (sibling of <devices>) is
+   sanlock-aware: disables libvirt's dynamic SELinux labelling that
+   collides with sanlock's lockspace block device + shared RBD images.
+   Only emitted when the VM carries a sanlock lease. #}
+{% if _vm.lease_offset is defined %}
+  <seclabel type='none'/>
+{% endif %}
 </domain>
