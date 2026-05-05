@@ -84,9 +84,18 @@
 {% if _vm.emulator_cpus is defined and (_vm.emulator_cpus | length) > 0 %}
   <iothreads>1</iothreads>
 {% endif %}
-  <os>
+{# OS firmware. Default BIOS; UEFI/OVMF for SecureBoot + TPM-required guests
+   like Windows-11. The loader is read-only pflash; per-VM NVRAM gets templated
+   from a stock VARS file the first time libvirt starts the domain. The
+   operator must pre-create _profile.nvram_dir on a shared filesystem so VMs
+   can live-migrate. #}
+  <os{% if _profile.firmware | default('bios') == 'efi' %} firmware='efi'{% endif %}>
     <type arch='{{ _profile.os_type_arch | default("x86_64") }}' machine='{{ _profile.os_type_machine | default("q35") }}'>hvm</type>
     <boot dev='hd'/>
+{% if _profile.firmware | default('bios') == 'efi' %}
+    <loader readonly='yes' type='pflash'>{{ _profile.firmware_loader_path | default('/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd') }}</loader>
+    <nvram template='{{ _profile.firmware_nvram_template | default("/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd") }}'>{{ _profile.nvram_dir | default("/vms/nvram") }}/{{ _vm.name }}_VARS.fd</nvram>
+{% endif %}
   </os>
   <features>
     <acpi/>
@@ -109,6 +118,26 @@
 {% else %}
     <apic/>
 {% endif %}
+{# UEFI SecureBoot requires SMM. #}
+{% if _profile.firmware | default('bios') == 'efi' %}
+    <smm state='on'/>
+{% endif %}
+{# Hyper-V enlightenments. Without these, Windows guest spinlock contention
+   is dramatic (15-30% CPU) — Windows uses spinlocks aggressively and the
+   enlightenments tell it the host is hypervisor-aware. Each entry value
+   is either a bool (renders <name state='on|off'/>) or a dict with state
+   and any additional attributes (e.g. spinlocks { state: on, retries: 8191 }). #}
+{% if _profile.hyperv_enlightenments is defined %}
+    <hyperv mode='custom'>
+{%   for _hv_name, _hv_val in _profile.hyperv_enlightenments.items() %}
+{%     if _hv_val is mapping %}
+      <{{ _hv_name }}{% for _k, _v in _hv_val.items() %} {{ _k }}='{{ _v }}'{% endfor %}/>
+{%     else %}
+      <{{ _hv_name }} state='{{ "on" if _hv_val else "off" }}'/>
+{%     endif %}
+{%   endfor %}
+    </hyperv>
+{% endif %}
   </features>
   <cpu mode='{{ _profile.cpu_mode | default("host-passthrough") }}' check='none' migratable='on'>
     <cache mode='passthrough'/>
@@ -127,10 +156,17 @@
     <feature policy='require' name='invtsc'/>
 {% endif %}
   </cpu>
-  <clock offset='utc'>
+{# clock_offset 'localtime' for Windows guests (Windows reads RTC as local
+   time); 'utc' for everything else. #}
+  <clock offset='{{ _profile.clock_offset | default("utc") }}'>
     <timer name='rtc' tickpolicy='catchup'/>
     <timer name='pit' tickpolicy='delay'/>
     <timer name='hpet' present='{{ "yes" if (_profile.hpet_present | default(false)) else "no" }}'/>
+{# Hyper-V reference clock — required when hyperv enlightenments are enabled
+   so the guest's QPC counter reads from the hypervisor with no exits. #}
+{% if _profile.hypervclock | default(false) %}
+    <timer name='hypervclock' present='yes'/>
+{% endif %}
 {# kvmclock + tsc native: without these, an RT guest falls back to HPET
    (~3.6 µs per timer read) which dominates jitter at any meaningful read
    rate. tsc mode='native' lets the guest read the TSC directly without
@@ -266,6 +302,15 @@
     <console type='pty'>
       <target type='serial' port='0'/>
     </console>
+{# Software TPM via swtpm. tpm-crb is the modern CRB (Command Response
+   Buffer) interface; version 2.0 is mandatory for Windows-11. swtpm +
+   swtpm-tools packages must be installed on the host (handled by
+   virtualization role's package set). #}
+{% if _profile.tpm is defined %}
+    <tpm model='{{ _profile.tpm.model | default("tpm-crb") }}'>
+      <backend type='emulator' version='{{ _profile.tpm.version | default("2.0") }}'/>
+    </tpm>
+{% endif %}
     <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
 {# Sanlock <lease> element. With qemu.conf's lock_manager flipped to
    "sanlock" by the operator after ceph_expand provisions the lockspace,

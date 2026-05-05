@@ -1,0 +1,78 @@
+---
+# VM profile: Windows-11 (UEFI + SecureBoot + TPM 2.0).
+#
+# Windows-11 mandates UEFI SecureBoot AND a TPM 2.0 device. This profile
+# wires both, plus the standard Hyper-V enlightenments that bring Win11
+# spinlock contention down from 15-30% CPU to background noise.
+#
+# Pre-requisites the operator must satisfy:
+#   - swtpm + swtpm-tools + edk2-ovmf packages installed on every host
+#     that may run this VM (already in virtualization_packages defaults)
+#   - nvram_dir below must exist on a shared filesystem (default /vms/nvram
+#     on CephFS) so per-VM NVRAM persists across live migration
+
+os_type_arch: "x86_64"
+os_type_machine: "q35"
+
+cpu_mode: "host-passthrough"
+
+# Firmware: EFI/OVMF SecureBoot. The loader is a read-only pflash image;
+# per-VM NVRAM gets templated from the stock VARS file the first time
+# libvirt starts the domain.
+firmware: "efi"
+firmware_loader_path: "/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd"
+firmware_nvram_template: "/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd"
+nvram_dir: "/vms/nvram"
+
+# No hugepages, no memory locking, no nosharepages — Windows doesn't
+# benefit from hugepages and 1 GiB pages can't be freed back to the host
+# easily if the VM is stopped.
+hugepage_size_gb: 0
+lock_memory: false
+nosharepages: false
+
+# Windows reads RTC as local time, not UTC.
+clock_offset: "localtime"
+
+# HPET on — Windows kernels use it as a timer source.
+hpet_present: true
+
+# Hyper-V reference clock — pairs with the hyperv enlightenments below.
+hypervclock: true
+
+# Hyper-V enlightenments. Without these, Windows guest spinlock contention
+# is dramatic (15-30% CPU). Map values can be a bool (renders state=on/off)
+# or a dict carrying state plus extra attributes (e.g. spinlocks retries=N).
+hyperv_enlightenments:
+  relaxed: true
+  vapic: true
+  spinlocks:
+    state: "on"
+    retries: 8191
+  vpindex: true
+  runtime: true
+  synic: true
+  stimer: true
+  frequencies: true
+
+# TPM 2.0 (Win11 mandatory). tpm-crb is the modern CRB interface.
+tpm:
+  model: "tpm-crb"
+  version: "2.0"
+
+# Memballoon ON — Windows benefits from memory ballooning for an
+# engineering / HMI workload pattern.
+memballoon: true
+
+# Watchdog: still disabled cluster-wide (false-positive reboot incidents
+# burned Windows guests too, not just relay VMs).
+watchdog: false
+
+# Writeback cache is fine for a non-RT workload; combined with virtio-blk
+# this gives reasonable Windows installer + runtime performance.
+disk_cache: "writeback"
+disk_io: "native"
+disk_bus: "virtio"
+
+# Not RT — no FIFO scheduling, no isolated cores. _is_rt evaluates false.
+rt_priority_default: 0

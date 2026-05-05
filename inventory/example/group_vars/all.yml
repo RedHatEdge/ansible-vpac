@@ -525,9 +525,9 @@ vm_catalog:
         image: "vpr-01"
         bus: "virtio"
 
-  # Example Windows engineering VM with passthrough. CephFS file-backed
-  # (no sanlock lease — qcow2 on a clustered FS is single-writer-by-flock,
-  # not sanlock-managed). NIC on the mgmt libvirt network.
+  # Example Windows engineering VM with passthrough (BIOS, Win10-style).
+  # CephFS file-backed — no sanlock lease (qcow2 on clustered FS uses
+  # flock, not sanlock-managed). NIC on the mgmt libvirt network.
   - name: "winws-01"
     profile: "windows_passthrough"
     target_host: "site1-node-c"
@@ -543,6 +543,29 @@ vm_catalog:
     disks:
       - source: "cephfs:/vms/winws-01.qcow2"
         size_gb: 120
+        bus: "virtio"
+
+  # Example Windows-11 HMI VM (UEFI + SecureBoot + TPM 2.0 + Hyper-V).
+  # RBD-backed for live-migration friendliness; sanlock-protected via
+  # lease_offset. The windows_uefi profile wires the firmware/TPM/hyperv
+  # contract — see roles/vm_templates/vars/profiles/windows_uefi.yml.
+  # Operator must pre-create /vms/nvram on the CephFS mount before first
+  # start so libvirt can template per-VM NVRAM there.
+  - name: "win-hmi-01"
+    profile: "windows_uefi"
+    target_host: "site1-node-c"
+    allowed_hosts: ["site1-node-a", "site1-node-b", "site1-node-c"]
+    vcpus: 4
+    memory_gb: 8
+    hugepages: false
+    lease_offset: 3145728                # 3 MiB-aligned, unique per cluster
+    nics:
+      - network: "br-mgmt"
+        model: "virtio"
+    disks:
+      - type: "rbd"
+        pool: "rbd-vms"
+        image: "win-hmi-01"
         bus: "virtio"
 
 # --------------------------------------------------------------------

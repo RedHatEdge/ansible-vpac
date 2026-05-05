@@ -39,13 +39,24 @@ The non-RT (Windows / engineering) profiles render none of the above; they get a
 
 ## Profiles
 
-| Profile | Use | RT? | Hugepages | memballoon | Disk cache |
-|---|---|---|---|---|---|
-| `ssc600` | ABB SSC600-style relay | yes | 1 GiB | none | none |
-| `vpr` | VPR / RTAC / RTU | yes | 1 GiB | none | none |
-| `windows_passthrough` | Windows engineering WS | no | off | virtio | writeback |
+| Profile | Use | RT? | Firmware | Hugepages | memballoon | Disk cache |
+|---|---|---|---|---|---|---|
+| `ssc600` | ABB SSC600-style relay | yes | BIOS | 1 GiB | none | none |
+| `vpr` | VPR / RTAC / RTU | yes | BIOS | 1 GiB | none | none |
+| `windows_passthrough` | Windows-10 / engineering WS | no | BIOS | off | virtio | writeback |
+| `windows_uefi` | Windows-11 (SecureBoot + TPM 2.0 + Hyper-V) | no | UEFI/OVMF | off | virtio | writeback |
 
 Add more profiles under `vars/profiles/<name>.yml` — the `profile:` field in a `vm_catalog` entry picks one by filename. Catalog entries override any profile default.
+
+### Windows-11 (windows_uefi) details
+
+- `firmware: efi` triggers `<os firmware='efi'>` plus `<loader>` (read-only pflash) and `<nvram>` (per-VM, templated from stock VARS the first time the domain starts).
+- `nvram_dir` (default `/vms/nvram`) must exist on a shared filesystem so NVRAM persists across live migration. Operator pre-creates it.
+- `firmware: efi` also emits `<features><smm state='on'/></features>` (required for SecureBoot).
+- `hyperv_enlightenments` is a map; each entry value is either a bool (renders `<name state='on|off'/>`) or a dict carrying `state` plus extra attributes (e.g. `spinlocks: { state: on, retries: 8191 }`).
+- `hypervclock: true` adds `<timer name='hypervclock' present='yes'/>`.
+- `tpm: { model: tpm-crb, version: 2.0 }` adds the swtpm device. swtpm + swtpm-tools + edk2-ovmf packages must be on every host that may run the VM (already in `virtualization_packages` defaults).
+- `clock_offset: localtime` instead of the default `utc`.
 
 ## Disk shapes
 
