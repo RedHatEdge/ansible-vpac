@@ -408,8 +408,25 @@ ceph:
       type: "cephfs"
       data_pg_num: 128
       metadata_pg_num: 32
+    - name: "rbd-vms"
+      type: "rbd"
+      pg_num: 64
+      pgp_num: 64
 
   cephfs_mountpoint: "/vms"
+
+  # cephx user libvirt uses to attach RBD volumes. ceph_expand creates the
+  # user with caps `mon "profile rbd" osd "profile rbd pool=<first rbd pool>"`
+  # if missing. Keyring lives in libvirt's secret store, NOT /etc/ceph, so
+  # it stays scoped per-VM.
+  libvirt_cephx_user: "client.libvirt"
+
+  # Fixed UUID for the libvirt secret holding the cephx key. MUST be unique
+  # per site AND identical on every cluster node — different UUIDs silently
+  # break live migration (destination has no matching secret). Generate once
+  # with `uuidgen`, commit to inventory, never change. The role refuses to
+  # define a secret with the placeholder all-zeros UUID below.
+  libvirt_secret_uuid: "00000000-0000-0000-0000-000000000000"
 
 # --------------------------------------------------------------------
 # 10. Pacemaker / Corosync

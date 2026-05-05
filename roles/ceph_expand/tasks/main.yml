@@ -19,6 +19,10 @@
   ansible.builtin.import_tasks: add_osds.yml
   tags: [ceph, ceph-expand, ceph-osds]
 
+- name: "Create RBD pools + enable rbd application + rbd pool init"
+  ansible.builtin.import_tasks: rbd_pools.yml
+  tags: [ceph, ceph-expand, ceph-rbd-pools]
+
 - name: "Create CephFS pools + filesystem"
   ansible.builtin.import_tasks: cephfs.yml
   tags: [ceph, ceph-expand, ceph-fs]
@@ -26,6 +30,10 @@
 - name: "Mount CephFS on every cluster node"
   ansible.builtin.import_tasks: mount.yml
   tags: [ceph, ceph-expand, ceph-mount]
+
+- name: "Define libvirt cephx secret on every cluster node"
+  ansible.builtin.import_tasks: libvirt_secret.yml
+  tags: [ceph, ceph-expand, ceph-libvirt-secret]
 
 - name: "Deploy monitoring stack (prometheus + alertmanager + grafana + node-exporter)"
   ansible.builtin.import_tasks: monitoring_deploy.yml

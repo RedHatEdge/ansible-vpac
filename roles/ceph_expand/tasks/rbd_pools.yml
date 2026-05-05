@@ -1,0 +1,58 @@
+---
+# Create RBD pools declared in ceph.pools[] with type: rbd. Three steps per
+# pool: `osd pool create` (idempotent — skipped if pool exists), `pool
+# application enable rbd` (Ceph requires every pool to declare its
+# application — refuses to serve I/O otherwise), and `rbd pool init`
+# (writes the rbd_directory metadata object so `rbd` commands work).
+
+- name: "Find RBD pool definitions"
+  ansible.builtin.set_fact:
+    _ceph_rbd_pools: "{{ ceph.pools | selectattr('type', 'equalto', 'rbd') | list }}"
+  run_once: true
+
+- name: "Skip the rest of this task file when no RBD pools are declared"
+  ansible.builtin.meta: end_play
+  when: _ceph_rbd_pools | length == 0
+
+- name: "List existing pools (de-dup against declared)"
+  ansible.builtin.command: /usr/bin/ceph osd pool ls --format json
+  register: _ceph_pool_list
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
+- name: "Create RBD pools (idempotent — skips existing)"
+  ansible.builtin.command: >-
+    /usr/bin/ceph osd pool create {{ item.name }}
+    {{ item.pg_num | default(64) }}
+    {{ item.pgp_num | default(item.pg_num | default(64)) }}
+  loop: "{{ _ceph_rbd_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  when: item.name not in (_ceph_pool_list.stdout | from_json)
+  changed_when: true
+
+- name: "Enable rbd application on each RBD pool"
+  ansible.builtin.command: >-
+    /usr/bin/ceph osd pool application enable {{ item.name }} rbd
+  loop: "{{ _ceph_rbd_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  register: _ceph_app_enable
+  changed_when: "'enabled application' in (_ceph_app_enable.stdout | default(''))"
+  failed_when:
+    - _ceph_app_enable.rc != 0
+    - "'already enabled' not in (_ceph_app_enable.stderr | default(''))"
+
+- name: "rbd pool init for each RBD pool"
+  ansible.builtin.command: "/usr/bin/rbd pool init {{ item.name }}"
+  loop: "{{ _ceph_rbd_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false   # rbd pool init is always idempotent
