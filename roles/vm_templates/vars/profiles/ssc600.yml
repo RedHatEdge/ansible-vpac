@@ -47,3 +47,9 @@ cpu_topology:
 # NUMA pinning — single-socket reference hardware lives on node 0; for
 # multi-socket hosts override per-VM via _vm.numa_node.
 numa_node: 0
+
+# Shareable guest memory — required for the virtiofs PTP-status share
+# that ssc600 vendor logic consumes (host writes pmc state into a shared
+# directory; guest mounts it). The catalog must add a matching
+# filesystems[] entry pointing host_path -> guest_tag.
+memory_access_shared: true

@@ -78,10 +78,26 @@ v1 does **not** create the qcow2 or RBD image — they must already exist before
 
 ## NIC shapes
 
-`vm_catalog[].nics[]` accepts two shapes:
+`vm_catalog[].nics[]` accepts three shapes:
 
 - `network: <name>` — references a libvirt virtual network defined by `virtualization` stage 30 (e.g. `br-mgmt`, `station-bus`). **Preferred** — decouples the VM XML from the underlying host bridge name so a bridge rename doesn't break VMs.
 - `bridge: <name>` — raw host bridge attachment. Legacy fallback for bridges not declared as libvirt networks.
+- `host_dev: <nic>` — process-bus macvtap passthrough (`<interface type='direct' mode='vepa'>`). For relay VMs receiving GOOSE/SV at sub-millisecond cadence; goes direct to the wire, skipping the host bridge. Override mode via `macvtap_mode` (default `vepa`). Conflicts with the dedicated PTP NIC — preflight catches that.
+
+Optional per-NIC `queues: N` enables multi-queue virtio-net (`<driver name='vhost' queues='N'/>`). Useful for RT VMs receiving high-rate unicast/multicast bursts where single-queue virtio bottlenecks at ~1 Gbps. Set `queues` to the vCPU count of the VM.
+
+## Filesystem shares (virtiofs)
+
+`vm_catalog[].filesystems[]` accepts entries of `{ host_path, guest_tag }`. The role renders a `<filesystem type='mount' accessmode='passthrough'><driver type='virtiofs'/><source dir='host_path'/><target dir='guest_tag'/></filesystem>` per entry. The guest mounts via `mount -t virtiofs <guest_tag> /mnt/<x>`.
+
+Requires the profile to set `memory_access_shared: true` (which renders `<memoryBacking><access mode='shared'/></memoryBacking>`). Without that, virtiofsd refuses to start because guest memory must be shareable to qemu helpers. The `ssc600` profile already sets it for the vendor PTP-status share pattern.
+
+## Operator UX devices (default on)
+
+Every VM gets:
+
+- `<channel type='unix' name='org.qemu.guest_agent.0'/>` — qemu-guest-agent socket. Without it, `virsh shutdown` cannot send the ACPI signal that gracefully stops the guest, and pacemaker's stop op hits its timeout and escalates to forced kill. Toggle off per-profile via `qemu_guest_agent: false`.
+- `<rng model='virtio'><backend model='random'>/dev/urandom</backend></rng>` — virtio RNG. Without it, RT guests with sshd / TLS workloads block on entropy starvation right after boot. Toggle off per-profile via `rng: false`.
 
 ## Sanlock lease
 

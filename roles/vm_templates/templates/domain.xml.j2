@@ -36,14 +36,24 @@
 {%   if _profile.nosharepages | default(false) %}
     <nosharepages/>
 {%   endif %}
+{#  <access mode='shared'/> is required when virtiofs filesystems are
+    attached — qemu helpers need shareable guest memory. Profile-level
+    flag because relay VMs that consume the host-side PTP-status share
+    set both hugepages AND shared access. #}
+{%   if _profile.memory_access_shared | default(false) %}
+    <access mode='shared'/>
+{%   endif %}
   </memoryBacking>
-{% elif _profile.lock_memory | default(false) or _profile.nosharepages | default(false) %}
+{% elif _profile.lock_memory | default(false) or _profile.nosharepages | default(false) or (_profile.memory_access_shared | default(false)) %}
   <memoryBacking>
 {%   if _profile.lock_memory | default(false) %}
     <locked/>
 {%   endif %}
 {%   if _profile.nosharepages | default(false) %}
     <nosharepages/>
+{%   endif %}
+{%   if _profile.memory_access_shared | default(false) %}
+    <access mode='shared'/>
 {%   endif %}
   </memoryBacking>
 {% endif %}
@@ -245,16 +255,26 @@
 {%   endif %}
 {% endfor %}
 {% for nic in _vm.nics | default([]) %}
-{#  Two NIC shapes:
-      network: <name>  → libvirt virtual network reference
-                         (preferred — decouples VM XML from the underlying
-                         bridge name so renames don't break VMs; the
-                         virtualization role defines br-mgmt and
-                         station-bus as forward=bridge networks).
-      bridge:  <name>  → raw host bridge attachment (legacy fallback). #}
+{#  Three NIC shapes:
+      network:  <name>     → libvirt virtual network reference (preferred —
+                             decouples VM XML from the underlying bridge name
+                             so renames don't break VMs; the virtualization
+                             role defines br-mgmt and station-bus as
+                             forward=bridge networks).
+      bridge:   <name>     → raw host bridge attachment (legacy fallback).
+      host_dev: <nic>      → process-bus macvtap passthrough — relay VMs
+                             receiving GOOSE/SV at sub-millisecond cadence
+                             go direct to the wire, skipping the host bridge.
+                             Conflicts with PTP-NIC reuse (preflight catches).
+      Optional per-NIC `queues: N` enables multi-queue virtio-net (vhost
+      driver). Useful for RT VMs receiving high-rate unicast/multicast
+      bursts where single-queue virtio bottlenecks at ~1 Gbps. #}
 {%   if nic.network is defined %}
     <interface type='network'>
       <source network='{{ nic.network }}'/>
+{%   elif nic.host_dev is defined %}
+    <interface type='direct' trustGuestRxFilters='yes'>
+      <source dev='{{ nic.host_dev }}' mode='{{ nic.macvtap_mode | default("vepa") }}'/>
 {%   else %}
     <interface type='bridge'>
       <source bridge='{{ nic.bridge }}'/>
@@ -263,6 +283,9 @@
       <mac address='{{ _vm.mac_address }}'/>
 {%   endif %}
       <model type='{{ nic.model | default("virtio") }}'/>
+{%   if nic.queues is defined and (nic.model | default("virtio")) == "virtio" %}
+      <driver name='vhost' queues='{{ nic.queues }}'/>
+{%   endif %}
     </interface>
 {% endfor %}
 {% for pci in _vm.pci_passthrough | default([]) %}
@@ -311,6 +334,35 @@
       <backend type='emulator' version='{{ _profile.tpm.version | default("2.0") }}'/>
     </tpm>
 {% endif %}
+{# qemu-guest-agent channel. Without it, `virsh shutdown` cannot send the
+   ACPI signal that gracefully stops the guest — pacemaker's stop op hits
+   its timeout and escalates to forced kill, aborting in-flight cluster
+   state. Default true; turn off only for VMs that genuinely cannot run
+   the agent. #}
+{% if _profile.qemu_guest_agent | default(true) %}
+    <channel type='unix'>
+      <source mode='bind'/>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+    </channel>
+{% endif %}
+{# virtio RNG. Without it, RT guests with sshd / TLS workloads block on
+   entropy starvation right after boot — looks like a hang. Default true. #}
+{% if _profile.rng | default(true) %}
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+    </rng>
+{% endif %}
+{# virtiofs filesystem shares. Used for SSC600-family relay VMs to consume
+   host-side PTP status (the host writes pmc state into a shared dir; the
+   guest mounts it via virtiofs). Requires <memoryBacking><access mode='shared'/>
+   on the host (set the profile's memory_access_shared: true). #}
+{% for fs in _vm.filesystems | default([]) %}
+    <filesystem type='mount' accessmode='passthrough'>
+      <driver type='virtiofs'/>
+      <source dir='{{ fs.host_path }}'/>
+      <target dir='{{ fs.guest_tag }}'/>
+    </filesystem>
+{% endfor %}
     <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
 {# Sanlock <lease> element. With qemu.conf's lock_manager flipped to
    "sanlock" by the operator after ceph_expand provisions the lockspace,
