@@ -1,0 +1,31 @@
+---
+# Pacemaker may start the VM on any node in the allowed set, so the XML
+# must be at the same path on every node. We read the per-host render
+# from one node (vm_templates produces identical output on every node
+# from the same inventory) and write it to the cephfs mountpoint, which
+# is then visible to every node.
+#
+# Side-effect: detects whether the XML defines UEFI firmware so the
+# undefine sub-task can pass --keep-nvram for Win11-style profiles.
+
+- name: "Slurp rendered XML for {{ _vm.name }} from the bootstrap node"
+  ansible.builtin.slurp:
+    src: "{{ vm_deploy_xml_dir }}/{{ _vm.name }}.xml"
+  register: _vm_xml_b64
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+
+- name: "Detect UEFI firmware in {{ _vm.name }}'s XML"
+  ansible.builtin.set_fact:
+    _vm_is_efi: "{{ '<loader' in (_vm_xml_b64.content | b64decode) }}"
+  run_once: true
+
+- name: "Write {{ _vm.name }}.xml to shared storage at {{ vm_deploy_managed_xml_dir }}"
+  ansible.builtin.copy:
+    content: "{{ _vm_xml_b64.content | b64decode }}"
+    dest: "{{ vm_deploy_managed_xml_dir }}/{{ _vm.name }}.xml"
+    owner: root
+    group: root
+    mode: "0644"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true

@@ -1,41 +1,17 @@
 ---
-# Per-iteration body of the vm_catalog loop. _vm is bound to one entry.
+# Per-VM dispatcher. Resolves the per-VM managed flag (catalog override
+# wins over cluster-wide default) and routes to the right path.
 
-- name: "Read rendered XML for {{ _vm.name }}"
-  ansible.builtin.slurp:
-    src: "{{ vm_deploy_xml_dir }}/{{ _vm.name }}.xml"
-  register: _vm_xml_b64
+- name: "Resolve managed flag for this VM"
+  ansible.builtin.set_fact:
+    _vm_managed: "{{ _vm.pacemaker_managed | default(_vm_deploy_managed_mode_resolved) | bool }}"
 
-- name: "Define libvirt domain {{ _vm.name }}"
-  # community.libvirt.virt with command=define is idempotent: if the
-  # domain already exists with matching XML, no change; if the XML
-  # changed, the domain definition is updated (running domains keep
-  # running with their live config until next restart).
-  community.libvirt.virt:
-    command: define
-    xml: "{{ _vm_xml_b64.content | b64decode }}"
-  become: true
-
-- name: "Mark domain {{ _vm.name }} as autostart-on-boot"
-  community.libvirt.virt:
-    name: "{{ _vm.name }}"
-    autostart: true
-  become: true
-  when: vm_deploy_autostart_on_boot | bool
-
-- name: "Get domain state for {{ _vm.name }}"
-  community.libvirt.virt:
-    command: status
-    name: "{{ _vm.name }}"
-  register: _vm_state
-  become: true
-  changed_when: false
-
-- name: "Start domain {{ _vm.name }} (only when vm_deploy_autostart is true)"
-  community.libvirt.virt:
-    name: "{{ _vm.name }}"
-    state: running
-  become: true
+- name: "Standalone path"
+  ansible.builtin.import_tasks: standalone.yml
   when:
-    - vm_deploy_autostart | bool
-    - _vm_state.status | default('') != 'running'
+    - not _vm_managed
+    - _vm.target_host | default('') == inventory_hostname
+
+- name: "Managed path"
+  ansible.builtin.import_tasks: managed.yml
+  when: _vm_managed

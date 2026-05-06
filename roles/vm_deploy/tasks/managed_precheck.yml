@@ -1,0 +1,33 @@
+---
+# Once-per-run precheck for managed mode. Pacemaker refuses to start any
+# resource that requires fencing if stonith-enabled is false; without
+# this check the role would create N VirtualDomain resources that
+# Pacemaker silently leaves in Stopped state.
+
+- name: "Confirm stonith-enabled is true on the cluster"
+  ansible.builtin.command: "pcs property show stonith-enabled"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _vm_stonith_prop
+  changed_when: false
+
+- name: "Assert stonith-enabled=true"
+  ansible.builtin.assert:
+    that: "'stonith-enabled: true' in (_vm_stonith_prop.stdout | lower)"
+    fail_msg: >-
+      Managed-mode VM deploy requires stonith-enabled=true. Current
+      value: {{ _vm_stonith_prop.stdout | trim }}. Run the stonith role
+      (stage 75) before vm_deploy in managed mode, or operator-disable
+      managed mode by setting vm_deploy_managed_mode: false in inventory.
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+
+- name: "Ensure shared XML directory exists on the bootstrap node"
+  ansible.builtin.file:
+    path: "{{ vm_deploy_managed_xml_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true

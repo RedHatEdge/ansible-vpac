@@ -1,0 +1,53 @@
+---
+# Pacemaker creates its own libvirt domain at start time from the
+# config XML. Leaving a persistent libvirt domain alongside a Pacemaker
+# resource is the documented footgun — both qemu processes can try to
+# bind the same disk. This sub-task sweeps every host: if a standalone
+# domain by this VM's name exists, shut it down (best-effort) and
+# undefine it. UEFI domains get --keep-nvram so SecureBoot state is
+# preserved across the handoff.
+
+- name: "List defined libvirt domains on this host"
+  community.libvirt.virt:
+    command: list_vms
+    state: shutdown
+  register: _vm_libvirt_all
+  become: true
+  changed_when: false
+
+- name: "Append running domains to the list"
+  community.libvirt.virt:
+    command: list_vms
+    state: running
+  register: _vm_libvirt_running
+  become: true
+  changed_when: false
+
+- name: "Set fact: this VM is defined as a standalone domain on this host"
+  ansible.builtin.set_fact:
+    _vm_standalone_present: >-
+      {{ _vm.name in (_vm_libvirt_all.list_vms | default([])) or
+         _vm.name in (_vm_libvirt_running.list_vms | default([])) }}
+
+- name: "Shut down standalone {{ _vm.name }} (best-effort, may already be off)"
+  community.libvirt.virt:
+    name: "{{ _vm.name }}"
+    state: shutdown
+  become: true
+  when: _vm_standalone_present | bool
+  failed_when: false
+
+- name: "Undefine standalone {{ _vm.name }} (UEFI keeps NVRAM)"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['virsh', 'undefine', _vm.name]
+        + (['--keep-nvram'] if (_vm_is_efi | default(false) | bool) else [])
+      }}
+  become: true
+  register: _vm_undefine
+  changed_when: _vm_undefine.rc == 0
+  failed_when:
+    - _vm_undefine.rc != 0
+    - "'failed to get domain' not in (_vm_undefine.stderr | default('') | lower)"
+  when: _vm_standalone_present | bool

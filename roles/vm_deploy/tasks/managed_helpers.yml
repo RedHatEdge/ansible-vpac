@@ -1,0 +1,15 @@
+---
+# Once-per-run drop of the operator helper scripts. Each addresses a
+# documented operational pattern. These are NOT called by Ansible at
+# runtime — operators run them interactively.
+
+- name: "Drop VM-management helper scripts under /usr/local/sbin"
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - pcs-vm-move
+    - pcs-vm-status

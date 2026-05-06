@@ -1,0 +1,34 @@
+#!/bin/bash
+# pcs-vm-move — installed by ansible-vpac/vm_deploy.
+#
+# Wraps the documented `pcs resource move <vm> <target> &&
+# pcs resource clear <vm>` pattern. Forgetting the clear leaves a
+# permanent INFINITY location constraint that disables HA failover for
+# that VM until manually removed — the most-repeated documented
+# operational mistake.
+
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+    echo "Usage: $(basename "$0") <vm-name> <target-node>"
+    echo
+    echo "Moves <vm-name> to <target-node>, then immediately clears the"
+    echo "transient location constraint so HA failover stays enabled."
+    exit 1
+fi
+
+VM="$1"
+TARGET="$2"
+
+echo "Moving $VM to $TARGET..."
+pcs resource move "$VM" "$TARGET"
+
+echo "Waiting 30s for the move to settle..."
+sleep 30
+
+echo "Clearing transient location constraint..."
+pcs resource clear "$VM"
+
+echo
+echo "Move complete. Current state:"
+pcs resource status "$VM"

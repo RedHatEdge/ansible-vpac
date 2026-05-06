@@ -1,0 +1,68 @@
+---
+# Three constraint families per VM:
+#   prefers   — soft preference for target_host (score = location_score
+#               | default(100))
+#   avoids    — hard exclusion of every node not in allowed_hosts
+#   anti-aff  — colocation -INFINITY when anti_affinity_with is set;
+#               only the alphabetically-first VM in the pair emits to
+#               avoid duplicate constraints
+#
+# All constraints are idempotent: the role greps `pcs constraint
+# location <vm>` (and `pcs constraint colocation`) for the existing
+# pattern before adding. pcs assigns auto-generated IDs to duplicate
+# constraints, so the grep is the only reliable dedup gate.
+
+- name: "Read existing location constraints for {{ _vm.name }}"
+  ansible.builtin.shell: "pcs constraint location {{ _vm.name | quote }} 2>/dev/null || true"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _vm_loc
+  changed_when: false
+
+- name: "Add 'prefers target_host' location constraint"
+  ansible.builtin.command:
+    cmd: >-
+      pcs constraint location {{ _vm.name }} prefers
+      {{ _vm.target_host }}={{ _vm.location_score | default(100) }}
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  when:
+    - (_vm.target_host | default('')) | length > 0
+    - ('prefers ' + _vm.target_host) not in _vm_loc.stdout
+    - (_vm.target_host + ' (score:') not in _vm_loc.stdout
+  changed_when: true
+
+- name: "Add 'avoids' constraints for nodes outside allowed_hosts"
+  ansible.builtin.command:
+    cmd: "pcs constraint location {{ _vm.name }} avoids {{ item }}=INFINITY"
+  loop: >-
+    {{ vpac_nodes
+       | map(attribute='hostname')
+       | reject('in', _vm.allowed_hosts | default([]))
+       | list }}
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  when:
+    - (_vm.allowed_hosts | default([])) | length > 0
+    - ('avoids ' + item) not in _vm_loc.stdout
+    - (item + ' (score:-INFINITY)') not in _vm_loc.stdout
+  changed_when: true
+
+- name: "Read existing colocation constraints"
+  ansible.builtin.shell: "pcs constraint colocation 2>/dev/null || true"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _vm_coloc
+  changed_when: false
+  when: (_vm.anti_affinity_with | default('')) | length > 0
+
+- name: "Add anti-affinity colocation (alphabetically-first VM only)"
+  ansible.builtin.command:
+    cmd: "pcs constraint colocation add {{ _vm.name }} with {{ _vm.anti_affinity_with }} -INFINITY"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  when:
+    - (_vm.anti_affinity_with | default('')) | length > 0
+    - _vm.name < _vm.anti_affinity_with
+    - (_vm.name + ' with ' + _vm.anti_affinity_with) not in (_vm_coloc.stdout | default(''))
+  changed_when: true

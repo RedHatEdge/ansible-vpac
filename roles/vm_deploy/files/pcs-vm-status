@@ -1,0 +1,33 @@
+#!/bin/bash
+# pcs-vm-status — installed by ansible-vpac/vm_deploy.
+#
+# Diagnostic primitive: per-VM Pacemaker resource status + location
+# constraints + per-node virsh domstate. Useful when a VM is misbehaving
+# and the Pacemaker view doesn't match what virsh sees.
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $(basename "$0") <vm-name>"
+    exit 1
+fi
+
+VM="$1"
+
+echo "=== Pacemaker resource ==="
+pcs resource config "$VM" 2>/dev/null || echo "(not registered as a Pacemaker resource)"
+
+echo
+echo "=== Pacemaker resource state ==="
+pcs resource status "$VM" 2>/dev/null || echo "(no state info)"
+
+echo
+echo "=== Location constraints ==="
+pcs constraint location "$VM" 2>/dev/null || echo "(no constraints)"
+
+echo
+echo "=== Per-node virsh domstate ==="
+for node in $(pcs status nodes 2>/dev/null | awk '/^Online:/ {gsub(/[[]|]]/, ""); for (i=2; i<=NF; i++) print $i}'); do
+    state=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$node" "virsh domstate $VM 2>/dev/null" 2>/dev/null || echo "(unreachable)")
+    printf "  %-24s %s\n" "$node" "$state"
+done

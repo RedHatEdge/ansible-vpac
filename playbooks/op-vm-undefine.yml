@@ -1,0 +1,92 @@
+---
+# Operational playbook — retire a VM end-to-end. Matches the documented
+# field-deployment procedure: pcs resource disable → wait Stopped →
+# pcs resource delete → virsh undefine on every cluster node so no
+# remnant standalone domain lingers.
+#
+# Usage:
+#   ansible-playbook -i inventory/<site> playbooks/op-vm-undefine.yml \
+#     -e vm_name=<vm-name> \
+#     -e i_want_to_destroy=yes
+#
+# The second guard (must equal "yes" verbatim) refuses the run if not
+# explicit. The role and the standalone deploy_one path deliberately
+# never undefine VMs silently — destruction is an operator action only.
+
+- name: "Validate guard variables"
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - ansible.builtin.assert:
+        that:
+          - vm_name is defined
+          - (vm_name | length) > 0
+        fail_msg: "Set -e vm_name=<vm-name>."
+    - ansible.builtin.assert:
+        that: i_want_to_destroy is defined and i_want_to_destroy == 'yes'
+        fail_msg: >-
+          THIS PLAYBOOK WILL DELETE THE PACEMAKER RESOURCE AND UNDEFINE
+          THE LIBVIRT DOMAIN FOR {{ vm_name | default('the VM') }} ON
+          EVERY CLUSTER NODE. The backing disk image is preserved (you
+          can rebind it later). Re-run with -e i_want_to_destroy=yes
+          (literal string) to proceed.
+
+- name: "Step 1: disable + delete the Pacemaker resource"
+  hosts: "{{ vpac_nodes[0].hostname }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "pcs resource disable {{ vm_name }}"
+      ansible.builtin.command: "pcs resource disable {{ vm_name }}"
+      register: _ud_disable
+      changed_when: _ud_disable.rc == 0
+      failed_when:
+        - _ud_disable.rc != 0
+        - "'unable to find' not in (_ud_disable.stderr | default('') | lower)"
+
+    - name: "Wait 30s for resource to stop cleanly"
+      ansible.builtin.pause:
+        seconds: 30
+
+    - name: "pcs resource delete {{ vm_name }} (also drops constraints)"
+      ansible.builtin.command: "pcs resource delete {{ vm_name }}"
+      register: _ud_delete
+      changed_when: _ud_delete.rc == 0
+      failed_when:
+        - _ud_delete.rc != 0
+        - "'unable to find' not in (_ud_delete.stderr | default('') | lower)"
+
+- name: "Step 2: virsh undefine on every cluster node"
+  hosts: vpac_cluster
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "List domains on this node"
+      community.libvirt.virt:
+        command: list_vms
+      register: _ud_libvirt_list
+      changed_when: false
+
+    - name: "Undefine {{ vm_name }} (preserve NVRAM if present)"
+      ansible.builtin.command:
+        argv:
+          - virsh
+          - undefine
+          - "{{ vm_name }}"
+          - "--keep-nvram"
+      register: _ud_virsh
+      changed_when: _ud_virsh.rc == 0
+      failed_when:
+        - _ud_virsh.rc != 0
+        - "'failed to get domain' not in (_ud_virsh.stderr | default('') | lower)"
+      when: vm_name in (_ud_libvirt_list.list_vms | default([]))
+
+- name: "Step 3: optional shared XML cleanup"
+  hosts: "{{ vpac_nodes[0].hostname }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Remove shared XML at {{ vm_deploy_managed_xml_dir | default('/vms') }}/{{ vm_name }}.xml"
+      ansible.builtin.file:
+        path: "{{ vm_deploy_managed_xml_dir | default('/vms') }}/{{ vm_name }}.xml"
+        state: absent

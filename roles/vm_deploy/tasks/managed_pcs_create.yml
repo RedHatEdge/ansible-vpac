@@ -1,0 +1,54 @@
+---
+# Create the VirtualDomain resource. Idempotent — `pcs resource config`
+# returns rc=0 if the resource already exists, and we skip the create
+# when so. PCI-passthrough VMs (vm_catalog[].pci_passthrough non-empty)
+# auto-derive `meta allow-migrate=false` and drop the migrate_to/from
+# operations — they cannot live-migrate.
+#
+# Resource state at create: --disabled by default (vm_deploy_managed_initial_disabled).
+# Operator runs `pcs resource enable <name>` after confirming the
+# backing disk image exists. Matches the standalone safety posture.
+
+- name: "Check whether Pacemaker resource {{ _vm.name }} already exists"
+  ansible.builtin.command: "pcs resource config {{ _vm.name }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _vm_pcs_exists
+  changed_when: false
+  failed_when: false
+
+- name: "Compute allow-migrate (false for PCI-passthrough VMs)"
+  ansible.builtin.set_fact:
+    _vm_allow_migrate: "{{ ((_vm.pci_passthrough | default([])) | length) == 0 }}"
+  run_once: true
+
+- name: "Build pcs resource create argv for {{ _vm.name }}"
+  ansible.builtin.set_fact:
+    _vm_pcs_argv: >-
+      {{
+        [
+          'pcs', 'resource', 'create', _vm.name,
+          'ocf:heartbeat:VirtualDomain',
+          'config=' ~ vm_deploy_managed_xml_dir ~ '/' ~ _vm.name ~ '.xml',
+          'hypervisor=qemu:///system',
+        ]
+        + (['migration_transport=ssh'] if _vm_allow_migrate else [])
+        + ['meta', 'allow-migrate=' ~ ('true' if _vm_allow_migrate else 'false')]
+        + ['op', 'start',   'timeout=' ~ pacemaker_virtualdomain_op_timeout]
+        + ['op', 'stop',    'timeout=' ~ pacemaker_virtualdomain_op_timeout]
+        + ['op', 'monitor', 'interval=' ~ pacemaker_virtualdomain_monitor_interval,
+                            'timeout='  ~ pacemaker_virtualdomain_monitor_timeout]
+        + (['op', 'migrate_to',   'timeout=' ~ pacemaker_virtualdomain_op_timeout,
+            'op', 'migrate_from', 'timeout=' ~ pacemaker_virtualdomain_op_timeout]
+           if _vm_allow_migrate else [])
+        + (['--disabled'] if (vm_deploy_managed_initial_disabled | bool) else [])
+      }}
+  run_once: true
+
+- name: "Create Pacemaker VirtualDomain resource for {{ _vm.name }}"
+  ansible.builtin.command:
+    argv: "{{ _vm_pcs_argv }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  when: _vm_pcs_exists.rc != 0
+  changed_when: true

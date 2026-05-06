@@ -1,0 +1,19 @@
+---
+# Per-VM managed-mode body. Calls the focused sub-tasks for shared XML
+# placement, standalone-domain handoff, pcs resource create, constraint
+# emission, and verification. Each step is idempotent.
+
+- name: "Place rendered XML on shared storage for {{ _vm.name }}"
+  ansible.builtin.import_tasks: managed_shared_xml.yml
+
+- name: "Tear down any pre-existing standalone libvirt domain for {{ _vm.name }}"
+  ansible.builtin.import_tasks: managed_undefine.yml
+
+- name: "Create the Pacemaker VirtualDomain resource for {{ _vm.name }}"
+  ansible.builtin.import_tasks: managed_pcs_create.yml
+
+- name: "Emit location + colocation constraints for {{ _vm.name }}"
+  ansible.builtin.import_tasks: managed_constraints.yml
+
+- name: "Verify {{ _vm.name }} is Started (or intentionally disabled)"
+  ansible.builtin.import_tasks: managed_verify.yml

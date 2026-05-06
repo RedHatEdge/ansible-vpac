@@ -4,14 +4,45 @@
 # practice the default matches.
 vm_deploy_xml_dir: /etc/libvirt/qemu-vpac
 
-# Whether to start VMs after defining them. Defaults to false in v1 so
-# the operator can verify qcow2 disks exist and the XML accepted cleanly
-# before committing to a VM fleet startup. Flip to true once the site is
-# ready to bring workloads online.
+# Whether to start VMs after defining them. STANDALONE-MODE ONLY.
+# Defaults to false in v1 so the operator can verify qcow2 disks exist
+# and the XML accepted cleanly before committing to a fleet startup.
+# Flip to true once the site is ready to bring workloads online.
+# In managed mode this is ignored — Pacemaker owns start/stop.
 vm_deploy_autostart: false
 
-# Whether to mark defined VMs as autostart-on-boot. When true, each
-# libvirt domain gets `virsh autostart <name>` applied. Ignored when
-# deployment is managed by Pacemaker (future work) — Pacemaker owns
-# start/stop decisions there.
+# Whether to mark defined VMs as autostart-on-boot. STANDALONE-MODE ONLY.
+# When true, each libvirt domain gets `virsh autostart <name>` applied.
+# Ignored in managed mode (Pacemaker owns boot-time decisions).
 vm_deploy_autostart_on_boot: false
+
+# Pacemaker-managed mode. When true, each VM is wrapped as an
+# ocf:heartbeat:VirtualDomain resource with location constraints from
+# vm_catalog[].target_host (prefers, score=location_score|default(100))
+# and vm_catalog[].allowed_hosts (avoids INFINITY for nodes outside).
+# When false, the role does standalone libvirt-define on target_host
+# (the v1 behavior).
+#
+# Default auto-derives: managed mode requires >=3 nodes and stonith
+# operator-enabled. The runtime precheck additionally verifies that
+# pcs property show stonith-enabled is true on the cluster (fails
+# fast if pacemaker_base ran but stonith hasn't).
+vm_deploy_managed_mode: "{{ ((vpac_nodes | length) >= 3) and (stonith.enabled | default(true) | bool) }}"
+
+# Per-VM override of vm_deploy_managed_mode lives at vm_catalog[].pacemaker_managed
+# (true | false). When unset, the cluster-wide vm_deploy_managed_mode default
+# applies. Useful for one-off debugging — never have an entire site half
+# in each mode.
+
+# Shared XML directory for managed mode. Pacemaker may start a VM on
+# any allowed node, so the config= path must resolve identically
+# everywhere. Defaults to the cephfs mountpoint (which IS shared);
+# override only if your site has a different shared FS.
+vm_deploy_managed_xml_dir: "{{ ceph.cephfs_mountpoint | default('/vms') }}"
+
+# Initial state of newly-created managed resources. Default true means
+# `pcs resource create ... --disabled` so VMs land in Stopped state and
+# the operator runs `pcs resource enable <name>` after confirming the
+# backing disk image exists. Mirrors the standalone safety posture.
+# Flip to false for unattended re-provisions where you trust the disks.
+vm_deploy_managed_initial_disabled: true

@@ -1,23 +1,36 @@
 ---
-# Define each VM in libvirt from the XML files vm_templates produced.
-# v1 is non-clustered — each VM is defined as a standalone libvirt
-# domain on its target_host. Pacemaker-managed VirtualDomain resources
-# are a follow-up that lands with the stonith role.
+# Two operational modes:
 #
-# Safety posture for v1:
-#   - Defines domains (virsh define). Idempotent.
-#   - Does NOT auto-start (vm_deploy_autostart: false by default).
-#     Operator runs `virsh start <name>` manually after confirming the
-#     qcow2 exists and the XML accepted cleanly. Avoids a fleet of
-#     failing-to-boot VMs on first run.
-#   - Does NOT undefine VMs that exist in libvirt but not in vm_catalog.
-#     That cleanup is an explicit operator action, not something a
-#     playbook should do silently.
+#   STANDALONE: each VM is a plain libvirt domain on its target_host.
+#               No failover. Appropriate for single-node deployments
+#               and bring-up before pacemaker_base/stonith land.
+#
+#   MANAGED:    each VM is wrapped as a Pacemaker VirtualDomain resource
+#               with location constraints from vm_catalog[].target_host
+#               + allowed_hosts. Pacemaker auto-failovers on node loss.
+#               Default when len(vpac_nodes) >= 3 AND stonith.enabled.
+#
+# Per-VM override at vm_catalog[].pacemaker_managed (true | false) takes
+# precedence over the cluster-wide vm_deploy_managed_mode default.
 
-- name: "Define each VM targeted at this host"
+- name: "Resolve cluster-wide managed mode for this play"
+  ansible.builtin.set_fact:
+    _vm_deploy_managed_mode_resolved: "{{ vm_deploy_managed_mode | bool }}"
+  run_once: true
+
+- name: "Managed-mode precheck: stonith-enabled=true on the cluster"
+  ansible.builtin.import_tasks: managed_precheck.yml
+  when: _vm_deploy_managed_mode_resolved | bool
+  tags: [vm, vm-deploy, vm-deploy-managed-precheck]
+
+- name: "Managed-mode helpers: drop /usr/local/sbin/pcs-vm-{move,status}"
+  ansible.builtin.import_tasks: managed_helpers.yml
+  when: _vm_deploy_managed_mode_resolved | bool
+  tags: [vm, vm-deploy, vm-deploy-managed-helpers]
+
+- name: "Loop over vm_catalog (per-VM dispatcher chooses standalone or managed)"
   ansible.builtin.include_tasks: deploy_one.yml
   loop: "{{ vm_catalog | default([]) }}"
   loop_control:
     loop_var: _vm
     label: "{{ _vm.name }} (target={{ _vm.target_host | default('none') }})"
-  when: _vm.target_host | default('') == inventory_hostname

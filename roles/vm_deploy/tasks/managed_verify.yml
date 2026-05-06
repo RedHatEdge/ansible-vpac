@@ -1,0 +1,25 @@
+---
+# Post-create verify. When vm_deploy_managed_initial_disabled is true
+# (default), the resource is registered in Stopped/disabled state; we
+# only assert it shows up in `pcs resource config` and skip the
+# Started-state poll. Operator runs `pcs resource enable <name>` after
+# confirming the backing disk exists.
+
+- name: "Confirm {{ _vm.name }} is registered in pcs"
+  ansible.builtin.command: "pcs resource config {{ _vm.name }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _vm_verify_config
+  changed_when: false
+
+- name: "Wait for {{ _vm.name }} to be Started (only when not initial-disabled)"
+  ansible.builtin.command: "pcs resource status {{ _vm.name }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _vm_verify_state
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: "'Started' in (_vm_verify_state.stdout | default(''))"
+  failed_when: false
+  when: not (vm_deploy_managed_initial_disabled | bool)
