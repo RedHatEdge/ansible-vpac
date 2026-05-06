@@ -469,16 +469,28 @@ stonith:
   enabled: true
 
   # Fence agent. fence_ipmilan for real BMCs (iDRAC, Supermicro IPMI);
-  # fence_virsh for libvirt-based test clusters where there is no BMC.
+  # fence_virsh for libvirt-based lab clusters where there is no BMC.
   fence_agent: "fence_ipmilan"           # fence_ipmilan | fence_virsh
 
-  # fence_ipmilan defaults — override per-node via bmc_type on vpac_nodes
+  # fence_ipmilan defaults. Per-node BMC creds live on vpac_nodes[*]
+  # (bmc_ip, bmc_user, bmc_password). lanplus=true is the IPMI 2.0
+  # protocol and is what every modern BMC expects; override only if a
+  # specific BMC requires legacy IPMI 1.5.
   default_lanplus: true
-  default_cipher: 3
-  default_delay: 0
+
+  # Lab-only: fence_virsh path. The cluster node SSHes to virsh_host as
+  # virsh_user using virsh_identity_file (which the role copies from
+  # virsh_identity_file_local on the controller and chmod 0640
+  # root:hacluster on each cluster node). When a cluster hostname
+  # differs from its libvirt domain name, set vpac_nodes[*].libvirt_domain
+  # per-node so the fence agent can map them.
+  virsh_host: ""                         # IP or hostname of the libvirt host
+  virsh_user: ""                         # e.g. "stack"
+  virsh_identity_file: "/etc/cluster/fence_virsh_id_ed25519"
+  virsh_identity_file_local: ""          # controller-side path to the private key
 
   # Location constraints: each fence device avoids its own node (a node
-  # can't fence itself). Role handles this automatically from vpac_nodes.
+  # can't fence itself). The role handles this automatically from vpac_nodes.
 
 # --------------------------------------------------------------------
 # 12. VM catalog

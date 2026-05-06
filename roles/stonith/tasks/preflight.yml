@@ -1,0 +1,36 @@
+---
+- name: "Assert fence_agent is supported"
+  ansible.builtin.assert:
+    that: stonith.fence_agent in ['fence_ipmilan', 'fence_virsh']
+    fail_msg: >-
+      stonith.fence_agent must be 'fence_ipmilan' or 'fence_virsh'
+      (got '{{ stonith.fence_agent | default('') }}').
+  run_once: true
+
+- name: "Assert {{ stonith.fence_agent }} binary is available"
+  ansible.builtin.command:
+    cmd: "which {{ stonith.fence_agent }}"
+  register: _st_which
+  changed_when: false
+  failed_when: _st_which.rc != 0
+
+- name: "Assert pacemaker_base has run (corosync.conf present)"
+  ansible.builtin.stat:
+    path: /etc/corosync/corosync.conf
+  register: _st_corosync_conf
+  failed_when: not _st_corosync_conf.stat.exists
+
+- name: "Lab path: assert fence_virsh inventory vars are set"
+  ansible.builtin.assert:
+    that:
+      - (stonith.virsh_host | default('')) | length > 0
+      - (stonith.virsh_user | default('')) | length > 0
+      - (stonith.virsh_identity_file | default('')) | length > 0
+      - (stonith.virsh_identity_file_local | default('')) | length > 0
+    fail_msg: >-
+      stonith.fence_agent is fence_virsh but one or more of
+      stonith.virsh_host / virsh_user / virsh_identity_file /
+      virsh_identity_file_local is unset. Set them in inventory under
+      the stonith: dict.
+  when: stonith.fence_agent == 'fence_virsh'
+  run_once: true

@@ -1,0 +1,98 @@
+---
+# Operational playbook — interactive functional fence test. WILL POWER
+# CYCLE the target node. Documented procedure mirrors the live fence
+# test from a documented field deployment session: drain VMs from the
+# target → standby → pcs stonith fence → wait for IPMI power-cycle →
+# unstandby once back online.
+#
+# Usage:
+#   ansible-playbook -i inventory/<site> playbooks/op-stonith-fence-test.yml \
+#     -e fence_target=<node-hostname> \
+#     -e i_have_drained_vms=yes
+#
+# Both vars are required and the second must equal "yes" verbatim — the
+# playbook refuses to run otherwise. Pick fence_target as the safest
+# node available (typically the one without RT or HMI VMs).
+
+- name: "Validate guard variables"
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: "Assert fence_target was provided"
+      ansible.builtin.assert:
+        that:
+          - fence_target is defined
+          - (fence_target | length) > 0
+        fail_msg: >-
+          Set -e fence_target=<node-hostname>. Pick the safest node
+          (no RT or HMI VMs running on it).
+
+    - name: "Assert i_have_drained_vms=yes (verbatim)"
+      ansible.builtin.assert:
+        that: i_have_drained_vms is defined and i_have_drained_vms == 'yes'
+        fail_msg: >-
+          THIS PLAYBOOK WILL POWER-CYCLE {{ fence_target | default('the target') }}.
+          Drain VMs from it first, then re-run with
+          -e i_have_drained_vms=yes (literal string).
+
+    - name: "Loud banner"
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          About to power-cycle {{ fence_target }} via pcs stonith fence.
+          Pacemaker will assign the fence resource (fence-{{ fence_target }})
+          to a non-target node, which will issue an IPMI power-off and
+          power-on against the target's BMC.
+          ============================================================
+
+- name: "Step 1: standby the target"
+  hosts: "{{ vpac_nodes[0].hostname }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "pcs node standby {{ fence_target }}"
+      ansible.builtin.command: "pcs node standby {{ fence_target }}"
+      changed_when: true
+
+    - name: "Wait 30s for resources to vacate"
+      ansible.builtin.pause:
+        seconds: 30
+
+- name: "Step 2: pcs stonith fence (the actual reboot)"
+  hosts: "{{ vpac_nodes[0].hostname }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Issue fence command"
+      ansible.builtin.command: "pcs stonith fence {{ fence_target }}"
+      changed_when: true
+
+    - name: "Wait 60s for the IPMI power-cycle to complete"
+      ansible.builtin.pause:
+        seconds: 60
+
+- name: "Step 3: wait for the target to come back online"
+  hosts: "{{ vpac_nodes[0].hostname }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Poll pcs status until target is Online (up to 5 min)"
+      ansible.builtin.command: pcs status nodes
+      register: _st_test_status
+      until: "fence_target in _st_test_status.stdout and 'OFFLINE' not in (_st_test_status.stdout.split(fence_target)[1].split('\n')[0] | default('OFFLINE'))"
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: "pcs node unstandby {{ fence_target }}"
+      ansible.builtin.command: "pcs node unstandby {{ fence_target }}"
+      changed_when: true
+
+    - name: "Final pcs status"
+      ansible.builtin.command: pcs status
+      register: _st_test_final
+      changed_when: false
+
+    - name: "Show final cluster state"
+      ansible.builtin.debug:
+        var: _st_test_final.stdout_lines

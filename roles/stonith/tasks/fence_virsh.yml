@@ -1,0 +1,44 @@
+---
+# Lab path: fence_virsh SSHes from the cluster node to the libvirt host
+# and runs `virsh destroy <domain>`. The cluster node SSHes as
+# stonith.virsh_user using stonith.virsh_identity_file. The pcmk_host_map
+# translates each cluster hostname to its libvirt domain name (which may
+# differ — e.g. cluster hostname site1-node-a, libvirt domain
+# vpac-node-a). When vpac_nodes[*].libvirt_domain is unset, the cluster
+# hostname is used as the domain name.
+
+- name: "Copy fence_virsh SSH identity to every cluster node"
+  # Identity must be readable by the hacluster user (which the stonith
+  # resource runs as), not just by root. 0640 root:hacluster is the
+  # documented lab pattern.
+  ansible.builtin.copy:
+    src: "{{ stonith.virsh_identity_file_local }}"
+    dest: "{{ stonith.virsh_identity_file }}"
+    owner: root
+    group: hacluster
+    mode: "0640"
+
+- name: "Create fence_virsh device per node"
+  ansible.builtin.command:
+    argv:
+      - pcs
+      - stonith
+      - create
+      - "fence-{{ item.hostname }}"
+      - fence_virsh
+      - "ip={{ stonith.virsh_host }}"
+      - "login={{ stonith.virsh_user }}"
+      - "identity_file={{ stonith.virsh_identity_file }}"
+      - "pcmk_host_check=static-list"
+      - "pcmk_host_list={{ item.hostname }}"
+      - "pcmk_host_map={{ item.hostname }}:{{ item.libvirt_domain | default(item.hostname) }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  register: _st_virsh_create
+  changed_when: _st_virsh_create.rc == 0
+  failed_when:
+    - _st_virsh_create.rc != 0
+    - "'already exists' not in (_st_virsh_create.stderr | default(''))"

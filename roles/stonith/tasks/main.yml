@@ -1,8 +1,41 @@
 ---
-# Not yet implemented. See roles/stonith/README.md for planned behavior.
+# Single-node guard. Single-node deployments skip stonith entirely
+# (pacemaker_base also skips, so there's nothing to fence).
+- name: "Single-node skip — stonith requires len(vpac_nodes) >= 3"
+  ansible.builtin.meta: end_play
+  when: vpac_nodes | length < 3
 
-- name: "stonith: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'stonith' is a stub — not implemented yet.
-      See roles/stonith/README.md for planned behavior.
+- name: "Skip if stonith is operator-disabled"
+  ansible.builtin.meta: end_play
+  when: not (stonith.enabled | default(true) | bool)
+
+- name: "Preflight assertions (agent supported, binary present, pacemaker up)"
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [stonith, stonith-preflight]
+
+- name: "Create fence_ipmilan devices"
+  ansible.builtin.import_tasks: fence_ipmilan.yml
+  when: stonith.fence_agent == 'fence_ipmilan'
+  tags: [stonith, stonith-create]
+
+- name: "Create fence_virsh devices (lab path)"
+  ansible.builtin.import_tasks: fence_virsh.yml
+  when: stonith.fence_agent == 'fence_virsh'
+  tags: [stonith, stonith-create]
+
+- name: "Add 'avoids self' location constraints"
+  ansible.builtin.import_tasks: constraints.yml
+  tags: [stonith, stonith-constraints]
+
+- name: "Optional functional probe (-o status against each device)"
+  ansible.builtin.import_tasks: probe.yml
+  when: stonith_dry_run_actual_probe | default(false) | bool
+  tags: [stonith, stonith-probe]
+
+- name: "Atomic enable — flip stonith-enabled=true once all devices+constraints registered"
+  ansible.builtin.import_tasks: enable.yml
+  tags: [stonith, stonith-enable]
+
+- name: "Verify"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [stonith, stonith-verify]

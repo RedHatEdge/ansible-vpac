@@ -1,0 +1,3 @@
+---
+# Reserved for future handlers. `pcs` operations are convergent so the
+# role's tasks don't need handlers today.

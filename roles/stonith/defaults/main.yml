@@ -1,0 +1,6 @@
+---
+# Functional probe via `fence_<agent> -o status`. Default off — proves
+# the fence agent can talk to the BMC (or libvirt host) without
+# rebooting anything. Toggle on for first-deploy validation; toggle off
+# for steady-state re-runs (some BMCs rate-limit query connections).
+stonith_dry_run_actual_probe: false

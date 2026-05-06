@@ -1,0 +1,47 @@
+---
+- name: "pcs stonith status"
+  ansible.builtin.command:
+    cmd: pcs stonith status
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _st_status
+  changed_when: false
+
+- name: "Assert no stonith resource is Stopped"
+  ansible.builtin.assert:
+    that: "'Stopped' not in _st_status.stdout"
+    fail_msg: >-
+      pcs stonith status reports a Stopped device. Output:
+      {{ _st_status.stdout }}
+
+- name: "Assert stonith-enabled is true"
+  ansible.builtin.command:
+    cmd: pcs property show stonith-enabled
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _st_prop
+  changed_when: false
+
+- name: "Confirm stonith-enabled=true"
+  ansible.builtin.assert:
+    that: "'stonith-enabled: true' in (_st_prop.stdout | lower)"
+    fail_msg: >-
+      stonith-enabled is not true after the role completed. Output:
+      {{ _st_prop.stdout }}
+
+- name: "pcs status — assert no pending fencing"
+  ansible.builtin.command:
+    cmd: pcs status
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _st_pcs_status
+  changed_when: false
+
+- name: "Confirm no pending fencing actions in the CIB"
+  ansible.builtin.assert:
+    that: "'pending fencing' not in (_st_pcs_status.stdout | lower)"
+    fail_msg: >-
+      pcs status reports pending fencing actions. Use
+      /usr/local/sbin/pcs-stonith-confirm-helper to clear them, or run
+      playbooks/op-pacemaker-recover.yml for the documented cold-start
+      recovery procedure.

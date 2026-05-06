@@ -1,0 +1,54 @@
+---
+# Optional functional probe. Runs `fence_<agent> -o status` against each
+# device — proves the agent can reach its target without rebooting it.
+# Gated by stonith_dry_run_actual_probe (default false); enable for
+# first-deploy validation, disable for steady-state re-runs to avoid
+# rate-limiting some BMCs.
+
+- name: "Probe fence_ipmilan devices (-o status)"
+  ansible.builtin.command:
+    argv:
+      - fence_ipmilan
+      - "-o"
+      - status
+      - "-a"
+      - "{{ item.bmc_ip }}"
+      - "-l"
+      - "{{ item.bmc_user }}"
+      - "-p"
+      - "{{ item.bmc_password }}"
+      - "-P"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  no_log: true
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  register: _st_ipmi_probe
+  changed_when: false
+  failed_when: _st_ipmi_probe.rc != 0
+  when: stonith.fence_agent == 'fence_ipmilan'
+
+- name: "Probe fence_virsh devices (-o status)"
+  ansible.builtin.command:
+    argv:
+      - fence_virsh
+      - "-o"
+      - status
+      - "-a"
+      - "{{ stonith.virsh_host }}"
+      - "-l"
+      - "{{ stonith.virsh_user }}"
+      - "-k"
+      - "{{ stonith.virsh_identity_file }}"
+      - "-n"
+      - "{{ item.libvirt_domain | default(item.hostname) }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  register: _st_virsh_probe
+  changed_when: false
+  failed_when: _st_virsh_probe.rc != 0
+  when: stonith.fence_agent == 'fence_virsh'

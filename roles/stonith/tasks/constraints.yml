@@ -1,0 +1,25 @@
+---
+# Per-fence "avoids self" location constraint — a node should never run
+# the resource that fences it (otherwise the fence agent can't run
+# precisely when the cluster needs it). Idempotent: gate on the existing
+# constraint listing so re-runs don't append duplicates with auto-
+# generated IDs (`location-fence-X-X--INFINITY`).
+
+- name: "List existing constraints"
+  ansible.builtin.command:
+    cmd: pcs constraint list --full
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _st_constraints
+  changed_when: false
+
+- name: "Add 'avoids self' location constraint per fence device"
+  ansible.builtin.command:
+    cmd: "pcs constraint location fence-{{ item.hostname }} avoids {{ item.hostname }}=INFINITY"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  when: ('fence-' + item.hostname + ' avoids ' + item.hostname) not in _st_constraints.stdout
+  changed_when: true

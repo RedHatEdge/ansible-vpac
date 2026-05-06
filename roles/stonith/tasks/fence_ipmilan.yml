@@ -1,0 +1,33 @@
+---
+# Create one fence_ipmilan device per node — fence-<hostname>. Each
+# device's pcmk_host_list is just that one node, so Pacemaker only
+# uses it to fence the matching node.
+#
+# Idempotent: re-runs accept "already exists" without flagging changed.
+# pcs uses argv form to avoid shell quoting issues with passwords that
+# contain special characters.
+
+- name: "Create fence_ipmilan device per node"
+  ansible.builtin.command:
+    argv:
+      - pcs
+      - stonith
+      - create
+      - "fence-{{ item.hostname }}"
+      - fence_ipmilan
+      - "ipaddr={{ item.bmc_ip }}"
+      - "login={{ item.bmc_user }}"
+      - "passwd={{ item.bmc_password }}"
+      - "lanplus={{ stonith.default_lanplus | default(true) | int }}"
+      - "pcmk_host_list={{ item.hostname }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  no_log: true
+  loop: "{{ vpac_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  register: _st_ipmilan_create
+  changed_when: _st_ipmilan_create.rc == 0
+  failed_when:
+    - _st_ipmilan_create.rc != 0
+    - "'already exists' not in (_st_ipmilan_create.stderr | default(''))"
