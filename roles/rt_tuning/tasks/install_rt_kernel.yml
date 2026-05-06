@@ -1,0 +1,55 @@
+---
+# Install the RT package set, promote kernel-rt to the default boot, and
+# versionlock the stock kernel so a future `dnf update kernel` doesn't
+# silently land a new BLS entry that pushes RT out of index 0.
+#
+# After install, kernel-rt is at boot index 0; stock kernel index moves
+# to 1 (or higher). Versionlock keeps stock pinned where it is. We
+# explicitly do NOT versionlock kernel-rt — security updates for the
+# RT kernel land via normal `dnf update`.
+
+- name: "Install RT package set"
+  ansible.builtin.dnf:
+    name: "{{ rt_tuning_packages }}"
+    state: present
+  notify: "reboot after kernel cmdline change"
+
+- name: "Find the highest BLS entry index that is the RT kernel"
+  ansible.builtin.shell: |
+    set -o pipefail
+    grubby --info=ALL | awk -F= '/^index=/ {idx=$2} /^kernel=.*\+rt/ {print idx; exit}'
+  register: _rt_idx
+  changed_when: false
+
+- name: "Set kernel-rt as the default boot index"
+  ansible.builtin.command:
+    cmd: "grubby --set-default-index={{ _rt_idx.stdout }}"
+  when: (_rt_idx.stdout | default('')) | length > 0
+  changed_when: true
+
+- name: "List currently versionlocked packages"
+  ansible.builtin.command: "dnf versionlock list"
+  register: _rt_versionlock
+  changed_when: false
+
+- name: "Versionlock the stock kernel + kernel-core + kernel-modules"
+  ansible.builtin.command:
+    cmd: "dnf versionlock add {{ item }}"
+  loop:
+    - kernel
+    - kernel-core
+    - kernel-modules
+  when: item not in _rt_versionlock.stdout
+  changed_when: true
+
+- name: "Ensure kernel-rt is NOT versionlocked (we want RT updates to apply normally)"
+  ansible.builtin.command:
+    cmd: "dnf versionlock delete {{ item }}"
+  loop:
+    - kernel-rt
+    - kernel-rt-core
+    - kernel-rt-modules
+    - kernel-rt-kvm
+  when: item in _rt_versionlock.stdout
+  changed_when: true
+  failed_when: false

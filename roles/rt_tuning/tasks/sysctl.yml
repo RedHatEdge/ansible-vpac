@@ -1,0 +1,31 @@
+---
+# /etc/sysctl.d/vpac-rt.conf — boot-time RT sysctls. The vm.nr_hugepages
+# value is the single source of truth alongside the cmdline
+# default_hugepagesz; both come from rt_tuning_nr_hugepages so they
+# can't drift apart and cause the documented dual-source-of-truth bug
+# that locked ~114 GiB of unused hugepages on a documented field
+# deployment.
+
+- name: "Write /etc/sysctl.d/vpac-rt.conf"
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/vpac-rt.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by ansible-vpac / rt_tuning role — do not edit by hand.
+      # Disable the kernel NMI watchdog (saves an NMI per second, jitter source).
+      kernel.nmi_watchdog = {{ rt_tuning_nmi_watchdog }}
+
+      # RT throttling. -1 disables (RT tasks can starve everything else);
+      # 950000 of 1000000 is the safer 95% bound. Per inventory.
+      kernel.sched_rt_runtime_us = {{ rt_tuning_sched_rt_runtime_us }}
+
+      # Hugepages. Same value the kernel cmdline uses for default_hugepagesz.
+      vm.nr_hugepages = {{ rt_tuning_nr_hugepages }}
+  register: _rt_sysctl_file
+
+- name: "Apply sysctls live (sysctl --system reads the new file)"
+  ansible.builtin.command: /usr/sbin/sysctl --system
+  when: _rt_sysctl_file.changed
+  changed_when: true

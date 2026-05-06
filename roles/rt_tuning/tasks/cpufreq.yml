@@ -1,0 +1,50 @@
+---
+# CPU frequency governor. With intel_pstate=disable on the cmdline, the
+# active driver becomes acpi-cpufreq and the governor defaults to
+# schedutil/ondemand depending on kernel build — neither holds the CPU
+# at max frequency. RT workloads need `performance` to avoid frequency
+# transitions that add jitter.
+#
+# Apply twice: live now via cpupower, and at boot via a systemd oneshot
+# (otherwise the kernel default re-applies on every reboot).
+
+- name: "Install cpupower (kernel-tools provides it)"
+  ansible.builtin.dnf:
+    name: kernel-tools
+    state: present
+
+- name: "Set cpufreq governor live"
+  ansible.builtin.command:
+    cmd: "cpupower frequency-set -g {{ rt_tuning.cpu_governor | default('performance') }}"
+  changed_when: true
+
+- name: "Drop systemd oneshot to re-apply governor on boot"
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/vpac-cpufreq.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Re-apply vPAC cpufreq governor on boot
+      After=multi-user.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/cpupower frequency-set -g {{ rt_tuning.cpu_governor | default('performance') }}
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  register: _rt_cpufreq_unit
+
+- name: "Reload systemd if the unit changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _rt_cpufreq_unit.changed
+
+- name: "Enable vpac-cpufreq.service"
+  ansible.builtin.systemd_service:
+    name: vpac-cpufreq.service
+    enabled: true
+    state: started

@@ -1,0 +1,37 @@
+---
+# Apply RT-only kernel cmdline knobs to ALL boot entries via grubby. The
+# isolcpus / nohz_full / rcu_nocbs values are NOT here — those come from
+# the tuned realtime-virtual-host profile reading the variables file
+# tasks/tuned_profile.yml writes. Owning them here would split the
+# isolation source-of-truth.
+#
+# audit=0 is opt-in via rt_tuning_disable_audit (off by default — keeps
+# security signal at the cost of some jitter from auditd).
+
+- name: "Compose the effective RT cmdline arg list"
+  ansible.builtin.set_fact:
+    _rt_args: >-
+      {{ rt_tuning_cmdline_args
+         + (['audit=0'] if (rt_tuning_disable_audit | bool) else []) }}
+
+- name: "Read current kernel cmdline arguments"
+  ansible.builtin.command: "grubby --info=DEFAULT"
+  register: _rt_grubby_info
+  changed_when: false
+
+- name: "Apply RT cmdline args (idempotent — grubby skips args already present)"
+  ansible.builtin.command:
+    cmd: "grubby --update-kernel=ALL --args={{ item | quote }}"
+  loop: "{{ _rt_args }}"
+  when: item not in _rt_grubby_info.stdout
+  changed_when: true
+  notify: "reboot after kernel cmdline change"
+
+- name: "Reject selinux=0 if it slipped onto the cmdline somehow"
+  # Defense-in-depth — host_baseline asserts the same. selinux=0 on the
+  # cmdline removes /sys/fs/selinux and breaks Ceph OSD containers
+  # (documented field-deployment incident). Never let RT tuning add it.
+  ansible.builtin.command: "grubby --update-kernel=ALL --remove-args=selinux=0"
+  when: "'selinux=0' in _rt_grubby_info.stdout"
+  changed_when: true
+  notify: "reboot after kernel cmdline change"

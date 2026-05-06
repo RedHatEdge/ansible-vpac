@@ -1,0 +1,72 @@
+---
+# Post-apply assertions. Note: most of these only hold AFTER the reboot
+# triggered by the cmdline + tuned changes. On first run they may fail
+# (kernel-rt installed but not yet running); that's expected. Schedule
+# the reboot via the role's notify, then re-run with --tags rt-verify
+# (or rely on the next site.yml run).
+
+- name: "Read uname"
+  ansible.builtin.command: uname -r
+  register: _rt_uname
+  changed_when: false
+
+- name: "Assert running kernel ends with +rt"
+  ansible.builtin.assert:
+    that: _rt_uname.stdout.endswith('+rt')
+    fail_msg: >-
+      Running kernel is {{ _rt_uname.stdout }} — RT kernel not active.
+      Reboot the host (the role notify scheduled this) and re-run with
+      --tags rt-verify.
+
+- name: "Read active tuned profile"
+  ansible.builtin.command: /usr/sbin/tuned-adm active
+  register: _rt_tuned
+  changed_when: false
+
+- name: "Assert tuned profile is realtime-virtual-host"
+  ansible.builtin.assert:
+    that: "'realtime-virtual-host' in _rt_tuned.stdout"
+    fail_msg: >-
+      Active tuned profile is {{ _rt_tuned.stdout | trim }}; expected
+      realtime-virtual-host.
+
+- name: "Read kernel-isolated CPUs"
+  ansible.builtin.slurp:
+    src: /sys/devices/system/cpu/isolated
+  register: _rt_isolated
+
+- name: "Assert isolated_cpus matches inventory"
+  ansible.builtin.assert:
+    that: (_rt_isolated.content | b64decode | trim) == rt_tuning.isolated_cpus
+    fail_msg: >-
+      /sys/devices/system/cpu/isolated reads
+      "{{ _rt_isolated.content | b64decode | trim }}", expected
+      "{{ rt_tuning.isolated_cpus }}". Variables-file ordering bug
+      (documented field deployment Bug #5) is a known cause.
+
+- name: "Read sched_rt_runtime_us"
+  ansible.builtin.slurp:
+    src: /proc/sys/kernel/sched_rt_runtime_us
+  register: _rt_sched_runtime
+
+- name: "Assert sched_rt_runtime_us matches inventory"
+  ansible.builtin.assert:
+    that: (_rt_sched_runtime.content | b64decode | trim) == (rt_tuning_sched_rt_runtime_us | string)
+    fail_msg: >-
+      /proc/sys/kernel/sched_rt_runtime_us is
+      {{ _rt_sched_runtime.content | b64decode | trim }}, expected
+      {{ rt_tuning_sched_rt_runtime_us }}.
+
+- name: "Read /proc/meminfo HugePages_Total"
+  ansible.builtin.shell: "grep '^HugePages_Total:' /proc/meminfo | awk '{print $2}'"
+  register: _rt_huge_total
+  changed_when: false
+
+- name: "Assert HugePages_Total matches inventory"
+  ansible.builtin.assert:
+    that: (_rt_huge_total.stdout | int) == (rt_tuning_nr_hugepages | int)
+    fail_msg: >-
+      HugePages_Total is {{ _rt_huge_total.stdout }}, expected
+      {{ rt_tuning_nr_hugepages }}. Common cause: cmdline
+      default_hugepagesz and sysctl vm.nr_hugepages drifted apart
+      (documented field deployment dual-source-of-truth bug).

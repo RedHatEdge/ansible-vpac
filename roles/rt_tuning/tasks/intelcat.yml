@@ -1,0 +1,25 @@
+---
+# Drop the sys-fs-resctrl.mount systemd unit so /sys/fs/resctrl is
+# mounted at boot. intel-cmt-cat package (installed by virtualization
+# role's package set) provides pqos; pqos -e/-a (called by the SSC600
+# startup service) silently fails if /sys/fs/resctrl isn't mounted.
+
+- name: "Drop sys-fs-resctrl.mount systemd unit"
+  ansible.builtin.copy:
+    src: sys-fs-resctrl.mount
+    dest: /etc/systemd/system/sys-fs-resctrl.mount
+    owner: root
+    group: root
+    mode: "0644"
+  register: _rt_resctrl_unit
+
+- name: "Reload systemd if the unit changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _rt_resctrl_unit.changed
+
+- name: "Enable + start sys-fs-resctrl.mount"
+  ansible.builtin.systemd_service:
+    name: sys-fs-resctrl.mount
+    state: started
+    enabled: true

@@ -1,0 +1,25 @@
+---
+# Variables file MUST be written BEFORE `tuned-adm profile` is invoked.
+# tuned reads isolated_cores from realtime-virtual-host-variables.conf
+# at profile-activation time to generate the kernel cmdline; if the
+# variables file still has the RPM default, the wrong isolcpus= lands.
+
+- name: "Render realtime-virtual-host-variables.conf (BEFORE profile activation)"
+  ansible.builtin.template:
+    src: realtime-virtual-host-variables.conf.j2
+    dest: /etc/tuned/realtime-virtual-host-variables.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "reboot after kernel cmdline change"
+
+- name: "Get active tuned profile"
+  ansible.builtin.command: /usr/sbin/tuned-adm active
+  register: _rt_tuned_active
+  changed_when: false
+
+- name: "Activate realtime-virtual-host tuned profile"
+  ansible.builtin.command: /usr/sbin/tuned-adm profile realtime-virtual-host
+  when: "'realtime-virtual-host' not in _rt_tuned_active.stdout"
+  changed_when: true
+  notify: "reboot after kernel cmdline change"

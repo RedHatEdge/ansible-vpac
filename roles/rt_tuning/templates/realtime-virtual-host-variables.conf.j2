@@ -1,0 +1,16 @@
+# Managed by ansible-vpac / rt_tuning role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags rt-tuned
+#
+# Consumed by the realtime-virtual-host tuned profile (which inherits
+# cpu-partitioning). MUST be templated BEFORE `tuned-adm profile
+# realtime-virtual-host` is invoked, otherwise tuned reads the RPM
+# default and emits the wrong isolcpus= cmdline. (Documented field
+# deployment Bug #5.)
+
+isolated_cores={{ rt_tuning.isolated_cpus }}
+
+# Move kernel-managed IRQs (NIC queues, NVMe, etc.) off the isolated
+# cores at runtime. Without this, kernel-managed IRQs land on whatever
+# CPU the kernel picks — including isolated ones — and steal jitter
+# from RT VMs.
+isolate_managed_irq=Y

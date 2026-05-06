@@ -1,0 +1,20 @@
+---
+# RT chrony settings for relay-hosting nodes. Vendor (ABB) Engineering
+# Manual specifies lock_all + sched_priority 60 + combinelimit 0 for
+# relay-VM time accuracy. We layer these onto the existing chrony.conf
+# host_baseline templated, via in-place blockinfile so we don't take
+# ownership of the whole file. notify chronyd restart so the changes
+# take effect immediately.
+
+- name: "Apply RT chrony overrides on /etc/chrony.conf"
+  ansible.builtin.blockinfile:
+    path: /etc/chrony.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK (ansible-vpac/rt_tuning)"
+    block: |
+      # RT relay-host overrides — required for sub-millisecond accuracy
+      # against a PTP reference. Values from documented vendor guidance.
+      lock_all
+      sched_priority {{ rt_chrony.sched_priority | default(60) }}
+      combinelimit {{ rt_chrony.combinelimit | default(0) }}
+  notify: "restart chronyd"
+  when: rt_chrony.lock_all | default(true) | bool

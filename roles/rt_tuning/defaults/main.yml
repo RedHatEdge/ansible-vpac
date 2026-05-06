@@ -1,0 +1,59 @@
+---
+# RT package set. kernel-rt + kernel-rt-kvm are the workhorses; the rest
+# are tuned profiles + tools the role uses.
+rt_tuning_packages:
+  - kernel-rt
+  - kernel-rt-kvm
+  - tuned-profiles-realtime
+  - tuned-profiles-nfv-host
+  - realtime-tests
+  - dnf-plugins-core
+  - python3-dnf-plugin-versionlock
+  - intel-cmt-cat            # pqos for cache work; also installed by virtualization
+
+# Effective hugepage count. Override per-site via inventory's
+# rt_tuning.nr_hugepages_override. The same value feeds BOTH the kernel
+# cmdline (default_hugepagesz=...) AND the /etc/sysctl.d/vpac-rt.conf
+# vm.nr_hugepages line — single source of truth, so the two can never
+# fight each other (the documented dual-source-of-truth bug that locked
+# 114 GiB of unused hugepages on a documented field deployment).
+rt_tuning_nr_hugepages: "{{ rt_tuning.nr_hugepages_override | default(10) }}"
+
+# RT cmdline additions, beyond what cpu-partitioning emits via tuned.
+# Operator can extend or trim; do NOT add selinux=0 — host_baseline
+# rejects that (breaks Ceph OSD containers per documented incident).
+rt_tuning_cmdline_args:
+  - "default_hugepagesz={{ rt_tuning.hugepage_size | default('1G') }}"
+  - "idle=poll"
+  - "intel.max_cstate=0"
+  - "intel_idle.max_cstate=0"
+  - "processor.max_cstate=0"
+  - "processor_idle.max_cstate=0"
+  - "intel_pstate=disable"
+  - "rdt=cmt,l3cat,l3cdp,mba"
+  - "iomem=relaxed"
+  - "intel_iommu=on"
+  - "iommu=pt"
+  - "ipv6.disable=1"
+
+# Toggle to add audit=0 on the cmdline. Suppresses jitter from auditd
+# but loses security signal. Default off; flip per-site if RT determinism
+# trumps audit requirements.
+rt_tuning_disable_audit: false
+
+# Sysctls the role writes to /etc/sysctl.d/vpac-rt.conf.
+rt_tuning_nmi_watchdog: 0
+# Note: sched_rt_runtime_us = -1 disables RT throttling entirely (RT
+# tasks can starve everything else). Set to 950000 (95% of 1s) for
+# safer behavior; -1 only when documented relay vendor requires it.
+rt_tuning_sched_rt_runtime_us: "{{ rt_tuning.sched_rt_runtime_us | default(-1) }}"
+
+# Reboot after kernel-rt install + cmdline change. Default false so the
+# operator schedules reboots; flip true for unattended labs.
+rt_tuning_auto_reboot: false
+
+# Whether this host carries relay VMs (rt_chrony settings apply only on
+# relay hosts). Default: same set as rt_hosts group membership. Override
+# per-host via host_vars when a node is RT-tuned but doesn't run relay
+# workloads (e.g. a Windows-passthrough host on RT hardware).
+rt_tuning_is_relay_host: "{{ inventory_hostname in groups.get('rt_hosts', []) }}"

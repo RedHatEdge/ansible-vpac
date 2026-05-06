@@ -1,8 +1,37 @@
 ---
-# Not yet implemented. See roles/rt_tuning/README.md for planned behavior.
+- name: "Skip non-rt_hosts cluster nodes"
+  ansible.builtin.meta: end_host
+  when: inventory_hostname not in groups.get('rt_hosts', [])
 
-- name: "rt_tuning: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'rt_tuning' is a stub — not implemented yet.
-      See roles/rt_tuning/README.md for planned behavior.
+- name: "Install kernel-rt + RT package set + versionlock pattern"
+  ansible.builtin.import_tasks: install_rt_kernel.yml
+  tags: [rt, rt-install]
+
+- name: "Apply RT cmdline knobs"
+  ansible.builtin.import_tasks: cmdline.yml
+  tags: [rt, rt-cmdline]
+
+- name: "Write /etc/sysctl.d/vpac-rt.conf (single source of truth for hugepages)"
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: [rt, rt-sysctl]
+
+- name: "Render realtime-virtual-host-variables.conf BEFORE activating profile"
+  ansible.builtin.import_tasks: tuned_profile.yml
+  tags: [rt, rt-tuned]
+
+- name: "Mount /sys/fs/resctrl for Intel CAT (pqos)"
+  ansible.builtin.import_tasks: intelcat.yml
+  tags: [rt, rt-intelcat]
+
+- name: "RT chrony overrides (relay-hosting nodes only)"
+  ansible.builtin.import_tasks: rt_chrony.yml
+  when: rt_tuning_is_relay_host | bool
+  tags: [rt, rt-chrony]
+
+- name: "cpufreq governor"
+  ansible.builtin.import_tasks: cpufreq.yml
+  tags: [rt, rt-cpufreq]
+
+- name: "Verify"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [rt, rt-verify]

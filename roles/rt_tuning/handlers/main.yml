@@ -1,0 +1,17 @@
+---
+# Mirror the virtualization role's handler name so rt_tuning + virtualization
+# coalesce into a single reboot when both fired the cmdline path. Gated
+# by rt_tuning_auto_reboot OR virtualization_auto_reboot — production
+# leaves both false and reboots on a controlled schedule.
+- name: "reboot after kernel cmdline change"
+  ansible.builtin.reboot:
+    msg: "Rebooting to apply kernel-rt + RT cmdline changes"
+    connect_timeout: 5
+    reboot_timeout: 600
+    post_reboot_delay: 30
+  when: rt_tuning_auto_reboot | bool
+
+- name: "restart chronyd"
+  ansible.builtin.systemd_service:
+    name: chronyd
+    state: restarted
