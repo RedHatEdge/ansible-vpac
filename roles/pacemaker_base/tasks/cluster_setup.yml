@@ -1,0 +1,54 @@
+---
+# `pcs cluster setup` is NOT idempotent — re-running on an existing cluster
+# errors with "Cluster is already configured." Gate on the absence of
+# /etc/corosync/corosync.conf on the bootstrap node so re-runs of the role
+# skip setup and only run start + enable + properties.
+#
+# Each node's ring address is its heartbeat_ip from vpac_nodes — pcs
+# accepts <hostname>=<addr> per node. This binds corosync to the dedicated
+# heartbeat network instead of letting it bind to whatever interface
+# resolves <hostname> in /etc/hosts (which would be the mgmt network on
+# many clusters — the documented split-brain root cause).
+
+- name: "Stat /etc/corosync/corosync.conf on the bootstrap node"
+  ansible.builtin.stat:
+    path: /etc/corosync/corosync.conf
+  register: _pm_corosync_conf
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+
+- name: "Compose <hostname>=<heartbeat_ip> args for pcs cluster setup"
+  ansible.builtin.set_fact:
+    _pm_node_args: >-
+      {{ vpac_nodes
+         | map(attribute='hostname')
+         | zip(vpac_nodes | map(attribute='heartbeat_ip'))
+         | map('join', '=')
+         | join(' ') }}
+  run_once: true
+
+- name: "pcs cluster setup (first run only)"
+  ansible.builtin.command:
+    cmd: >-
+      pcs cluster setup {{ pacemaker.cluster_name }} {{ _pm_node_args }}
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  when: not _pm_corosync_conf.stat.exists
+  changed_when: true
+
+- name: "pcs cluster start --all"
+  ansible.builtin.command:
+    cmd: pcs cluster start --all
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true
+
+- name: "pcs cluster enable --all (so cluster auto-starts on reboot)"
+  # Without this, corosync + pacemaker land active/disabled by default
+  # — any node reboot orphans the cluster stack. Documented root cause
+  # discovered after a multi-node cold-start incident.
+  ansible.builtin.command:
+    cmd: pcs cluster enable --all
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true

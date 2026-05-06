@@ -1,0 +1,9 @@
+---
+- name: "Install pacemaker stack packages"
+  ansible.builtin.dnf:
+    name:
+      - pcs
+      - pacemaker
+      - corosync
+      - fence-agents-all
+    state: present

@@ -1,0 +1,17 @@
+---
+# `pcs host auth` from one node distributes auth tokens to every node
+# listed. Running it from each node creates token thrash. The pattern is
+# delegate_to + run_once so it executes exactly once on the first node
+# from vpac_nodes and pcs handles the propagation.
+
+- name: "pcs host auth all cluster nodes (run once on the bootstrap node)"
+  ansible.builtin.command:
+    cmd: >-
+      pcs host auth
+      {{ vpac_nodes | map(attribute='hostname') | join(' ') }}
+      -u hacluster
+      -p {{ pacemaker.hacluster_password }}
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  no_log: true
+  changed_when: true

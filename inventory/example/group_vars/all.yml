@@ -437,15 +437,27 @@ ceph:
 pacemaker:
   cluster_name: "vpac-{{ site_name }}"
 
-  # Corosync uses the heartbeat network ONLY. Not mgmt.
-  transport: "knet"
-  ring_interface: "{{ networks.heartbeat.cidr }}"
-
-  # hacluster user password (for pcs auth). Use vault.
+  # hacluster user password (for pcs auth). Use vault — never commit
+  # plaintext. The role hashes via password_hash with a stable salt
+  # derived from cluster_name so re-runs are idempotent.
   hacluster_password: "{{ vault_hacluster_password }}"
 
-  # Resource stickiness — higher = VMs tend to stay put
-  default_resource_stickiness: 100
+# The corosync ring binds to a NETWORK from the `networks` dict (e.g.
+# "heartbeat"). The role uses each node's heartbeat_ip from vpac_nodes
+# as that node's per-node ring address — `pcs cluster setup` takes
+# <hostname>=<addr> per node, NOT a CIDR. Hard-fail if the chosen
+# network's CIDR overlaps networks.mgmt — corosync must run on a
+# network separated from VM management traffic.
+pacemaker_ring_network: "heartbeat"
+
+# Cluster property baselines (override per-site if needed; defaults
+# come from roles/pacemaker_base/defaults/main.yml).
+pacemaker_default_resource_stickiness: 100
+pacemaker_cluster_recheck_interval: "2min"
+pacemaker_no_quorum_policy: "stop"
+pacemaker_migration_threshold: 3
+pacemaker_failure_timeout: "600s"
+pacemaker_virtualdomain_op_timeout: "120s"
 
 # --------------------------------------------------------------------
 # 11. STONITH

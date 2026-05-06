@@ -1,0 +1,6 @@
+---
+- name: "Enable + start pcsd"
+  ansible.builtin.systemd_service:
+    name: pcsd
+    state: started
+    enabled: true

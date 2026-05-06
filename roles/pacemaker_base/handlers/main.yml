@@ -1,0 +1,4 @@
+---
+# Reserved for future handlers. Currently the role's idempotent
+# operations don't need handlers — `pcs` commands are convergent and
+# the helper-script daemon-reload is inline in tasks/helpers.yml.

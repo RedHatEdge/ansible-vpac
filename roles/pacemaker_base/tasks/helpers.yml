@@ -1,0 +1,31 @@
+---
+# Operator helper scripts dropped on every cluster node. These are NOT
+# called by Ansible at runtime — they are documented recovery primitives
+# operators run interactively (or via the op-pacemaker-recover.yml
+# playbook). Each addresses a documented incident pattern.
+
+- name: "Drop operator helper scripts under /usr/local/sbin"
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - pcs-stonith-confirm-helper
+    - pcs-safe-reboot
+    - pcs-cluster-precheck
+
+- name: "Drop pcs-safe-reboot-finish.service systemd unit"
+  ansible.builtin.copy:
+    src: pcs-safe-reboot-finish.service
+    dest: /etc/systemd/system/pcs-safe-reboot-finish.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _pm_safe_reboot_unit
+
+- name: "Reload systemd if pcs-safe-reboot-finish.service changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _pm_safe_reboot_unit.changed

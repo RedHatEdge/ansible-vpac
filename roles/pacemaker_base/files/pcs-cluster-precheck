@@ -1,0 +1,41 @@
+#!/bin/bash
+# pcs-cluster-precheck — installed by ansible-vpac/pacemaker_base.
+#
+# Pre-restart sanity gates. Runs the documented field deployment's
+# cluster-restart precheck procedure: verify no stale shutdown attribute
+# on this node, no pending fencing in the CIB, and no OFFLINE nodes
+# already showing.
+
+set -euo pipefail
+
+fail=0
+NODE=$(hostname --short)
+
+echo "=== Checking for lingering CIB shutdown attribute on $NODE..."
+if crm_attribute --node "$NODE" --name shutdown --query 2>/dev/null | grep -q value; then
+    echo "FAIL: shutdown attribute is set on $NODE."
+    echo "Clear with: crm_attribute --node $NODE --name shutdown --delete"
+    fail=1
+else
+    echo "OK"
+fi
+
+echo
+echo "=== Checking for pending fencing actions..."
+if pcs status | grep -qi 'pending fencing actions'; then
+    echo "FAIL: pending fencing actions present."
+    pcs status | grep -A 5 -i 'pending fencing actions'
+    echo "Use pcs-stonith-confirm-helper to clear before restart."
+    fail=1
+else
+    echo "OK"
+fi
+
+echo
+echo "=== Checking for OFFLINE nodes..."
+if pcs status | grep -q OFFLINE; then
+    echo "WARN: pcs status shows OFFLINE nodes — confirm intended:"
+    pcs status | grep OFFLINE
+fi
+
+exit $fail

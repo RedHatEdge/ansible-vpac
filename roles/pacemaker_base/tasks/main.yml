@@ -1,8 +1,52 @@
 ---
-# Not yet implemented. See roles/pacemaker_base/README.md for planned behavior.
+# Single-node guard. Single-node deployments skip Pacemaker entirely;
+# VMs run as standalone libvirt domains.
+- name: "Single-node skip — pacemaker_base requires len(vpac_nodes) >= 3"
+  ansible.builtin.meta: end_play
+  when: vpac_nodes | length < 3
 
-- name: "pacemaker_base: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'pacemaker_base' is a stub — not implemented yet.
-      See roles/pacemaker_base/README.md for planned behavior.
+- name: "Hard-fail if heartbeat CIDR overlaps mgmt CIDR"
+  ansible.builtin.assert:
+    that: networks[pacemaker_ring_network].cidr != networks.mgmt.cidr
+    fail_msg: >-
+      Heartbeat CIDR ({{ networks[pacemaker_ring_network].cidr }}) equals
+      mgmt CIDR ({{ networks.mgmt.cidr }}). Corosync must run on a network
+      separate from VM management traffic — see LEARNED-FIXES.
+  run_once: true
+  tags: [pacemaker, pacemaker-preflight]
+
+- name: "Install pacemaker stack packages"
+  ansible.builtin.import_tasks: install.yml
+  tags: [pacemaker, pacemaker-packages]
+
+- name: "Verify firewalld high-availability service is open"
+  ansible.builtin.import_tasks: firewall.yml
+  tags: [pacemaker, pacemaker-firewall]
+
+- name: "Set hacluster user password"
+  ansible.builtin.import_tasks: hacluster_user.yml
+  tags: [pacemaker, pacemaker-hacluster]
+
+- name: "Enable + start pcsd"
+  ansible.builtin.import_tasks: pcsd_service.yml
+  tags: [pacemaker, pacemaker-pcsd]
+
+- name: "Authorize cluster nodes (pcs host auth)"
+  ansible.builtin.import_tasks: cluster_auth.yml
+  tags: [pacemaker, pacemaker-auth]
+
+- name: "Create the cluster (pcs cluster setup) — first run only"
+  ansible.builtin.import_tasks: cluster_setup.yml
+  tags: [pacemaker, pacemaker-setup]
+
+- name: "Set cluster properties + resource defaults"
+  ansible.builtin.import_tasks: cluster_properties.yml
+  tags: [pacemaker, pacemaker-properties]
+
+- name: "Drop operator helper scripts"
+  ansible.builtin.import_tasks: helpers.yml
+  tags: [pacemaker, pacemaker-helpers]
+
+- name: "Verify cluster health + ring binding"
+  ansible.builtin.import_tasks: verify.yml
+  tags: [pacemaker, pacemaker-verify]

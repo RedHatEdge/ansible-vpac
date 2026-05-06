@@ -1,0 +1,41 @@
+---
+- name: "pcs status (post-setup sanity)"
+  ansible.builtin.command:
+    cmd: pcs status
+  register: _pm_status
+  changed_when: false
+
+- name: "Assert no node is OFFLINE"
+  ansible.builtin.assert:
+    that: "'OFFLINE' not in _pm_status.stdout"
+    fail_msg: >-
+      pcs status reports an OFFLINE node. Output:
+      {{ _pm_status.stdout }}
+
+- name: "Assert no pending fencing actions"
+  ansible.builtin.assert:
+    that: "'pending fencing' not in (_pm_status.stdout | lower)"
+    fail_msg: >-
+      pcs status reports pending fencing actions; use the
+      /usr/local/sbin/pcs-stonith-confirm-helper script to clear them
+      before re-running pacemaker_base.
+
+- name: "corosync-cfgtool ring binding"
+  ansible.builtin.command:
+    cmd: corosync-cfgtool -s
+  register: _pm_ring
+  changed_when: false
+
+- name: "Capture this node's expected heartbeat IP from inventory"
+  ansible.builtin.set_fact:
+    _pm_my_heartbeat_ip: >-
+      {{ (vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first).heartbeat_ip }}
+
+- name: "Assert corosync ring binds to this node's heartbeat IP"
+  ansible.builtin.assert:
+    that: _pm_my_heartbeat_ip in _pm_ring.stdout
+    fail_msg: >-
+      corosync ring is NOT bound to this node's heartbeat IP
+      ({{ _pm_my_heartbeat_ip }}). It probably resolved a non-heartbeat
+      interface from /etc/hosts. Output:
+      {{ _pm_ring.stdout }}

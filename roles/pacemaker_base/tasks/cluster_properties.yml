@@ -1,0 +1,53 @@
+---
+# Cluster property baselines + VirtualDomain resource defaults. All run
+# once from the bootstrap node; pacemaker propagates to every node via
+# the CIB. The role leaves stonith-enabled=false as a deliberate
+# end-state handoff to the stonith role, which flips it true after
+# fence devices are configured.
+
+- name: "Set default-resource-stickiness"
+  ansible.builtin.command:
+    cmd: "pcs property set default-resource-stickiness={{ pacemaker_default_resource_stickiness }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true
+
+- name: "Set cluster-recheck-interval"
+  ansible.builtin.command:
+    cmd: "pcs property set cluster-recheck-interval={{ pacemaker_cluster_recheck_interval }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true
+
+- name: "Set no-quorum-policy explicitly"
+  ansible.builtin.command:
+    cmd: "pcs property set no-quorum-policy={{ pacemaker_no_quorum_policy }}"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true
+
+- name: "Disable stonith (handed off to stonith role to flip true)"
+  ansible.builtin.command:
+    cmd: "pcs property set stonith-enabled=false"
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true
+
+- name: "Set resource defaults (migration-threshold + failure-timeout)"
+  ansible.builtin.command:
+    cmd: >-
+      pcs resource defaults update
+      migration-threshold={{ pacemaker_migration_threshold }}
+      failure-timeout={{ pacemaker_failure_timeout }}
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true
+
+- name: "Set resource op defaults (timeout for VirtualDomain ops)"
+  ansible.builtin.command:
+    cmd: >-
+      pcs resource op defaults update
+      timeout={{ pacemaker_virtualdomain_op_timeout }}
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  changed_when: true

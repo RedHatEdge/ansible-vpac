@@ -1,0 +1,27 @@
+#!/bin/bash
+# pcs-stonith-confirm-helper — installed by ansible-vpac/pacemaker_base.
+#
+# Pending CIB fence actions persist across quorum loss and re-fire when
+# quorum re-forms — the documented post-mortem from a multi-node
+# cold-start incident. Use this BEFORE bringing additional nodes online
+# (with stonith disabled) to clear the queue.
+
+set -euo pipefail
+
+if ! pcs status | grep -qi 'pending fencing actions'; then
+    echo "No pending fencing actions. Nothing to do."
+    exit 0
+fi
+
+echo "Pending fencing actions detected:"
+pcs status | grep -A 20 -i 'pending fencing actions'
+echo
+
+read -rp "Type the node name to confirm fencing for it (or 'abort'): " node
+if [[ "$node" == "abort" || -z "$node" ]]; then
+    echo "Aborted."
+    exit 1
+fi
+
+echo "Running: pcs stonith confirm $node --force"
+pcs stonith confirm "$node" --force

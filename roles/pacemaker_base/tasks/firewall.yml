@@ -1,0 +1,19 @@
+---
+# host_baseline already opens the high-availability service as part of
+# firewalld_baseline_services (covers corosync 5405/udp + pcsd 2224/tcp +
+# the rest of the Pacemaker port set in one shot). Confirm it's actually
+# present so we fail fast here instead of much later when corosync
+# silently can't reach the other ring members.
+
+- name: "Query firewalld services in the default zone"
+  ansible.builtin.command: firewall-cmd --list-services
+  register: _pm_fw_services
+  changed_when: false
+
+- name: "Assert high-availability service is in the open list"
+  ansible.builtin.assert:
+    that: "'high-availability' in _pm_fw_services.stdout.split()"
+    fail_msg: >-
+      firewalld 'high-availability' service is not open in the default zone.
+      host_baseline should have opened it via firewalld_baseline_services.
+      Add it back and re-run host_baseline before pacemaker_base.

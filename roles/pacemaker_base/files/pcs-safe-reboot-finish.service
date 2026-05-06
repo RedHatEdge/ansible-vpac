@@ -1,0 +1,13 @@
+[Unit]
+Description=Take this node out of standby after pcs-safe-reboot
+After=pacemaker.service
+Requires=pacemaker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/pcs node unstandby
+ExecStartPost=/bin/systemctl disable pcs-safe-reboot-finish.service
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

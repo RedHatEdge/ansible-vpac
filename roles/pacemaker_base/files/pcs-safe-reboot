@@ -1,0 +1,36 @@
+#!/bin/bash
+# pcs-safe-reboot — installed by ansible-vpac/pacemaker_base.
+#
+# The right way to reboot a clustered node.
+#
+# DO NOT use `pcs cluster stop` before reboot — that sets a CIB shutdown
+# attribute that persists across the reboot, and pacemaker exits with
+# status 100 on rejoin (won't auto-start until you manually clear the
+# attribute and run `pcs cluster start`). This is the most-repeated
+# documented field deployment incident.
+#
+# This script: standby → wait for resources to drain → reboot. The
+# pcs-safe-reboot-finish.service systemd oneshot enables itself here and
+# unstandbys on next boot.
+
+set -euo pipefail
+
+NODE=$(hostname --short)
+
+echo "Putting $NODE into standby..."
+pcs node standby "$NODE"
+
+echo "Waiting up to 5 minutes for resources to vacate $NODE..."
+for _ in $(seq 1 60); do
+    if ! pcs status resources 2>/dev/null | grep -q "$NODE"; then
+        echo "All resources off $NODE."
+        break
+    fi
+    sleep 5
+done
+
+echo "Enabling pcs-safe-reboot-finish.service for next-boot unstandby..."
+systemctl enable pcs-safe-reboot-finish.service
+
+echo "Rebooting via systemctl reboot..."
+systemctl reboot

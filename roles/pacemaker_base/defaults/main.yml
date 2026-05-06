@@ -1,0 +1,40 @@
+---
+# Network NAME from the `networks` dict whose CIDR corosync rings should
+# bind to. Each node's heartbeat_ip from vpac_nodes is used as the ring
+# address. Hard-fail if this network's CIDR equals networks.mgmt.cidr —
+# corosync heartbeats must not share a bridge with VM management traffic.
+pacemaker_ring_network: "heartbeat"
+
+# Default resource stickiness — keeps resources where they land instead of
+# drifting back on every cluster-recheck-interval. Library default is 0
+# (no stickiness); 100 is the documented "prefer current location strongly
+# but allow migration on real failure" pattern.
+pacemaker_default_resource_stickiness: 100
+
+# Cluster recheck interval — how often pacemaker re-evaluates time-based
+# rules (failure-timeout especially). Library default is 15min; 2min picks
+# up cleared failures faster.
+pacemaker_cluster_recheck_interval: "2min"
+
+# Migration threshold — failed monitor count before pacemaker treats a
+# resource as failed-on-this-node and migrates. Library default is INFINITY
+# (never migrate); 3 lets a flapping VM find a working host.
+pacemaker_migration_threshold: 3
+
+# Failure timeout — how long a failure record persists before being cleared
+# automatically. Library default is never; 600s lets transient issues age
+# out without operator intervention. Cleared failures + recheck interval
+# together = self-healing.
+pacemaker_failure_timeout: "600s"
+
+# No-quorum-policy. Library default is "stop" which is the right choice
+# for 3-node clusters (any 2 nodes form quorum; the lone survivor refuses
+# to start anything). Set explicitly so a future operator can't flip to
+# "ignore" and re-enable split-brain.
+pacemaker_no_quorum_policy: "stop"
+
+# VirtualDomain operation timeouts (set as resource defaults so vm_deploy
+# doesn't have to repeat them per VM). Values from documented field VMs.
+pacemaker_virtualdomain_op_timeout: "120s"
+pacemaker_virtualdomain_monitor_interval: "30s"
+pacemaker_virtualdomain_monitor_timeout: "30s"

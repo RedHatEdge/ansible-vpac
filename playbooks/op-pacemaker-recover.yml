@@ -1,0 +1,106 @@
+---
+# Operational playbook — automates the documented nine-step cluster
+# cold-start recovery procedure. Use after any incident that leaves the
+# cluster fully down: power outage, fence-loop recovery, planned full
+# shutdown, etc.
+#
+# Usage:
+#   ansible-playbook -i inventory/<site> playbooks/op-pacemaker-recover.yml \
+#     -e recover_first_node=<node-hostname>
+#
+# Pick the first node thoughtfully — it should be the most-likely-healthy
+# node (no recent fence loop, no recent OOMs, most recent successful
+# pcs status before the incident).
+#
+# Procedure (mirrors the documented cluster-restart runbook):
+#   1. Start the designated first node alone with no quorum
+#   2. Disable stonith so pending fences don't re-fire on quorum re-form
+#   3. Confirm any pending fence actions in the CIB
+#   4. Start remaining nodes one at a time, letting each settle
+#   5. Re-enable stonith last
+
+- name: "Validate that recover_first_node was provided"
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: "Assert recover_first_node is set"
+      ansible.builtin.assert:
+        that:
+          - recover_first_node is defined
+          - (recover_first_node | length) > 0
+        fail_msg: >-
+          Set -e recover_first_node=<node-hostname> on the command line.
+          Pick the most-likely-healthy node (no recent fence loop, no
+          recent OOMs).
+
+- name: "Step 1+2: start the first node alone, stonith disabled"
+  hosts: "{{ recover_first_node }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "pcs cluster start (this node only)"
+      ansible.builtin.command: pcs cluster start
+      changed_when: true
+
+    - name: "Wait 30s for the lone node to settle"
+      ansible.builtin.pause:
+        seconds: 30
+
+    - name: "pcs property set stonith-enabled=false"
+      ansible.builtin.command: pcs property set stonith-enabled=false
+      changed_when: true
+
+- name: "Step 3: confirm any pending fences in the CIB"
+  hosts: "{{ recover_first_node }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Capture pcs status"
+      ansible.builtin.command: pcs status
+      register: _pm_recover_status
+      changed_when: false
+
+    - name: "Extract nodes flagged with pending fencing"
+      ansible.builtin.set_fact:
+        _pm_pending_fence_nodes: >-
+          {{ (_pm_recover_status.stdout
+              | regex_findall('Pending Fencing Actions:\s*\n\s*\*\s+\S+\s+of\s+(\S+)'))
+             + (_pm_recover_status.stdout
+              | regex_findall('reboot of (\S+)')) }}
+
+    - name: "Confirm each pending fence (clears the CIB record)"
+      ansible.builtin.command: "pcs stonith confirm {{ item }} --force"
+      loop: "{{ _pm_pending_fence_nodes | unique }}"
+      changed_when: true
+
+- name: "Step 4: start remaining nodes one at a time"
+  hosts: "vpac_cluster:!{{ recover_first_node }}"
+  become: true
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: "pcs cluster start (this node)"
+      ansible.builtin.command: pcs cluster start
+      changed_when: true
+
+    - name: "Wait 20s for this node to settle into the cluster"
+      ansible.builtin.pause:
+        seconds: 20
+
+- name: "Step 5: re-enable stonith and report final state"
+  hosts: "{{ recover_first_node }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "pcs property set stonith-enabled=true"
+      ansible.builtin.command: pcs property set stonith-enabled=true
+      changed_when: true
+
+    - name: "Final pcs status"
+      ansible.builtin.command: pcs status
+      register: _pm_recover_final
+      changed_when: false
+
+    - name: "Show final cluster state"
+      ansible.builtin.debug:
+        var: _pm_recover_final.stdout_lines

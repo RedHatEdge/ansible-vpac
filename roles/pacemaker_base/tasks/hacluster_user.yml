@@ -1,0 +1,12 @@
+---
+# The hacluster user is created by the pacemaker package install with a
+# locked password. We need to set it from the vault. We use a stable salt
+# (derived from cluster name) so the hash is reproducible and re-runs are
+# idempotent — without a stable salt, password_hash() salts each call and
+# Ansible reports the user as changed every run.
+
+- name: "Set hacluster user password (idempotent via stable salt)"
+  ansible.builtin.user:
+    name: hacluster
+    password: "{{ pacemaker.hacluster_password | password_hash('sha512', (pacemaker.cluster_name | hash('sha256'))[:16]) }}"
+  no_log: true
