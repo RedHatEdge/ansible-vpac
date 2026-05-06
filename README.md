@@ -169,9 +169,9 @@ ansible-vpac/
 │       ├── group_vars/
 │       │   └── all.yml                   # site contract: sources, topology, networks, Ceph, VM catalog
 │       └── host_vars/
-│           ├── node-a.yml
-│           ├── node-b.yml
-│           └── node-c.yml
+│           ├── site1-node-a.yml
+│           ├── site1-node-b.yml
+│           └── site1-node-c.yml
 ├── playbooks/
 │   ├── 00-mint-builder-iso.yml           # [air-gapped] mint builder installer ISO on workstation
 │   ├── 00b-mint-cluster-isos.yml         # [air-gapped] mint per-node cluster installer ISOs
@@ -186,7 +186,10 @@ ansible-vpac/
 │   ├── 70-pacemaker.yml
 │   ├── 75-stonith.yml
 │   ├── 80-vm-deploy.yml
-│   └── 90-validate.yml
+│   ├── 90-validate.yml
+│   ├── op-pacemaker-recover.yml          # ↓ operator helpers — invoked by hand, not by site.yml
+│   ├── op-stonith-fence-test.yml
+│   └── op-vm-undefine.yml
 ├── roles/
 │   ├── builder_iso_mint/                 # mint builder installer ISO
 │   ├── builder_rhsm/                     # register builder with RHSM, enable repos
@@ -214,10 +217,6 @@ ansible-vpac/
 │                                         #   + xorriso). Built locally on the SA's
 │                                         #   workstation; no pre-built image published.
 ├── build/                                # (ignored) minted ISOs land here by default
-├── files/
-│   └── (static files referenced by roles)
-├── diagnostics/
-│   └── (read-only scripts for gathering data from existing clusters)
 └── docs/
     ├── ARCHITECTURE.md
     ├── DEPLOYMENT-GUIDE.md
