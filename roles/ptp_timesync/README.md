@@ -27,6 +27,37 @@ The role stops + masks the system `chronyd.service` on PTP hosts so it can't
 be re-enabled accidentally; on NTP-follower hosts the system chronyd stays
 in charge.
 
+```mermaid
+flowchart LR
+  subgraph host["PTP host (rt_host)"]
+    direction TB
+    tm["timemaster.service<br/>(supervisor)"]
+    ptp4l[ptp4l<br/>L2 P2P / clientOnly]
+    phc2sys[phc2sys<br/>PHC → system clock]
+    chrony[chronyd<br/>embedded, system chrony MASKED]
+    nic[(PTP NIC<br/>HW timestamping)]
+    sys[System clock]
+    status["/home/libvirt-local/ptp/<br/>ptp_status (virtiofs)"]
+  end
+  GM["External grandmaster<br/>GPS-disciplined"] --> nic
+  nic --> ptp4l
+  ptp4l --> phc2sys
+  phc2sys --> sys
+  chrony -. lock_all sched_priority 60 .-> sys
+  tm --> ptp4l
+  tm --> phc2sys
+  tm --> chrony
+  ptp_status_writer["/usr/local/sbin/ptp_status.sh"] -. polls pmc .-> ptp4l
+  ptp_status_writer -. writes .-> status
+  status -. virtiofs share .-> relayVM["Relay VM<br/>(SSC600)"]
+
+  classDef external fill:#e8f4ff,stroke:#0066cc
+  GM:::external
+  relayVM:::external
+```
+
+The NTP-follower path is simpler: system `chronyd` stays in charge, with a `blockinfile` on `/etc/chrony.conf` adding `prefer` server lines pointing at every PTP-having peer's `storage_ip`. The follower rides the PTP fabric one hop away.
+
 ## What it does (PTP path, in order)
 
 1. **Re-run ptp_isolation** — defense-in-depth: re-asserts the PTP NIC is

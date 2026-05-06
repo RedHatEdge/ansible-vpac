@@ -7,7 +7,7 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 1. **Load facts** — reads FSID + ceph.conf + admin keyring from the bootstrap node, sets an Ansible fact for downstream tasks.
 2. **Authorize cephadm SSH key** — cephadm manages daemons via root SSH from the bootstrap node; authorize its pubkey on every other cluster node.
 3. **Add hosts to the orchestrator** — `ceph orch host add <hostname> <storage_ip>` for each non-bootstrap node. Idempotent.
-4. **Add OSDs** — from `ceph.osd_devices[hostname]` per node. No auto-discovery; inventory is the source of truth. Pre-wipes each declared device with `wipefs -a` + `sgdisk --zap-all` before `ceph orch daemon add osd` (refuses to wipe if the device is currently mounted) — required at reused-hardware sites where prior partition tables would otherwise cause OSDs to crashloop. Toggle off via `ceph_expand_wipe_osd_disks: false` only when devices are hand-verified empty. Waits until all OSDs are up.
+4. **Add OSDs** — from `ceph.osd_devices[hostname]` per node. No auto-discovery; inventory is the source of truth. Pre-wipes each declared device with `wipefs -a` + `sgdisk --zap-all` before `ceph orch daemon add osd` (refuses to wipe if the device is currently mounted) — required at reused-hardware sites where prior partition tables would otherwise cause OSDs to crashloop. Toggle off via `ceph_expand_wipe_osd_disks: false` for re-runs against an already-deployed cluster (wipefs returns "Device or resource busy" when an active OSD holds the disk). The orch-add task's `until` conditions match cephadm's actual idempotent response: `Created osd ...` (success on a new device, but explicitly excluding the false-positive substring within `Created no osd(s) on host ...; already created?`), `already created` in stdout, or `already` / `in use` in stderr. Waits until all OSDs are up.
 5. **Create RBD pools** — for each entry in `ceph.pools[]` with `type: rbd`, runs `ceph osd pool create <name> <pg> <pgp>` (idempotent — skips existing), `ceph osd pool application enable <name> rbd` (Ceph refuses I/O on pools without a declared application), and `rbd pool init <name>` (writes rbd_directory metadata so `rbd` commands work). Skipped entirely when no RBD pool is declared.
 6. **Create CephFS** — one filesystem per entry in `ceph.pools[]` with `type: cephfs`. `ceph fs volume create` creates data + metadata pools + deploys MDS. (v1 only handles the first cephfs-type entry.)
 7. **Mount on every cluster node** — installs `ceph-common`, distributes `ceph.conf` + admin keyring, runs `restorecon -Rv /etc/ceph/` (without it qemu-kvm cannot read `/etc/ceph/ceph.conf` under SELinux and every RBD-backed VM dies on start), creates the mountpoint, writes the fstab entry, mounts. All cluster nodes need shared CephFS access for Pacemaker VM migration.
@@ -40,6 +40,33 @@ Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_n
 - `ceph` — everything Ceph (also applies in `ceph_bootstrap`)
 - `ceph-expand` — this role specifically
 - `ceph-facts`, `ceph-hosts`, `ceph-osds`, `ceph-rbd-pools`, `ceph-fs`, `ceph-mount`, `ceph-libvirt-secret`, `ceph-sanlock`, `ceph-monitoring`, `ceph-verify` — sub-steps
+
+## Sanlock-on-RBD chain
+
+```mermaid
+flowchart TD
+  rbd[(RBD image:<br/>rbd-vms/sanlock-leases<br/>1 GiB)]
+  rbdmap[/etc/ceph/rbdmap<br/>+ rbdmap.service]
+  initdev[sanlock direct init<br/>one-time, from bootstrap node]
+  qemuconf[/etc/libvirt/qemu-sanlock.conf<br/>per-node host_id<br/>auto_disk_leases=0<br/>require_lease_for_disks=1]
+  oneshot[sanlock-lockspace.service<br/>systemd oneshot at boot<br/>sanlock client add_lockspace]
+  sanlockd[sanlock.service]
+  flip{{Operator flips<br/>virtualization_lock_manager: sanlock<br/>+ re-runs --tags virt-qemu-conf}}
+  effect[libvirtd refuses to start a VM<br/>without a sanlock lease]
+
+  rbd --> rbdmap
+  rbdmap --> initdev
+  initdev --> qemuconf
+  qemuconf --> oneshot
+  oneshot --> sanlockd
+  sanlockd --> flip
+  flip --> effect
+
+  classDef operator fill:#fff5d8,stroke:#c80,color:#000
+  flip:::operator
+```
+
+Until the operator flip the chain is fully provisioned but inactive — `lock_manager: "none"` ignores the lockspace. After the flip, every VM start has to acquire a per-disk lease against the lockspace; if Pacemaker AND fencing both fail simultaneously and try to start a VM on two nodes, the second node's qemu fails to start because it can't acquire the lease.
 
 ## Simplifications in v1
 

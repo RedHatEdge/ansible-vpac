@@ -71,7 +71,7 @@ Reads the full `networks`, `networking_defaults`, `bridges`, and `vpac_nodes` tr
 ## Dependencies
 
 - `host_baseline` must have run (firewalld running, NM installed, `/etc/hosts` populated).
-- Post-apply verification of PTP NIC isolation is handled by the separate `ptp_isolation` role (the 20-networking.yml playbook imports both).
+- Post-apply verification of PTP NIC isolation is handled by the separate `ptp_isolation` role. `playbooks/20-networking.yml` imports both this role AND `ptp_isolation` in sequence — `ptp_isolation` is intentionally a separate role so it stays tag-addressable (`--tags ptp-isolation`) and so it can be re-invoked from `ptp_timesync` (stage 40) for a third defense-in-depth check before `ptp4l` is armed.
 
 ## Lab limitations
 

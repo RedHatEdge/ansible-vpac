@@ -1,8 +1,12 @@
 # ptp_isolation
 
-Post-apply verification that the PTP NIC is in the exact state the `ptp_timesync` role expects: link UP, no IP, not a bridge member, not a bond slave, no macvtap children. Runs at the tail of stage 20 (networking) to confirm we did not accidentally enslave the PTP NIC while configuring the rest of the network.
+Post-apply verification that the PTP NIC is in the exact state the `ptp_timesync` role expects: link UP, no IP, not a bridge member, not a bond slave, no macvtap children. Invoked from THREE places for defense-in-depth:
 
-The same checks run inside the `preflight` role before any changes. This role re-runs them after networking changes — belt and suspenders against regressions in the networking role template.
+1. The `preflight` role (stage 00) runs the checks before any changes.
+2. The `networking` role (stage 20) imports `ptp_isolation` at the tail of its play to confirm we did not accidentally enslave the PTP NIC while configuring the rest of the network.
+3. `ptp_timesync` (stage 40) re-runs `ptp_isolation` immediately before arming `ptp4l` — by then the host has been touched by host_baseline, virtualization, and rt_tuning; this last gate catches anything that might have re-attached the NIC since stage 20.
+
+Running it three times is cheap (read-only assertions) and the cost of a regression slipping through is days of `SYNCHRONIZATION_FAULT` debugging.
 
 ## Why this exists as its own role
 
