@@ -1,8 +1,8 @@
 # ansible-vpac
 
-Ansible for deploying a Red Hat Edge **Virtual Protection Architecture Cluster (vPAC)** — a RHEL 9 cluster combining KVM virtualization, Ceph storage, Pacemaker HA, and PTP time synchronization, designed to host real-time utility protection workloads (IEC 61850 relays, RTAC/RTU applications, Windows engineering workstations with passthrough).
+Ansible for deploying a Red Hat Edge **Virtual Protection Architecture Cluster (vPAC)** — a 3-node RHEL 9 cluster combining KVM virtualization, Ceph storage, Pacemaker HA, and PTP time synchronization, designed to host real-time utility protection workloads (IEC 61850 relays, RTAC/RTU applications, Windows engineering workstations with passthrough). The proven reference protection workload is the **ABB SSC600** VM — Red Hat's partnership with ABB is the validated end-to-end play for this pattern.
 
-The architecture pattern this implements is documented at [github.com/RedHatEdge/virtual-protection](https://github.com/RedHatEdge/virtual-protection).
+The architecture pattern this implements aligns with the [vPAC Alliance](https://vpacalliance.com/) software-defined substation vision and is documented at [github.com/RedHatEdge/virtual-protection](https://github.com/RedHatEdge/virtual-protection).
 
 ## What this deploys
 

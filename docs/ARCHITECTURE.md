@@ -2,9 +2,9 @@
 
 ## What a vPAC cluster is
 
-A Virtual Protection Architecture Cluster (vPAC) is a 3-node RHEL 9 cluster that hosts utility protection and automation workloads — IEC 61850 relays (SSC600-style), RTAC/RTU/VPR applications, and Windows engineering workstations — as virtual machines with real-time tuning and shared storage.
+A Virtual Protection Architecture Cluster (vPAC) is a 3-node RHEL 9 cluster of three identical servers that hosts utility protection and automation workloads as virtual machines with real-time tuning and shared storage. The proven reference protection workload is the **ABB SSC600** VM (the result of a Red Hat × ABB partnership); other vendors' protection / RTAC / RTU / VPR / PMU applications and Windows engineering workstations with PCI NIC passthrough run on the same platform alongside it.
 
-It replaces a rack of single-purpose hardware relay panels with a single HA platform that can host multiple vendors' protection software side-by-side, migrate workloads between nodes for maintenance, and recover from a node failure in seconds.
+This cluster pattern replaces a rack of single-purpose hardware relay panels with a single HA platform that can host multiple vendors' protection software side-by-side, migrate workloads between nodes for maintenance, and recover from a node failure in seconds. It implements the [vPAC Alliance](https://vpacalliance.com/) software-defined substation vision; the architectural pattern itself is documented at [github.com/RedHatEdge/virtual-protection](https://github.com/RedHatEdge/virtual-protection).
 
 ## Components
 
@@ -70,12 +70,9 @@ Mitigation: PTP runs on a **dedicated NIC** that is not a bridge member, not a b
 
 ## Node roles
 
-In the reference design all three nodes are identical peers at the cluster level (each runs MON+MGR+OSD for Ceph and is a full Pacemaker member). Workload placement differs:
+All three nodes are identical at every level — same hardware, same RHEL 9 + kernel-rt, same RT tuning, same Ceph daemons (MON+MGR+OSDs), same Pacemaker membership, same dedicated PTP NIC. Identical hardware is a deliberate constraint of the architecture: it lets *any* VM run on *any* node after a failure without per-host quirks, and lets the deployment automation treat the three as fungible peers.
 
-- **Nodes A and B** host real-time relay VMs (SSC600-style, VPR-style). Identical hardware is recommended so VMs can migrate between them.
-- **Node C** hosts the Windows engineering workstation with PCI NIC passthrough (for Wireshark on process-bus traffic). NICs used for passthrough are not attached to host bridges.
-
-This split is configurable via the `rt_hosts` and `windows_hosts` inventory groups.
+Per-VM placement preferences (for example, pinning a VM that needs a specific PCI device to the node where that device lives) belong in `vm_catalog` entries via `target_host` + `allowed_hosts`. Pacemaker honors those constraints during normal operation but is free to place a VM elsewhere if its preferred host is unavailable. The blueprint does NOT use inventory groups that imply node-role differences (e.g. "this node is for Windows VMs only") — that would defeat the architecture's any-VM-anywhere property.
 
 ## Real-time guarantees
 

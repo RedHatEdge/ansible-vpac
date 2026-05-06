@@ -23,7 +23,7 @@
   ansible.builtin.import_tasks: intelcat.yml
   tags: [rt, rt-intelcat]
 
-- name: "RT chrony overrides (relay-hosting nodes only)"
+- name: "RT chrony overrides (every rt_hosts member)"
   ansible.builtin.import_tasks: rt_chrony.yml
   when: rt_tuning_is_relay_host | bool
   tags: [rt, rt-chrony]

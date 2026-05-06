@@ -1,16 +1,14 @@
 ---
 # Per-node overrides for Node C. See site1-node-a.yml for format.
 #
-# Node C in the reference design runs Windows engineering workstations
-# with PCI NIC passthrough for Wireshark. NICs reserved for passthrough
-# must not be attached to any bridge at the host level.
+# In the blueprint pattern all three nodes are identical — same hardware,
+# same kernel-rt, same dedicated PTP NIC, same Ceph + Pacemaker
+# membership. Workload placement preferences (e.g. a VM that needs a
+# specific PCI device pinned to the node where that device lives) belong
+# in vm_catalog[].target_host + allowed_hosts, NOT as per-node hardware
+# overrides here.
 #
-# If Node C has no spare NIC for PTP (the typical case when one NIC goes
-# to passthrough), make it an NTP-follower of the PTP-having peers by
-# blanking its PTP NIC override here:
-#
-# networking_defaults:
-#   ptp_nic: ""
-#
-# ptp_timesync (stage 40) auto-detects this and configures system chrony
-# to prefer the PTP-having nodes from vpac_nodes via their storage_ip.
+# Use this file for genuine per-host hardware variance only — for
+# example, if a single node has a different PCI slot map and needs an
+# overridden ptp_nic name. Edge case; most deployments leave this file
+# empty.

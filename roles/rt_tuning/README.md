@@ -1,6 +1,6 @@
 # rt_tuning
 
-Stage 50. Turns each `rt_hosts` cluster node into a real-time hypervisor: installs `kernel-rt`, swaps tuned to `realtime-virtual-host` (with the variables file written BEFORE activation), pins the cmdline / sysctls / governor that cpu-partitioning alone doesn't cover, mounts `/sys/fs/resctrl` for Intel CAT, and applies the RT chrony overrides on relay-hosting nodes.
+Stage 50. Turns each `rt_hosts` cluster node into a real-time hypervisor: installs `kernel-rt`, swaps tuned to `realtime-virtual-host` (with the variables file written BEFORE activation), pins the cmdline / sysctls / governor that cpu-partitioning alone doesn't cover, mounts `/sys/fs/resctrl` for Intel CAT, and applies the RT chrony overrides. The blueprint puts every cluster node in `rt_hosts` — all three are identical and any protection VM can run on any node.
 
 This role is the **prerequisite** that makes `vm_templates`'s RT XML block do something at the host level. Without it, `<vcpusched scheduler='fifo'>` falls back to SCHED_OTHER on the standard kernel.
 

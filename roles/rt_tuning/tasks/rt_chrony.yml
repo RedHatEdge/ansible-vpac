@@ -1,10 +1,12 @@
 ---
-# RT chrony settings for relay-hosting nodes. Vendor (ABB) Engineering
-# Manual specifies lock_all + sched_priority 60 + combinelimit 0 for
-# relay-VM time accuracy. We layer these onto the existing chrony.conf
-# host_baseline templated, via in-place blockinfile so we don't take
-# ownership of the whole file. notify chronyd restart so the changes
-# take effect immediately.
+# RT chrony settings for every rt_hosts member (all cluster nodes in the
+# blueprint pattern). Vendor (ABB) Engineering Manual for the SSC600
+# protection VM specifies lock_all + sched_priority 60 + combinelimit 0
+# for sub-millisecond relay-VM time accuracy; the same settings are
+# correct for any IEC 61850 protection workload. We layer these onto
+# the existing chrony.conf host_baseline templated, via in-place
+# blockinfile so we don't take ownership of the whole file. notify
+# chronyd restart so the changes take effect immediately.
 
 - name: "Apply RT chrony overrides on /etc/chrony.conf"
   ansible.builtin.blockinfile:
