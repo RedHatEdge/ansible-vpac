@@ -1,0 +1,33 @@
+---
+# timemaster wraps ptp4l + phc2sys + an embedded chronyd. The system
+# chronyd that host_baseline started must be stopped + masked, otherwise
+# both daemons fight for the system clock (documented field incident).
+
+- name: "Render /etc/timemaster.conf"
+  ansible.builtin.template:
+    src: timemaster.conf.j2
+    dest: /etc/timemaster.conf
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: "restart timemaster"
+
+- name: "Stop system chronyd (timemaster will spawn its own)"
+  ansible.builtin.systemd_service:
+    name: chronyd
+    state: stopped
+  failed_when: false
+
+- name: "Mask system chronyd so it can't be re-enabled accidentally"
+  ansible.builtin.systemd_service:
+    name: chronyd
+    enabled: false
+    masked: true
+
+- name: "Enable + start timemaster"
+  ansible.builtin.systemd_service:
+    name: timemaster
+    state: started
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,21 @@
+---
+# Hosts without a dedicated PTP NIC (a node positioned for HMI / non-relay
+# duty, or a single-node lab) ride the cluster's PTP fabric one hop away:
+# system chrony stays in charge, but with the PTP-having peers added with
+# the `prefer` keyword so they win arbitration over external NTP.
+
+- name: "Prefer PTP-having peers in /etc/chrony.conf"
+  ansible.builtin.blockinfile:
+    path: /etc/chrony.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK (ansible-vpac/ptp_timesync)"
+    block: "{{ lookup('template', 'chrony-ptp-followers.conf.j2') }}"
+  notify: "restart chronyd"
+  when: ptp_timesync_follower_prefer_peers | length > 0
+
+- name: "Note when a follower has no PTP-having peers to prefer"
+  ansible.builtin.debug:
+    msg: >-
+      ptp_timesync (follower path) found no PTP-having peers in
+      group 'vpac_cluster'. Skipping chrony override — host stays on
+      whatever sources host_baseline configured.
+  when: ptp_timesync_follower_prefer_peers | length == 0

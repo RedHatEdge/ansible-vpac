@@ -1,0 +1,99 @@
+---
+# Stage 40 — PTP time sync (timemaster + ptp4l).
+#
+# Most knobs come from the inventory's `time_sync.{mode, ntp_servers, ptp.*}`
+# block (see inventory/example/group_vars/all.yml section 7). The defaults
+# below cover the rest, and only need overriding for unusual sites.
+
+# Where this host fits in the topology. Auto-derived: if the host has a
+# PTP NIC declared (networking_defaults.ptp_nic), it is a "ptp" host and
+# runs timemaster; otherwise it is an "ntp_follower" and just points
+# chrony at the PTP-having peers + the existing NTP sources. Override
+# in host_vars to force a role explicitly.
+ptp_timesync_role: >-
+  {{ 'ptp' if ((networking_defaults.ptp_nic | default('')) | length > 0) else 'ntp_follower' }}
+
+# Convenience handles. Resolve per-host so host_vars overrides Just Work.
+ptp_timesync_nic: "{{ networking_defaults.ptp_nic | default('') }}"
+ptp_timesync_mode: "{{ time_sync.mode | default('ntp') }}"
+
+# ptp4l options. Domain / transport / delay_mechanism come from
+# time_sync.ptp.*. Everything else is hard-won field tuning:
+#
+#   announceReceiptTimeout 5  — damp BMCA flapping when multiple
+#                                grandmasters are reachable; default 3
+#                                triggers re-elect on every burst.
+#   maxStepsRemoved 3         — accept a GM up to 3 hops away (default 1
+#                                stalls when a GM is two transparent
+#                                clocks deep).
+#   step_threshold 0.1        — clamp clock step events to <100 ms; large
+#                                steps wreck relay timestamping.
+#   clientOnly 1              — never advertise as grandmaster. Cluster
+#                                hosts always follow an external GPS-
+#                                disciplined GM.
+#   logSyncInterval -3        — 8 syncs/sec; matches Power Profile.
+ptp_timesync_ptp4l:
+  announce_receipt_timeout: 5
+  max_steps_removed: 3
+  step_threshold: 0.1
+  client_only: 1
+  log_sync_interval: -3
+  log_min_pdelay_req_interval: -3
+
+# chrony directives that timemaster will inject into the chronyd it
+# supervises. Values from documented vendor (ABB) Engineering Manual
+# guidance for relay timing.
+ptp_timesync_chrony:
+  makestep: "0.1 -1"
+  logchange: 0.1
+  lock_all: "{{ rt_chrony.lock_all | default(true) }}"
+  sched_priority: "{{ rt_chrony.sched_priority | default(60) }}"
+  combinelimit: "{{ rt_chrony.combinelimit | default(0) }}"
+
+# When time_sync.mode == "ptp_with_ntp" we render `[ntp_server X]`
+# blocks inside timemaster.conf for each entry in time_sync.ntp_servers,
+# so timemaster's chronyd has them as a fallback when PTP fails.
+# When mode == "ptp", no NTP servers are passed to timemaster — only the
+# initial bootstrap chronyd (configured by host_baseline) sees them.
+ptp_timesync_ntp_servers_in_timemaster: >-
+  {{ time_sync.ntp_servers | default([]) if (time_sync.mode | default('ntp') == 'ptp_with_ntp') else [] }}
+
+# Status writer settings. Drops a JSON-ish snapshot of `pmc GET
+# PARENT_DATA_SET / PORT_DATA_SET / TIME_STATUS_NP` into the status
+# folder once a second. The path is shared into relay VMs via virtiofs
+# so an in-VM watchdog can read host PTP health without owning a NIC.
+ptp_timesync_status_dir: "/home/libvirt-local/ptp"
+ptp_timesync_status_filename: "ptp_status"
+ptp_timesync_socket_template: "/var/run/timemaster/ptp4l.<num>.socket"
+
+# GM-stability check at the tail of the role: take N samples spaced
+# `interval` seconds apart and assert the GM clockIdentity does not
+# change. Prevents the role from declaring success while BMCA is still
+# flapping between two reachable GMs.
+ptp_timesync_gm_samples: 4
+ptp_timesync_gm_sample_interval: 8
+
+# Fail vs warn when the NIC's HW timestamping doesn't expose tx/rx
+# hardware timestamps (ethtool -T). Production should fail; some lab
+# NICs report sw-only and you'll want to flip this to warn for testing.
+ptp_timesync_require_hw_timestamping: true
+
+# Packages. linuxptp brings ptp4l, phc2sys, timemaster, pmc; ethtool is
+# used for HW-timestamp probing.
+ptp_timesync_packages:
+  - linuxptp
+  - chrony
+  - ethtool
+
+# NTP-follower path: which peers to prefer (defaults to every PTP-having
+# host's storage_ip, derived from vpac_nodes + this host's NOT-having a
+# PTP NIC). Points chrony at peers that DO have PTP, so even nodes
+# without a PTP NIC ride the same time fabric.
+ptp_timesync_follower_prefer_peers: >-
+  {{ groups['vpac_cluster'] | default([])
+     | map('extract', hostvars)
+     | selectattr('networking_defaults', 'defined')
+     | selectattr('networking_defaults.ptp_nic', 'defined')
+     | rejectattr('inventory_hostname', 'equalto', inventory_hostname)
+     | map(attribute='inventory_hostname')
+     | list }}

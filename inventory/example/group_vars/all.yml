@@ -292,9 +292,15 @@ bridges:
 #   1. host_baseline (stage 10) configures chrony with ntp_servers below
 #      and waits for sync. Clocks are in NTP tolerance (~10 ms) before any
 #      later stage runs.
-#   2. ptp_timesync (stage 40) installs linuxptp and, based on mode, either
-#      strips NTP from chrony (mode=ptp) or keeps NTP as a fallback
-#      (mode=ptp_with_ntp). Pure NTP sites (mode=ntp) skip the PTP part.
+#   2. ptp_timesync (stage 40) installs linuxptp + timemaster. Per-host
+#      behavior depends on whether the host has a dedicated PTP NIC
+#      (networking_defaults.ptp_nic, can be overridden in host_vars):
+#        with PTP NIC    → timemaster supervises ptp4l + phc2sys + an
+#                          embedded chronyd; system chronyd is masked
+#        without PTP NIC → system chronyd stays in charge, with PTP-
+#                          having peers added with the prefer keyword
+#                          so the host follows the PTP fabric one hop away
+#      Pure NTP sites (mode=ntp) skip the PTP role entirely.
 #
 # Ceph (stage 60) asserts chrony is synchronized before `cephadm bootstrap`
 # — belt-and-suspenders, independent of how sync was established.
@@ -328,7 +334,12 @@ time_sync:
   # site-wide PTP/NTP fabric every node also uses.
   intra_cluster_peer: true
 
-  # PTP configuration — used by stage 40 (ptp_timesync).
+  # PTP configuration — used by stage 40 (ptp_timesync). Defaults track
+  # the IEEE C37.238 Power Profile (L2 / P2P transparent-clock topology
+  # common in substation networks). Multi-grandmaster damping
+  # (announceReceiptTimeout, maxStepsRemoved) is set in the role's
+  # defaults — override per-knob in roles/ptp_timesync/defaults/main.yml
+  # only if your fabric needs different values.
   ptp:
     domain: 0
     transport: "L2"                      # L2 | UDPv4

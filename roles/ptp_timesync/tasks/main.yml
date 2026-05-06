@@ -1,8 +1,48 @@
 ---
-# Not yet implemented. See roles/ptp_timesync/README.md for planned behavior.
+# Stage 40 — PTP time sync. Three execution paths driven by:
+#
+#   time_sync.mode  → ntp | ptp | ptp_with_ntp
+#   ptp_timesync_role → ptp | ntp_follower (auto-derived from PTP NIC)
+#
+#   mode == ntp                         → end_host (host_baseline already
+#                                          configured chrony; nothing to do)
+#   mode in [ptp, ptp_with_ntp] AND
+#       role == ptp                     → install timemaster, mask system
+#                                          chronyd, render config, drop
+#                                          ptp_status writer, verify GM
+#   mode in [ptp, ptp_with_ntp] AND
+#       role == ntp_follower            → leave system chronyd running,
+#                                          add prefer-PTP-peers block to
+#                                          /etc/chrony.conf
 
-- name: "ptp_timesync: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'ptp_timesync' is a stub — not implemented yet.
-      See roles/ptp_timesync/README.md for planned behavior.
+- name: "Skip stage 40 entirely when time_sync.mode is 'ntp'"
+  ansible.builtin.meta: end_host
+  when: ptp_timesync_mode == 'ntp'
+
+- name: "Install PTP package set"
+  ansible.builtin.import_tasks: install.yml
+  tags: [ptp, ptp-install]
+
+- name: "PTP-host path: timemaster + ptp4l + chronyd as one supervised unit"
+  when: ptp_timesync_role == 'ptp'
+  block:
+    - name: "Verify PTP NIC + HW timestamping (defense-in-depth re-run)"
+      ansible.builtin.import_tasks: check_hardware.yml
+      tags: [ptp, ptp-check]
+
+    - name: "Render /etc/timemaster.conf and flip system chronyd → timemaster"
+      ansible.builtin.import_tasks: timemaster.yml
+      tags: [ptp, ptp-config, ptp-services]
+
+    - name: "Drop ptp_status writer for virtiofs share into relay VMs"
+      ansible.builtin.import_tasks: ptp_status.yml
+      tags: [ptp, ptp-status]
+
+    - name: "Verify timemaster is running and PTP grandmaster is stable"
+      ansible.builtin.import_tasks: verify.yml
+      tags: [ptp, ptp-verify]
+
+- name: "NTP-follower path: prefer PTP-having peers via system chrony"
+  when: ptp_timesync_role == 'ntp_follower'
+  ansible.builtin.import_tasks: ntp_follower.yml
+  tags: [ptp, ptp-follower]

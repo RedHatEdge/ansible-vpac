@@ -1,0 +1,43 @@
+{# Rendered by roles/ptp_timesync/tasks/timemaster.yml #}
+{# timemaster supervises ptp4l + phc2sys + chronyd as one unit. #}
+{# Section order matters: timemaster parses sequentially. #}
+
+[ptp_domain {{ time_sync.ptp.domain | default(0) }}]
+interfaces {{ ptp_timesync_nic }}
+ptp4l_option network_transport={{ time_sync.ptp.transport | default('L2') }}
+ptp4l_option delay_mechanism={{ time_sync.ptp.delay_mechanism | default('P2P') }}
+ptp4l_option clientOnly={{ ptp_timesync_ptp4l.client_only }}
+ptp4l_option step_threshold={{ ptp_timesync_ptp4l.step_threshold }}
+ptp4l_option announceReceiptTimeout={{ ptp_timesync_ptp4l.announce_receipt_timeout }}
+ptp4l_option maxStepsRemoved={{ ptp_timesync_ptp4l.max_steps_removed }}
+ptp4l_option logSyncInterval={{ ptp_timesync_ptp4l.log_sync_interval }}
+ptp4l_option logMinPdelayReqInterval={{ ptp_timesync_ptp4l.log_min_pdelay_req_interval }}
+
+{% for ntp in ptp_timesync_ntp_servers_in_timemaster %}
+[ntp_server {{ ntp }}]
+minpoll 4
+maxpoll 4
+iburst
+{% endfor %}
+
+[timemaster]
+ntp_program chronyd
+
+[chrony.conf]
+makestep {{ ptp_timesync_chrony.makestep }}
+logchange {{ ptp_timesync_chrony.logchange }}
+{% if ptp_timesync_chrony.lock_all | bool %}
+lock_all
+{% endif %}
+sched_priority {{ ptp_timesync_chrony.sched_priority }}
+combinelimit {{ ptp_timesync_chrony.combinelimit }}
+
+[chronyd]
+path /usr/sbin/chronyd
+options -f /etc/chrony.conf
+
+[phc2sys]
+path /usr/sbin/phc2sys
+
+[ptp4l]
+path /usr/sbin/ptp4l

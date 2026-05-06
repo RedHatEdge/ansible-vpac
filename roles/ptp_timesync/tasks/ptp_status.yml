@@ -1,0 +1,38 @@
+---
+# Drop ptp_status.sh + service. The script polls pmc once a second and
+# writes a snapshot into a folder that's intended to be virtiofs-mounted
+# into relay VMs (see vm_templates virtiofs block — VMs that need to see
+# host PTP health point at this folder).
+
+- name: "Ensure status directory exists"
+  ansible.builtin.file:
+    path: "{{ ptp_timesync_status_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Drop ptp_status.sh under /usr/local/sbin"
+  ansible.builtin.copy:
+    src: ptp_status.sh
+    dest: /usr/local/sbin/ptp_status.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: "restart ptp_status"
+
+- name: "Drop ptp_status.service systemd unit"
+  ansible.builtin.copy:
+    src: ptp_status.service
+    dest: /etc/systemd/system/ptp_status.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "restart ptp_status"
+
+- name: "Enable + start ptp_status.service"
+  ansible.builtin.systemd_service:
+    name: ptp_status
+    state: started
+    enabled: true
+    daemon_reload: true

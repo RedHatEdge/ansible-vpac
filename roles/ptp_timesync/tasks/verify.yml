@@ -1,0 +1,61 @@
+---
+# Tail-end verification: assert timemaster is up, then sample
+# `pmc GET PARENT_DATA_SET` N times and require the grandmaster
+# clockIdentity to stay constant across all samples. Catches the
+# multi-GM BMCA flap (documented field incident: three reachable PTP
+# clocks on domain 0 → ptp4l re-elected GM every announce burst).
+
+- name: "Flush handlers so timemaster is restarted before we sample"
+  ansible.builtin.meta: flush_handlers
+
+- name: "Confirm timemaster.service is active"
+  ansible.builtin.command: "systemctl is-active timemaster"
+  register: _ptp_timemaster_active
+  changed_when: false
+  failed_when: _ptp_timemaster_active.stdout.strip() != 'active'
+
+- name: "Confirm system chronyd is masked (timemaster owns chrony)"
+  ansible.builtin.command: "systemctl is-enabled chronyd"
+  register: _ptp_sys_chronyd
+  changed_when: false
+  failed_when: _ptp_sys_chronyd.stdout.strip() not in ['masked']
+
+- name: "Wait for the timemaster ptp4l socket to appear"
+  ansible.builtin.wait_for:
+    path: "{{ ptp_timesync_socket_template | replace('<num>', '0') }}"
+    state: present
+    timeout: 60
+
+- name: "Sample PARENT_DATA_SET to verify grandmaster identity is stable"
+  ansible.builtin.command: >-
+    pmc -s {{ ptp_timesync_socket_template | replace('<num>', '0') }}
+    -b 0 -u "GET PARENT_DATA_SET"
+  register: _ptp_gm_samples
+  changed_when: false
+  loop: "{{ range(0, ptp_timesync_gm_samples | int) | list }}"
+  loop_control:
+    extended: true
+    pause: "{{ ptp_timesync_gm_sample_interval | int }}"
+
+- name: "Extract grandmaster clockIdentity from each sample"
+  ansible.builtin.set_fact:
+    _ptp_gm_ids: >-
+      {{ _ptp_gm_samples.results
+         | map(attribute='stdout')
+         | map('regex_search', 'grandmasterIdentity\\s+(\\S+)', '\\1')
+         | reject('none')
+         | list }}
+
+- name: "Assert grandmaster identity is stable across all samples"
+  ansible.builtin.assert:
+    that:
+      - _ptp_gm_ids | length == (ptp_timesync_gm_samples | int)
+      - _ptp_gm_ids | unique | length == 1
+    fail_msg: >-
+      PTP grandmaster identity changed during the {{ ptp_timesync_gm_samples }}-sample
+      stability window — BMCA is flapping between multiple reachable GMs.
+      Observed identities: {{ _ptp_gm_ids | unique | list }}.
+      Either remove the extra GM(s) from this PTP domain or set a clear
+      priority1/priority2 ordering before re-running.
+    success_msg: >-
+      PTP GM stable: {{ _ptp_gm_ids | first }} across {{ ptp_timesync_gm_samples }} samples.

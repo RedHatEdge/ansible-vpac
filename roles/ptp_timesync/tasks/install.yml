@@ -1,0 +1,5 @@
+---
+- name: "Install linuxptp + chrony + ethtool"
+  ansible.builtin.dnf:
+    name: "{{ ptp_timesync_packages }}"
+    state: present

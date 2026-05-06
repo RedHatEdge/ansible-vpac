@@ -1,0 +1,35 @@
+---
+# Defense-in-depth: ptp_isolation already ran at the tail of stage 20 to
+# assert the PTP NIC is not bridged/bonded/macvtap. We re-run the same
+# checks here in case anything changed between stages, then probe the
+# NIC's HW timestamping capabilities with ethtool -T.
+
+- name: "Re-run ptp_isolation checks before arming ptp4l"
+  ansible.builtin.include_role:
+    name: ptp_isolation
+
+- name: "Probe HW timestamping with ethtool -T"
+  ansible.builtin.command: "ethtool -T {{ ptp_timesync_nic }}"
+  register: _ptp_ethtool
+  changed_when: false
+  failed_when: false
+
+- name: "Assert NIC reports a PHC index"
+  ansible.builtin.assert:
+    that: "'PTP Hardware Clock:' in _ptp_ethtool.stdout"
+    fail_msg: >-
+      ethtool -T {{ ptp_timesync_nic }} reports no PTP Hardware Clock. The role
+      requires HW timestamping. To deploy on a NIC without PHC support, set
+      ptp_timesync_require_hw_timestamping=false (testing/lab only).
+  when: ptp_timesync_require_hw_timestamping | bool
+
+- name: "Assert NIC reports HW transmit + receive timestamping caps"
+  ansible.builtin.assert:
+    that:
+      - "'hardware-transmit' in _ptp_ethtool.stdout"
+      - "'hardware-receive' in _ptp_ethtool.stdout"
+    fail_msg: >-
+      ethtool -T {{ ptp_timesync_nic }} does not advertise hardware-transmit
+      or hardware-receive timestamping. Without HW timestamps ptp4l cannot
+      hold sub-microsecond accuracy required by relay timing.
+  when: ptp_timesync_require_hw_timestamping | bool

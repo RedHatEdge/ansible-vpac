@@ -1,0 +1,13 @@
+{# Rendered by roles/ptp_timesync/tasks/ntp_follower.yml — appended to
+   /etc/chrony.conf via blockinfile on hosts that do NOT have a PTP NIC.
+   Points the host at every PTP-having peer with the `prefer` keyword,
+   so even though it can't lock to PTP itself, it follows the cluster's
+   PTP fabric one hop away. #}
+# vPAC PTP-follower overrides — this host has no PTP NIC and follows
+# the PTP-having cluster peers via NTP.
+{% for peer in ptp_timesync_follower_prefer_peers %}
+{% set peer_storage_ip = (vpac_nodes | selectattr('hostname', 'equalto', peer) | map(attribute='storage_ip') | first) | default(none) %}
+{% if peer_storage_ip %}
+server {{ peer_storage_ip }} iburst prefer minpoll 4 maxpoll 6
+{% endif %}
+{% endfor %}

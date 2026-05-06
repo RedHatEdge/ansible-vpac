@@ -1,0 +1,19 @@
+---
+- name: "restart timemaster"
+  ansible.builtin.systemd_service:
+    name: timemaster
+    state: restarted
+    enabled: true
+    daemon_reload: true
+
+- name: "restart ptp_status"
+  ansible.builtin.systemd_service:
+    name: ptp_status
+    state: restarted
+    enabled: true
+    daemon_reload: true
+
+- name: "restart chronyd"
+  ansible.builtin.systemd_service:
+    name: chronyd
+    state: restarted

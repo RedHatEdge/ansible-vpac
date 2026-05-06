@@ -4,3 +4,13 @@
 # Node C in the reference design runs Windows engineering workstations
 # with PCI NIC passthrough for Wireshark. NICs reserved for passthrough
 # must not be attached to any bridge at the host level.
+#
+# If Node C has no spare NIC for PTP (the typical case when one NIC goes
+# to passthrough), make it an NTP-follower of the PTP-having peers by
+# blanking its PTP NIC override here:
+#
+# networking_defaults:
+#   ptp_nic: ""
+#
+# ptp_timesync (stage 40) auto-detects this and configures system chrony
+# to prefer the PTP-having nodes from vpac_nodes via their storage_ip.

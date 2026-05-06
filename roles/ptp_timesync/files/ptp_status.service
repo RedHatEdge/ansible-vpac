@@ -1,0 +1,16 @@
+[Unit]
+Description=PTP status writer (snapshots pmc into a virtiofs-shared file)
+After=timemaster.service
+Requires=timemaster.service
+
+[Service]
+Type=simple
+Environment=PTP4L_SOCKET_PATH=/var/run/timemaster/ptp4l.<num>.socket
+Environment=PTP_STATUS_FOLDER=/home/libvirt-local/ptp
+ExecStart=/usr/local/sbin/ptp_status.sh
+Restart=on-failure
+RestartSec=2
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

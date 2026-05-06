@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: Stephen Smith
-  description: timemaster + ptp4l on the dedicated PTP NIC; chrony config with NTP sources stripped when PTP is authoritative
+  description: timemaster + ptp4l on the dedicated PTP NIC; chrony embedded inside timemaster; NTP-follower path for hosts without a PTP NIC
   license: Apache-2.0
   min_ansible_version: "2.15"
   platforms:
