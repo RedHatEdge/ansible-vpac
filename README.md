@@ -133,19 +133,26 @@ Full walk-through: [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md
 
 | # | Stage | Tag | Status | What it does |
 |---|---|---|---|---|
-| 00 | Preflight | `preflight` | ✅ ready | Reachability, sudo, RHEL version, disk, BMC access, mode-aware sources probes |
-| 10 | Host baseline | `baseline` | ✅ ready | Subscription, repos, base packages, hostname, firewall, journald, operator tools + Cockpit |
-| 20 | Networking | `networking` | ✅ ready | Bonds, bridges, VLANs via nmstate; verifies PTP NIC isolation |
-| 30 | Virtualization | `virt` | ✅ ready | libvirt, KVM, tuned-profiles-cpu-partitioning, default NAT network removed |
-| 40 | PTP | `ptp` | 🚧 stub | (will) timemaster/ptp4l on dedicated NIC; NTP stripped when PTP-authoritative |
-| 50 | RT tuning | `rt` | 🚧 stub | (will) kernel-rt, tuned realtime profile, `sched_rt_runtime_us`, RT chrony overrides |
-| 60 | Ceph | `ceph` | ✅ ready | cephadm bootstrap with RHCS 7, expand cluster, add OSDs, create CephFS, deploy monitoring stack, enable native dashboard |
-| 70 | Pacemaker | `pacemaker` | 🚧 stub | (will) pcs, corosync on heartbeat net, cluster auth, `pcsd` web UI on :2224 |
-| 75 | STONITH | `stonith` | 🚧 stub | (will) fence_ipmilan / fence_virsh per node, location constraints, `stonith-enabled=true` |
-| 80 | VM deploy | `vm` | ✅ ready | render libvirt domain XML from `vm_catalog`, define each VM on its `target_host` (non-clustered v1; Pacemaker-managed mode lands with stage 75) |
-| 90 | Validate | `validate` | 🚧 stub | (will) cyclictest tail latency, `pcs status`, `ceph -s` parse, PTP offset, STONITH dry-run |
+| 00 | Preflight | `preflight` | ✅ ready | Reachability, sudo, RHEL version, disk, BMC access, mode-aware sources probes, subnet uniqueness, hostname resolution, PTP HW-timestamp |
+| 10 | Host baseline | `baseline` | ✅ ready | Subscription, SCA, optional Insights, repos, base packages, hostname, SELinux permissive, firewalld w/ HA + migration ports, chrony peer mesh, operator tools + Cockpit |
+| 20 | Networking | `networking` | ✅ ready | Bonds, bridges, VLANs via nmstate; PTP NIC isolation; verify-time linkdown + subnet checks |
+| 30 | Virtualization | `virt` | ✅ ready | libvirt, KVM modprobe drop-in, tuned cpu-partitioning, libvirt networks (mgmt + station-bus), qemu hook, qemu.conf overrides, sanlock host chain, virt-host-validate |
+| 40 | PTP | `ptp` | ✅ ready | timemaster supervises ptp4l + phc2sys + embedded chronyd on hosts with a PTP NIC (system chronyd masked); NTP-follower path on hosts without one; Power Profile P2P/L2; multi-GM damping; `ptp_status` writer for virtiofs share to relay VMs; 4-sample GM-stability verify |
+| 50 | RT tuning | `rt` | ✅ ready | kernel-rt + RT package set, versionlock pattern, RT cmdline knobs, `/etc/sysctl.d/vpac-rt.conf`, `realtime-virtual-host` tuned profile (variables file written **before** activation), `sys-fs-resctrl.mount` for Intel CAT, RT chrony overrides on relay hosts, cpufreq governor — runs on `rt_hosts` only; reboot required after first run |
+| 60 | Ceph | `ceph` | ✅ ready | cephadm bootstrap with RHCS 7 (`--ssh-user`), post-bootstrap network/dashboard config, OSD wipe + restorecon; `ceph_expand` adds RBD pool, libvirt cephx secret with shared UUID, sanlock-on-RBD chain |
+| 70 | Pacemaker | `pacemaker` | ✅ ready | pcs cluster on the heartbeat network, hacluster auth, `pcsd` web UI on :2224, resource defaults, operator recovery primitives (`pcs-safe-reboot`, `pcs-cluster-precheck`, `pcs-vm-move`, `pcs-vm-status`, `op-pacemaker-recover.yml`) |
+| 75 | STONITH | `stonith` | ✅ ready | fence_ipmilan or fence_virsh per node (idempotent), location constraints (no node fences itself), atomic enable, interactive `op-stonith-fence-test.yml` playbook |
+| 80 | VM deploy | `vm` | ✅ ready | render libvirt domain XML from `vm_catalog` (RT block, RBD disks, sanlock leases, virtiofs, Windows-11 UEFI/TPM/Hyper-V); Pacemaker-managed mode by default on ≥3-node clusters (`VirtualDomain` resources, location constraints, `op-vm-undefine.yml`); standalone fallback on single-node |
+| 90 | Validate | `validate` | 🚧 stub | (will) cyclictest tail latency, `pcs status`, `ceph -s` parse, PTP offset, STONITH dry-run, subnet-uniqueness + linkdown + pending-fence checks distilled from `node-diag.sh` |
 
-**Stub stages are no-ops that emit a `"not yet implemented"` debug line.** They don't fail the run, but they also don't configure anything. A POC using only the ready stages gets a working RHEL+KVM+Ceph+CephFS cluster with VMs defined. HA (Pacemaker + STONITH + VM-as-resource) and real-time tuning land in upcoming commits.
+`site.yml` runs end-to-end through stage 80 today. The only remaining stub is stage 90 (`validate`); stub stages are no-ops that emit a `"not yet implemented"` debug line, so a current `site.yml` run delivers a fully working RHEL + KVM + RT + Ceph + Pacemaker + STONITH cluster with managed VMs.
+
+A few activation steps are deliberately left to the operator and not automated by `site.yml`:
+
+1. **After first `rt_tuning` run on each rt_host: reboot.** The role schedules a notify; `rt_tuning_auto_reboot: false` by default. (Set `true` for unattended labs.)
+2. **After `ceph_expand` sanlock chain runs cleanly: flip `virtualization_lock_manager: "sanlock"` in inventory and re-run `--tags virt-qemu-conf`.** Default `"none"` keeps single-node labs working; the chain is dormant until the flip.
+3. **After `vm_deploy` in managed mode: `pcs resource enable <vm>` per VM** once disk images are confirmed present (`vm_deploy_managed_initial_disabled: true` lands resources Stopped to mirror the standalone safety posture).
+4. **First-deploy STONITH functional test** (real BMCs only): `ansible-playbook playbooks/op-stonith-fence-test.yml -e fence_target=<node> -e i_have_drained_vms=yes`. Will power-cycle the target.
 
 Ceph (stage 60) **always** runs after host baseline, networking, and virtualization. STONITH (stage 75) **always** runs before VM deploy (stage 80) — enforced by `site.yml`'s stage ordering. Do not reorder.
 
