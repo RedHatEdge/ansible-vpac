@@ -2,6 +2,104 @@
 
 Day-2 operations for a deployed vPAC cluster.
 
+## Operator helper playbooks + scripts
+
+The `pacemaker_base`, `stonith`, and `vm_deploy` roles install three things you can use during day-2:
+
+**On-node helper scripts** (under `/usr/local/sbin/`):
+
+| Script | What it does |
+|---|---|
+| `pcs-safe-reboot` | Standby → reboot pattern, refuses to run if `pcs cluster stop` is requested. The CIB-shutdown trap protector. |
+| `pcs-cluster-precheck` | Quick health summary: corosync ring, quorum, stonith state, pcs property show. |
+| `pcs-stonith-confirm-helper` | Walks pending fencing actions in the CIB and clears them safely. Used after a recovered node returns. |
+| `pcs-vm-move <vm> <target>` | Wrapper around `pcs resource move` that auto-runs `pcs resource clear` after placement. |
+| `pcs-vm-status` | Per-VM rollup: location, lifetime constraints, recent failcounts. |
+
+**Operator playbooks** (under `playbooks/op-*.yml` — invoked by hand, NOT by `site.yml`):
+
+| Playbook | Purpose | When to run |
+|---|---|---|
+| `op-pacemaker-recover.yml` | Documented cold-start recovery: stop stack on every node, clear stale CIB shutdown attributes, start in order, clean up failcounts | When a cluster hangs in a partial state and `pcs cluster start --all` won't fix it |
+| `op-stonith-fence-test.yml` | Confirms each fence device works by actually firing it. **Power-cycles the target VM.** Requires `-e fence_target=<node> -e i_have_drained_vms=yes` | First-deploy validation against real BMCs; never on a node hosting live workloads |
+| `op-vm-undefine.yml` | Cleanly removes a VM Pacemaker resource AND undefines the libvirt domain on every node | Decommissioning a VM permanently |
+
+```bash
+# Examples:
+ansible-playbook -i inventory/<site> playbooks/op-pacemaker-recover.yml
+ansible-playbook -i inventory/<site> playbooks/op-stonith-fence-test.yml \
+    -e fence_target=site1-node-c -e i_have_drained_vms=yes
+ansible-playbook -i inventory/<site> playbooks/op-vm-undefine.yml \
+    -e vm_to_remove=ssc600-01
+```
+
+## Operator activation steps after first `site.yml` run
+
+`site.yml` deliberately leaves four things to the operator. Running them in order takes a freshly-deployed cluster from "infrastructure ready" to "production posture".
+
+### 1. Reboot rt_hosts to land on the +rt kernel
+
+`rt_tuning` schedules a notify on first install but `rt_tuning_auto_reboot: false` by default. Reboot rt_hosts on a maintenance window, then re-run verify:
+
+```bash
+# On each rt_host (one at a time, drain first):
+pcs node standby <rt-host>
+pcs status                              # wait for resources to drain
+ssh <rt-host> 'sudo systemctl reboot'
+# Wait for reboot...
+pcs node unstandby <rt-host>
+
+# After all rt_hosts are on +rt, confirm:
+ansible-playbook -i inventory/<site> site.yml --tags rt-verify
+```
+
+Set `rt_tuning_auto_reboot: true` in inventory if you want the role to handle the reboot itself (lab/unattended scenarios).
+
+### 2. Activate the sanlock-on-RBD chain
+
+`ceph_expand` provisions the lockspace image and templates `/etc/libvirt/qemu-sanlock.conf` on every node, but leaves `virtualization_lock_manager: "none"` in `/etc/libvirt/qemu.conf` so single-node labs stay working. Flip after `ceph_expand` reports HEALTH_OK:
+
+```bash
+# In inventory/<site>/group_vars/all.yml:
+#   virtualization_lock_manager: "sanlock"
+
+ansible-playbook -i inventory/<site> site.yml --tags virt-qemu-conf
+```
+
+The `--tags virt-qemu-conf` re-run rewrites only `/etc/libvirt/qemu.conf` and reloads libvirtd. Existing VMs keep running; new VM starts now acquire a sanlock lease before opening their disk image.
+
+### 3. Enable each VirtualDomain resource
+
+In managed mode (default on 3+ node clusters), `vm_deploy` lands every Pacemaker resource `Stopped` so a misconfigured catalog doesn't autostart broken VMs. Enable each one once you've confirmed disk images are present:
+
+```bash
+# Confirm the disk image / RBD volume exists, then:
+pcs resource enable ssc600-01
+pcs status
+```
+
+If you'd rather have resources land Started by default, set `vm_deploy_managed_initial_disabled: false` in inventory before running stage 80.
+
+### 4. STONITH functional test
+
+On real BMCs, fire each fence device once to confirm the IPMI path actually works end-to-end. **This power-cycles the target node.** Drain it first.
+
+```bash
+# Pick a node that's not currently hosting workloads:
+pcs node standby site1-node-c
+pcs status                   # confirm resources moved off
+
+ansible-playbook -i inventory/<site> playbooks/op-stonith-fence-test.yml \
+    -e fence_target=site1-node-c \
+    -e i_have_drained_vms=yes
+
+# Node hard-reboots. Wait for it to come back, then:
+pcs node unstandby site1-node-c
+pcs resource cleanup
+```
+
+Repeat for each cluster node. On `fence_virsh` lab clusters this can be exercised freely (it just kills the VM); on real hardware run it once per fence device, not more.
+
 ## Planned reboot of a node
 
 **Do not run `pcs cluster stop` before rebooting.** It sets a `shutdown` node attribute in the CIB that persists across the reboot. When the node boots and pacemaker starts, it reads the CIB, sees its own pending shutdown request, and honors it with respawn inhibited. The node will stay OFFLINE until someone manually runs `pcs cluster start`.

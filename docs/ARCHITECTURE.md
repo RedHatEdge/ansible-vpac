@@ -10,17 +10,42 @@ It replaces a rack of single-purpose hardware relay panels with a single HA plat
 
 | Layer | Technology | Role |
 |---|---|---|
-| Operating system | RHEL 9 | Base platform, real-time tuning |
-| Hypervisor | KVM + libvirt | VM lifecycle, CPU pinning, hugepages |
-| Shared storage | Ceph (cephadm) + CephFS | VM disk images, VM portability |
-| Cluster manager | Pacemaker + Corosync | VM placement, failover, quorum |
-| Fencing | STONITH (fence_ipmilan) | Split-brain prevention |
-| Time sync | PTP (IEEE 1588) + chrony | Sub-microsecond sync for relays |
-| Real-time tuning | tuned, isolcpus, hugepages, RT chrony | Deterministic VM latency |
+| Operating system | RHEL 9 (9.7+) | Base platform, real-time tuning, kernel-rt from NFV repo |
+| Hypervisor | KVM + libvirt | VM lifecycle, CPU pinning, hugepages, sanlock leases |
+| Shared storage | Red Hat Ceph Storage 7 (`cephadm`) — CephFS + RBD | CephFS for VM disks; RBD pool backs the sanlock lockspace |
+| Cluster manager | Pacemaker + Corosync (RHEL HA add-on) | VM placement, failover, quorum |
+| Fencing | STONITH — `fence_ipmilan` (production) or `fence_virsh` (lab) | Split-brain prevention; configurable via `stonith.fence_agent` |
+| Time sync | PTP (IEEE 1588 / Power Profile C37.238) via `timemaster` + RT-tuned chrony | Sub-µs sync for relays, NTP-follower fallback for hosts without a PTP NIC |
+| Real-time tuning | `kernel-rt`, tuned `realtime-virtual-host`, isolcpus, 1 GiB hugepages, Intel CAT (`pqos`), `sched_rt_runtime_us=-1` | Deterministic VM latency under 120 µs |
+| VM lock manager | `sanlock` over RBD (lockspace image on `rbd-vms` pool) | Belt-and-suspenders against simultaneous VM start on two nodes if Pacemaker / fencing both fail |
 
 ## Network layout
 
-Five logical networks. Collapsing them onto fewer physical NICs is possible but some combinations are **hazardous** and the playbooks reject them:
+Five logical networks plus a BMC out-of-band path. Collapsing them onto fewer physical NICs is possible but some combinations are **hazardous** and the playbooks reject them:
+
+```mermaid
+flowchart LR
+  subgraph node["Each cluster node — physical NICs"]
+    direction TB
+    mgmt["mgmt bond → br-mgmt"]
+    storage["storage bond — no bridge"]
+    station["station bond → br-station"]
+    hb["heartbeat NIC"]
+    ptp["PTP NIC"]
+    bmc["BMC port"]
+  end
+
+  mgmt -. carries .-> mgmtN(["mgmt + libvirt mgmt + Cockpit"])
+  storage -. carries .-> storageN(["Ceph public + cluster — L2-only"])
+  station -. carries .-> stationN(["IEC 61850 GOOSE/SV — VLAN trunk"])
+  hb -. carries .-> hbN(["corosync ring ONLY"])
+  ptp -. carries .-> ptpN(["ptp4l ONLY — no bridge / bond / macvtap"])
+  bmc -. carries .-> bmcN(["STONITH (out-of-band)"])
+
+  classDef mustdedicate fill:#fff5d8,stroke:#c80,color:#000
+  hb:::mustdedicate
+  ptp:::mustdedicate
+```
 
 | Network | Purpose | Typical separation |
 |---|---|---|
@@ -67,9 +92,36 @@ Target: cyclictest tail latency under 120 µs on RT hosts. Validated by the `val
 ## High availability
 
 - **Quorum**: 3 nodes, simple majority. Two-node quorum-device setups are possible but not default — document at `OPERATIONS.md`.
-- **Fencing**: `fence_ipmilan` per node, one fence resource each, location constraint so a node can't fence itself. `stonith-enabled=true` is set before any production VM lands.
-- **VM HA**: each VM is a Pacemaker resource with `meta allow-migrate=true` where live migration is desired, or hard location constraints to pin VMs to specific hosts.
-- **Planned reboot**: `pcs node standby` + `systemctl reboot`. Never `pcs cluster stop` before a reboot (leaves a shutdown attribute in the CIB that blocks rejoin).
+- **Fencing**: one fence resource per node (`fence-<hostname>`), location constraint so a node can't fence itself. The agent is configurable: `fence_ipmilan` for production BMCs (iDRAC / Supermicro IPMI / generic IPMI 2.0), `fence_virsh` for libvirt-based labs that have no out-of-band BMC. `stonith-enabled=true` is set only after every fence device is registered AND has left the `Stopped` state — atomic enable, no half-armed window.
+- **VM HA**: each VM is a Pacemaker `VirtualDomain` resource (managed mode, default on 3+ node clusters) with location constraints from inventory's `target_host` + `allowed_hosts`. The role lands resources `Stopped` on first deploy as a safety posture; operator runs `pcs resource enable <vm>` once disk images are confirmed present.
+- **Planned reboot**: `pcs node standby` + `systemctl reboot` (or the `pcs-safe-reboot` helper installed by `pacemaker_base`). Never `pcs cluster stop` before a reboot (leaves a shutdown attribute in the CIB that blocks rejoin).
+- **Sanlock-on-RBD**: belt-and-suspenders. Even if Pacemaker AND fencing both fail simultaneously, sanlock's lease on the shared RBD lockspace prevents two qemu instances from opening the same VM disk. Activated by flipping `virtualization_lock_manager: "sanlock"` after `ceph_expand` has provisioned the lockspace image.
+
+```mermaid
+flowchart LR
+  classDef fenceres fill:#fff,stroke:#333
+  classDef constraint fill:#fff5d8,stroke:#c80
+  
+  subgraph cluster[3-node Pacemaker cluster]
+    nA[Node A]
+    nB[Node B]
+    nC[Node C]
+  end
+  
+  fA[fence-A]:::fenceres
+  fB[fence-B]:::fenceres
+  fC[fence-C]:::fenceres
+  
+  fA -- avoids --> nA
+  fB -- avoids --> nB
+  fC -- avoids --> nC
+  
+  fA -. fences via BMC/virsh .-> nA
+  fB -. fences via BMC/virsh .-> nB
+  fC -. fences via BMC/virsh .-> nC
+  
+  policy["stonith-enabled=true<br/>set ONLY after all 3 devices Started"]:::constraint
+```
 
 ## Storage
 
@@ -83,7 +135,39 @@ A single Ansible run from a control workstation:
 
 1. Operator fills in `inventory/<site>/group_vars/all.yml` and `hosts.yml`
 2. Runs `ansible-playbook -i inventory/<site> site.yml`
-3. Playbook runs stages in dependency order (see root `README.md`)
+3. Playbook runs stages in dependency order (see below)
 4. Validation stage produces a report; operator confirms targets are met
 
 Re-running any stage via `--tags` is idempotent and safe.
+
+### Stage flow
+
+```mermaid
+flowchart TD
+  s00["00 preflight"] --> s10["10 host_baseline"] --> s20["20 networking"] --> s30["30 virtualization"]
+  s30 --> s40["40 ptp_timesync"]
+  s30 --> s50["50 rt_tuning"]
+  s30 --> s60["60 ceph + ceph_expand"]
+  s60 --> s70["70 pacemaker_base"]
+  s70 --> s75["75 stonith"]
+  s75 --> s80["80 vm_templates + vm_deploy"]
+  s80 --> s90["90 validate"]
+  s40 -.-> s90
+  s50 -.-> s90
+
+  classDef stub fill:#fafafa,stroke:#999,stroke-dasharray:3 3,color:#666
+  s90:::stub
+```
+
+Solid arrows are hard dependencies; dashed are read-only verification dependencies. Stage 90 (`validate`) is currently a no-op stub that emits a debug line — every other stage is fully implemented and re-runnable.
+
+### Operator activation steps (NOT automated by `site.yml`)
+
+A few transitions need an operator decision and are deliberately left out of the automated flow:
+
+| Step | Why manual |
+|---|---|
+| **Reboot rt_hosts** after first `rt_tuning` run | The role schedules a notify but `rt_tuning_auto_reboot: false` by default — production operators want to schedule the reboot themselves. (Set `true` for unattended labs.) |
+| Flip **`virtualization_lock_manager: "sanlock"`** + re-run `--tags virt-qemu-conf` | The sanlock-on-RBD chain is dormant until the flip; default `"none"` keeps single-node labs working. Activate only after `ceph_expand` has provisioned the lockspace. |
+| **`pcs resource enable <vm>`** per VM in managed mode | `vm_deploy_managed_initial_disabled: true` lands resources `Stopped` to mirror the standalone safety posture; operator enables once disk images are confirmed present. |
+| **First-deploy STONITH functional test** | `playbooks/op-stonith-fence-test.yml` against a real BMC actually power-cycles the target — should only run with operator confirmation. |

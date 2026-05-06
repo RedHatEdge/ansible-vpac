@@ -149,7 +149,7 @@ Full walk-through: [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md
 
 A few activation steps are deliberately left to the operator and not automated by `site.yml`:
 
-1. **After first `rt_tuning` run on each rt_host: reboot.** The role schedules a notify; `rt_tuning_auto_reboot: false` by default. (Set `true` for unattended labs.)
+1. **After first `rt_tuning` run on each rt_host: reboot.** The role installs `kernel-rt`, sets it as the default boot, and schedules a reboot handler — but `rt_tuning_auto_reboot: false` by default so production operators schedule the reboot in their own maintenance window. The role's verify step **will fail** until the host has actually booted into `+rt`. Re-run `--tags rt-verify` after the reboot to confirm. Set `rt_tuning_auto_reboot: true` for unattended labs.
 2. **After `ceph_expand` sanlock chain runs cleanly: flip `virtualization_lock_manager: "sanlock"` in inventory and re-run `--tags virt-qemu-conf`.** Default `"none"` keeps single-node labs working; the chain is dormant until the flip.
 3. **After `vm_deploy` in managed mode: `pcs resource enable <vm>` per VM** once disk images are confirmed present (`vm_deploy_managed_initial_disabled: true` lands resources Stopped to mirror the standalone safety posture).
 4. **First-deploy STONITH functional test** (real BMCs only): `ansible-playbook playbooks/op-stonith-fence-test.yml -e fence_target=<node> -e i_have_drained_vms=yes`. Will power-cycle the target.

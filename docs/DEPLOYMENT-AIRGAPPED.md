@@ -9,13 +9,38 @@ If your site has internet access from the cluster nodes, the simpler path is [`D
 The builder has internet access for a short window (typically one evening — while the SA is on site with a laptop and a cellular hotspot, or while the builder is temporarily on a routable network). During that window, `01-build-builder.yml` populates the builder's:
 
 - local RPM mirror (`/var/www/html/mirror`, served over HTTP on port 80)
-- local container registry (`registry:2` in podman, listening on port 5000)
+- local container registry (`registry:2` in podman, listening on port 5000 — plain HTTP)
 
-with everything the cluster will need: RHEL 9 BaseOS + AppStream + HA + resilient-storage + NFV, the RHCS 7 tools repo, and the RHCS 7 container image pulled from `registry.redhat.io`.
+with everything the cluster will need: RHEL 9 BaseOS + AppStream + HA + NFV (`kernel-rt`) + **CodeReady Builder** (for `libvirt-daemon-plugin-sanlock`), the RHCS 7 tools repo, the RHCS 7 container image, and the monitoring images (Prometheus, Alertmanager, Grafana, node-exporter) pulled from `registry.redhat.io`.
 
-After that playbook finishes, the builder is disconnected from the internet (physically unplug, move to the air-gap VLAN, whatever the site requires). For the rest of its life the builder serves the cluster only.
+After that playbook finishes, the builder is disconnected from the internet (physically unplug, move to the air-gap VLAN, whatever the site requires). For the rest of its life the builder serves the cluster only — port 80 for RPMs, port 5000 plain-HTTP for containers (cluster nodes set `sources.container_registry_insecure: true` to accept the unencrypted registry).
 
 `site.yml` then targets the cluster nodes with `sources.repo_source: local_mirror` and `sources.container_registry: <builder-host>:5000`. Everything comes from the builder; nothing calls out.
+
+### Four-playbook flow
+
+```mermaid
+sequenceDiagram
+  participant SA as SA workstation
+  participant Builder as Builder host
+  participant Internet as registry.redhat.io / RHSM CDN
+  participant Nodes as Cluster nodes (×3)
+
+  SA->>SA: 00-mint-builder-iso.yml<br/>(podman + mkksiso → 13 GB ISO)
+  SA-->>Builder: Boot from minted ISO
+  Builder->>Builder: Unattended kickstart install
+  SA->>Builder: 01-build-builder.yml<br/>(--ask-vault-pass)
+  Builder->>Internet: subscription-manager register
+  Builder->>Internet: reposync (BaseOS + AppStream + HA + NFV + CRB + RHCS-tools)
+  Builder->>Internet: skopeo copy RHCS + monitoring images
+  Note over Builder: Disconnect from internet now.
+  SA->>SA: 00b-mint-cluster-isos.yml<br/>(N ISOs, one per node)
+  SA-->>Nodes: Boot each node from its ISO
+  Nodes->>Nodes: Unattended install
+  SA->>Nodes: site.yml<br/>(sources.repo_source: local_mirror,<br/>container_registry: builder:5000)
+  Nodes->>Builder: HTTP repos / podman pull
+  Note over Nodes: Cluster up — Ceph + Pacemaker + STONITH ready.
+```
 
 ## Before you start
 
