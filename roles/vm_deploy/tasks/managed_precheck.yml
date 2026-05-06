@@ -12,8 +12,10 @@
   changed_when: false
 
 - name: "Assert stonith-enabled=true"
+  # `pcs property show` (RHEL 9 / pcs 0.11+) renders properties as
+  # `<key>=<value>` indented under a header, NOT `<key>: <value>`.
   ansible.builtin.assert:
-    that: "'stonith-enabled: true' in (_vm_stonith_prop.stdout | lower)"
+    that: "'stonith-enabled=true' in (_vm_stonith_prop.stdout | lower)"
     fail_msg: >-
       Managed-mode VM deploy requires stonith-enabled=true. Current
       value: {{ _vm_stonith_prop.stdout | trim }}. Run the stonith role

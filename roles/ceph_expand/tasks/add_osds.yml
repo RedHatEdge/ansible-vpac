@@ -57,11 +57,21 @@
   loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
   delegate_to: "{{ ceph.bootstrap_node }}"
   register: _ceph_add_osd
-  changed_when: "'Created osd' in (_ceph_add_osd.stdout | default(''))"
+  # cephadm's idempotent response is `Created no osd(s) on host <h>;
+  # already created?` in STDOUT (not stderr) — the substring 'Created osd'
+  # IS present inside 'Created no osd' which would falsely register as a
+  # new-OSD success and as a changed-state. Match on 'already created'
+  # explicitly, AND require 'Created no osd' NOT to be in the stdout
+  # before treating 'Created osd' as a real success.
+  changed_when: >-
+    ('Created osd' in (_ceph_add_osd.stdout | default(''))) and
+    ('Created no osd' not in (_ceph_add_osd.stdout | default('')))
   until:
     - _ceph_add_osd.rc == 0
     - >-
-      ('Created osd' in (_ceph_add_osd.stdout | default(''))) or
+      (('Created osd' in (_ceph_add_osd.stdout | default(''))) and
+       ('Created no osd' not in (_ceph_add_osd.stdout | default('')))) or
+      ('already created' in (_ceph_add_osd.stdout | default(''))) or
       ('already' in (_ceph_add_osd.stderr | default(''))) or
       ('in use' in (_ceph_add_osd.stderr | default('')))
   retries: 10

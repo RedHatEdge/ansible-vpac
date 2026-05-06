@@ -1,9 +1,13 @@
 ---
-# Post-apply assertions. Note: most of these only hold AFTER the reboot
-# triggered by the cmdline + tuned changes. On first run they may fail
-# (kernel-rt installed but not yet running); that's expected. Schedule
-# the reboot via the role's notify, then re-run with --tags rt-verify
-# (or rely on the next site.yml run).
+# Post-apply assertions. Most only hold AFTER the reboot triggered by
+# the cmdline + tuned changes — flush handlers FIRST so a queued reboot
+# (rt_tuning_auto_reboot=true) actually fires before we test. With
+# auto_reboot=false the reboot stays queued for the operator and these
+# assertions still fail on first install — operator re-runs with
+# --tags rt-verify after their controlled reboot.
+
+- name: "Flush handlers so a queued reboot fires before verify"
+  ansible.builtin.meta: flush_handlers
 
 - name: "Read uname"
   ansible.builtin.command: uname -r

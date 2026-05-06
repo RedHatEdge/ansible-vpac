@@ -9,6 +9,18 @@
   ansible.builtin.meta: end_play
   when: not (stonith.enabled | default(true) | bool)
 
+# RHEL 9 ships fence-agents-* split per-protocol — installing only the
+# agent the inventory requested keeps the cluster footprint minimal.
+- name: "Install the fence agent package for the chosen agent"
+  ansible.builtin.dnf:
+    name: >-
+      {{ {
+        'fence_ipmilan': 'fence-agents-ipmilan',
+        'fence_virsh':   'fence-agents-virsh',
+      }[stonith.fence_agent] }}
+    state: present
+  tags: [stonith, stonith-install]
+
 - name: "Preflight assertions (agent supported, binary present, pacemaker up)"
   ansible.builtin.import_tasks: preflight.yml
   tags: [stonith, stonith-preflight]

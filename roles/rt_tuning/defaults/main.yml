@@ -1,9 +1,13 @@
 ---
-# RT package set. kernel-rt + kernel-rt-kvm are the workhorses; the rest
-# are tuned profiles + tools the role uses.
+# RT package set. kernel-rt is the workhorse; the rest are tuned profiles
+# + tools the role uses. kernel-rt-kvm used to be listed here but Red Hat
+# stopped keeping its build in sync with kernel-rt's in the NFV repo
+# (kernel-rt jumps each minor RHEL release; kernel-rt-kvm lags), so the
+# pair regularly fails to depsolve. The KVM-for-RT bits that used to live
+# in kernel-rt-kvm are now part of kernel-rt-modules-{core,extra}, which
+# kernel-rt itself pulls in.
 rt_tuning_packages:
   - kernel-rt
-  - kernel-rt-kvm
   - tuned-profiles-realtime
   - tuned-profiles-nfv-host
   - realtime-tests

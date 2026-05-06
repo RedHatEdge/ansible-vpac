@@ -1,17 +1,26 @@
 ---
-- name: "pcs stonith status"
+# After flipping stonith-enabled=true, pacemaker takes a few seconds to
+# probe each fence device and bring it Started. Poll pcs stonith status
+# until none are Stopped, with a tight bound — if any device is still
+# Stopped after ~60s, the fence configuration is genuinely broken (e.g.
+# fence_virsh agent can't reach the libvirt host).
+
+- name: "Wait for every stonith resource to leave Stopped"
   ansible.builtin.command:
     cmd: pcs stonith status
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
   register: _st_status
   changed_when: false
+  until: "'Stopped' not in _st_status.stdout"
+  retries: 12
+  delay: 5
 
 - name: "Assert no stonith resource is Stopped"
   ansible.builtin.assert:
     that: "'Stopped' not in _st_status.stdout"
     fail_msg: >-
-      pcs stonith status reports a Stopped device. Output:
+      pcs stonith status reports a Stopped device after waiting. Output:
       {{ _st_status.stdout }}
 
 - name: "Assert stonith-enabled is true"
@@ -23,8 +32,11 @@
   changed_when: false
 
 - name: "Confirm stonith-enabled=true"
+  # `pcs property show` (RHEL 9 / pcs 0.11+) renders the property as
+  # `<key>=<value>` indented under a "Cluster Properties: ..." header,
+  # NOT `<key>: <value>`. Match the actual format.
   ansible.builtin.assert:
-    that: "'stonith-enabled: true' in (_st_prop.stdout | lower)"
+    that: "'stonith-enabled=true' in (_st_prop.stdout | lower)"
     fail_msg: >-
       stonith-enabled is not true after the role completed. Output:
       {{ _st_prop.stdout }}

@@ -5,9 +5,14 @@
 # end-state handoff to the stonith role, which flips it true after
 # fence devices are configured.
 
-- name: "Set default-resource-stickiness"
+- name: "Set default resource-stickiness via resource defaults"
+  # In modern pcs (0.11+, RHEL 9), `default-resource-stickiness` is no
+  # longer a CLUSTER property — it's a RESOURCE meta-attribute default
+  # set via `pcs resource defaults update resource-stickiness=N`. The
+  # old `pcs property set default-resource-stickiness=...` form errors
+  # with "invalid cluster property option".
   ansible.builtin.command:
-    cmd: "pcs property set default-resource-stickiness={{ pacemaker_default_resource_stickiness }}"
+    cmd: "pcs resource defaults update resource-stickiness={{ pacemaker_default_resource_stickiness }}"
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
   changed_when: true

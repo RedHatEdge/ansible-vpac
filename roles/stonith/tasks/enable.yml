@@ -6,8 +6,13 @@
 # verify the fence path).
 
 - name: "Read registered stonith devices"
+  # `stonith_admin --list-registered` is per-node-aware — the local node
+  # won't list its own fence device because of the "avoids self"
+  # location constraint added earlier. `pcs stonith status` reads the
+  # cluster-wide CIB and lists every fence resource regardless of where
+  # it can run, which is the correct view for the registration check.
   ansible.builtin.command:
-    cmd: stonith_admin --list-registered
+    cmd: pcs stonith status
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
   register: _st_registered
@@ -18,8 +23,8 @@
     that: ('fence-' + item.hostname) in _st_registered.stdout
     fail_msg: >-
       Expected fence device fence-{{ item.hostname }} not found in
-      `stonith_admin --list-registered` output. Refusing to flip
-      stonith-enabled=true while devices are missing.
+      `pcs stonith status` output. Refusing to flip stonith-enabled=true
+      while devices are missing.
   loop: "{{ vpac_nodes }}"
   loop_control:
     label: "{{ item.hostname }}"

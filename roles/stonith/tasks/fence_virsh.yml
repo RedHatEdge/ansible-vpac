@@ -8,15 +8,17 @@
 # hostname is used as the domain name.
 
 - name: "Copy fence_virsh SSH identity to every cluster node"
-  # Identity must be readable by the hacluster user (which the stonith
-  # resource runs as), not just by root. 0640 root:hacluster is the
-  # documented lab pattern.
+  # fence_virsh is invoked by pacemaker as the cluster's daemon user
+  # (root) — NOT by the hacluster shell account. SSH refuses any private
+  # key with mode > 0600 ("Permissions 0640 for ... are too open"), so
+  # 0600 root:root is the only mode that works for both the preflight
+  # ssh check AND pacemaker's fence_virsh execution.
   ansible.builtin.copy:
     src: "{{ stonith.virsh_identity_file_local }}"
     dest: "{{ stonith.virsh_identity_file }}"
     owner: root
-    group: hacluster
-    mode: "0640"
+    group: root
+    mode: "0600"
 
 - name: "Create fence_virsh device per node"
   ansible.builtin.command:

@@ -27,9 +27,15 @@
   when: ceph_bootstrap_enable_dashboard | bool
   changed_when: true
 
-- name: "Restart MGR daemons so the dashboard rebinds"
+- name: "Fail the active MGR so the dashboard rebinds"
+  # `ceph orch restart mgr` refuses with EINVAL "No standby MGRs" when
+  # there's only the bootstrap MGR (always true on a fresh cluster, before
+  # ceph_expand brings the others in). `ceph mgr fail` works on a single
+  # MGR — it forces a respawn that re-reads the dashboard config we just
+  # set. After ceph_expand adds standby MGRs, both options work; this
+  # form keeps the bootstrap path single-step and idempotent.
   ansible.builtin.command:
-    cmd: "/usr/bin/ceph orch restart mgr"
+    cmd: "/usr/bin/ceph mgr fail"
   when: ceph_bootstrap_enable_dashboard | bool
   changed_when: true
   register: _ceph_mgr_restart

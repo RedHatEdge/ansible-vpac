@@ -5,7 +5,9 @@
 # skip setup and only run start + enable + properties.
 #
 # Each node's ring address is its heartbeat_ip from vpac_nodes — pcs
-# accepts <hostname>=<addr> per node. This binds corosync to the dedicated
+# 0.11+ syntax is `<hostname> addr=<addr>` (two positional args per
+# node), NOT the older `<hostname>=<addr>` form (rejected with "Invalid
+# character '=' in node name"). This binds corosync to the dedicated
 # heartbeat network instead of letting it bind to whatever interface
 # resolves <hostname> in /etc/hosts (which would be the mgmt network on
 # many clusters — the documented split-brain root cause).
@@ -17,13 +19,13 @@
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
 
-- name: "Compose <hostname>=<heartbeat_ip> args for pcs cluster setup"
+- name: "Compose '<hostname> addr=<heartbeat_ip>' args for pcs cluster setup"
   ansible.builtin.set_fact:
     _pm_node_args: >-
       {{ vpac_nodes
          | map(attribute='hostname')
          | zip(vpac_nodes | map(attribute='heartbeat_ip'))
-         | map('join', '=')
+         | map('join', ' addr=')
          | join(' ') }}
   run_once: true
 

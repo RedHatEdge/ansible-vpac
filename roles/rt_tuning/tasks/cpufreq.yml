@@ -13,10 +13,20 @@
     name: kernel-tools
     state: present
 
+- name: "Check whether kernel exposes cpufreq for cpu0"
+  ansible.builtin.stat:
+    path: /sys/devices/system/cpu/cpu0/cpufreq
+  register: _rt_cpufreq_present
+
 - name: "Set cpufreq governor live"
+  # Hypervisors typically present static-frequency CPUs with no cpufreq
+  # driver — cpupower then exits 237 ("Trying to set an invalid policy").
+  # Bare-metal RT hosts always have cpufreq; gate on its presence so the
+  # role stays clean in nested-virt labs.
   ansible.builtin.command:
     cmd: "cpupower frequency-set -g {{ rt_tuning.cpu_governor | default('performance') }}"
   changed_when: true
+  when: _rt_cpufreq_present.stat.exists
 
 - name: "Drop systemd oneshot to re-apply governor on boot"
   ansible.builtin.copy:
@@ -48,3 +58,4 @@
     name: vpac-cpufreq.service
     enabled: true
     state: started
+  when: _rt_cpufreq_present.stat.exists

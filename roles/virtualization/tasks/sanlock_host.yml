@@ -9,12 +9,16 @@
 # once Ceph is up. This task just primes the host so the chain can complete
 # without re-running stage-30 work.
 
-- name: "Install sanlock + libvirt-lock-sanlock"
+- name: "Install sanlock + libvirt-daemon-plugin-sanlock"
   ansible.builtin.dnf:
     name:
       - sanlock
-      - libvirt-lock-sanlock
+      - libvirt-daemon-plugin-sanlock
     state: present
+  # libvirt-daemon-plugin-sanlock lives in CodeReady Builder
+  # (codeready-builder-for-rhel-9-x86_64-rpms) on RHEL 9 — that repo must
+  # be enabled either via rhsm_repos or via the local mirror before this
+  # task runs. The pre-EL9 package name was libvirt-lock-sanlock.
 
 - name: "Add qemu user to sanlock group"
   ansible.builtin.user:

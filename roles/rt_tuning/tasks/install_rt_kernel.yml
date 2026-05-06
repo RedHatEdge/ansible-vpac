@@ -15,9 +15,12 @@
   notify: "reboot after kernel cmdline change"
 
 - name: "Find the highest BLS entry index that is the RT kernel"
+  # awk's `exit` after a match closes the pipe, sending SIGPIPE to grubby
+  # which then returns 141 — `set -o pipefail` would treat that as a
+  # failure even though the awk match printed the right value. Drop
+  # pipefail (we only care about awk's stdout) and let awk read to EOF.
   ansible.builtin.shell: |
-    set -o pipefail
-    grubby --info=ALL | awk -F= '/^index=/ {idx=$2} /^kernel=.*\+rt/ {print idx; exit}'
+    grubby --info=ALL | awk -F= '/^index=/ {idx=$2} /^kernel=.*\+rt/ {print idx}' | head -1
   register: _rt_idx
   changed_when: false
 
