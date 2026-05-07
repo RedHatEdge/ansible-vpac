@@ -1,0 +1,111 @@
+---
+# validate/rt_scheduling — runtime scheduler discipline.
+#
+# Catches the cases that wreck RT after a host has been alive for weeks:
+#   - rogue FIFO threads outside the expected pinned set
+#   - housekeeping crept onto isolated CPUs
+#   - SSH session running on an isolated CPU
+#   - irqbalance turned itself back on
+#   - device IRQs drifting onto isolated CPUs
+
+- name: "validate-rt-scheduling"
+  block:
+
+    - name: "Skip on non-RT hosts when allowed"
+      ansible.builtin.meta: end_host
+      when:
+        - validate_cyclictest_skip_on_non_rt | bool
+        - not (validate_host_is_rt | default(false) | bool)
+
+    - name: "Read sched_rt_runtime_us"
+      ansible.builtin.slurp:
+        src: /proc/sys/kernel/sched_rt_runtime_us
+      register: _vrs_rt_runtime
+
+    - name: "Assert sched_rt_runtime_us matches inventory"
+      ansible.builtin.assert:
+        that:
+          - (_vrs_rt_runtime.content | b64decode | trim) ==
+            (rt_tuning.sched_rt_runtime_us | default(-1) | string)
+        fail_msg: >-
+          sched_rt_runtime_us is {{ _vrs_rt_runtime.content | b64decode | trim }},
+          expected {{ rt_tuning.sched_rt_runtime_us | default(-1) }}
+
+    - name: "Probe irqbalance state"
+      ansible.builtin.command: systemctl is-active irqbalance
+      changed_when: false
+      failed_when: false
+      register: _vrs_irq
+
+    - name: "Assert irqbalance is inactive (drives IRQs onto isolated CPUs)"
+      ansible.builtin.assert:
+        that: _vrs_irq.stdout | trim != "active"
+        fail_msg: "irqbalance is active — will rebalance device IRQs onto isolated CPUs"
+
+    - name: "Read system.slice cpuset (housekeeping containment)"
+      ansible.builtin.slurp:
+        src: /sys/fs/cgroup/system.slice/cpuset.cpus.effective
+      failed_when: false
+      register: _vrs_sys_cpuset
+
+    - name: "Assert system.slice cpuset is non-empty and excludes isolated CPUs"
+      ansible.builtin.assert:
+        that:
+          - _vrs_sys_cpuset.content is defined
+          - (_vrs_sys_cpuset.content | b64decode | trim) | length > 0
+          - (_vrs_sys_cpuset.content | b64decode | trim) != rt_tuning.isolated_cpus
+        fail_msg: >-
+          system.slice cpuset is "{{ _vrs_sys_cpuset.content | b64decode | trim
+                                     if _vrs_sys_cpuset.content is defined else '<unreadable>' }}"
+          — housekeeping may be running on isolated CPUs
+
+    - name: "Inventory FIFO threads with priority >= 50"
+      # Format: pri tid policy comm
+      ansible.builtin.shell: |
+        set -o pipefail
+        ps -eLo class,rtprio,pid,tid,comm |
+          awk '$1 == "FF" && $2+0 >= 50 { printf "%s %s %s %s\n", $2,$3,$4,$5 }'
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vrs_fifo
+
+    - name: "Note unexpected FIFO threads (informational — corosync, qemu RT, etc. are expected)"
+      ansible.builtin.set_fact:
+        _vrs_fifo_lines: "{{ _vrs_fifo.stdout_lines | default([]) }}"
+
+    - name: "Probe ksmd state (KSM merging causes jitter on RT)"
+      ansible.builtin.slurp:
+        src: /sys/kernel/mm/ksm/run
+      failed_when: false
+      register: _vrs_ksm
+
+    - name: "Warn if KSM is enabled"
+      ansible.builtin.assert:
+        that:
+          - _vrs_ksm.content is not defined or
+            (_vrs_ksm.content | b64decode | trim) == "0"
+        fail_msg: >-
+          KSM (Kernel Same-page Merging) is enabled
+          (/sys/kernel/mm/ksm/run = {{ _vrs_ksm.content | b64decode | trim }})
+          — known source of RT jitter
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'rt_scheduling', 'status': 'ok',
+               'msg': 'rt_runtime/irqbalance/system.slice/KSM all good; ' ~
+                      (_vrs_fifo_lines | length) ~ ' FIFO≥50 threads'}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'rt_scheduling', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('rt_scheduling drift')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('rt_scheduling drift') }}"
+      when: not (validate_warn_only | bool)

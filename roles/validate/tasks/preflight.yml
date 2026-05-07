@@ -1,0 +1,46 @@
+---
+# validate/preflight — sanity-check that the cluster is reachable and
+# responsive before any deeper assertion runs. Cheap; runs first.
+
+- name: "validate-preflight"
+  block:
+
+    - name: "Confirm passwordless sudo still works"
+      ansible.builtin.command: /usr/bin/id -u
+      become: true
+      changed_when: false
+      register: _vp_sudo
+
+    - name: "Assert sudo elevated to uid 0"
+      ansible.builtin.assert:
+        that: _vp_sudo.stdout == "0"
+        fail_msg: "sudo did not elevate to uid 0 — cluster ops will fail"
+        success_msg: "sudo OK"
+
+    - name: "Confirm RHEL 9.x"
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == "RedHat"
+          - ansible_facts['distribution_major_version'] | int == 9
+        fail_msg: >-
+          validate expects RHEL 9.x, found
+          {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'preflight', 'status': 'ok',
+               'msg': 'reachable, sudo OK, RHEL ' ~ ansible_facts['distribution_version']}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'preflight', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('preflight check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('preflight check failed') }}"
+      when: not (validate_warn_only | bool)

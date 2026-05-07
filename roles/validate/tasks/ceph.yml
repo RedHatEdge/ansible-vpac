@@ -1,0 +1,137 @@
+---
+# validate/ceph — cluster-wide checks. Run only on the bootstrap node
+# (where /etc/ceph/ceph.client.admin.keyring is authoritative); everyone
+# else gets the result via hostvars.
+
+- name: "validate-ceph"
+  when:
+    - inventory_hostname == ceph.bootstrap_node
+  block:
+
+    - name: "ceph -s -f json"
+      ansible.builtin.command: ceph -s -f json
+      become: true
+      changed_when: false
+      register: _vcph_status
+
+    - name: "Parse ceph status"
+      ansible.builtin.set_fact:
+        _vcph_s: "{{ _vcph_status.stdout | from_json }}"
+
+    - name: "ceph health detail (for human-readable check codes)"
+      ansible.builtin.command: ceph health detail
+      become: true
+      changed_when: false
+      register: _vcph_health
+
+    - name: "Extract HEALTH_WARN/ERR codes (e.g. POOL_BACKFILLFULL)"
+      ansible.builtin.set_fact:
+        _vcph_codes: >-
+          {{ _vcph_health.stdout_lines
+             | map('regex_search', '^\\[(WRN|ERR)\\]\\s+([A-Z_0-9]+)')
+             | select('truthy') | list
+             | map('regex_replace', '^\\[(WRN|ERR)\\]\\s+([A-Z_0-9]+).*$', '\\2')
+             | list }}
+
+    - name: "Assert no unallow-listed warning/error codes"
+      ansible.builtin.assert:
+        that:
+          - (_vcph_codes | difference(validate_ceph_warn_allowlist) | length) == 0
+        fail_msg: >-
+          ceph health has codes
+          {{ _vcph_codes | difference(validate_ceph_warn_allowlist) }}
+          not in the allowlist {{ validate_ceph_warn_allowlist }}.
+
+    - name: "Assert overall HEALTH_OK when required"
+      ansible.builtin.assert:
+        that: _vcph_s.health.status == 'HEALTH_OK'
+        fail_msg: "ceph health is {{ _vcph_s.health.status }} — expected HEALTH_OK"
+      when: validate_ceph_require_health_ok | bool
+
+    - name: "Assert quorum size matches mon count"
+      ansible.builtin.assert:
+        that:
+          - (_vcph_s.quorum | length) == (_vcph_s.monmap.mons | length)
+        fail_msg: >-
+          ceph quorum is {{ _vcph_s.quorum | length }}/{{ _vcph_s.monmap.mons | length }}
+
+    - name: "Assert all OSDs up + in"
+      ansible.builtin.assert:
+        that:
+          - _vcph_s.osdmap.num_osds == _vcph_s.osdmap.num_up_osds
+          - _vcph_s.osdmap.num_osds == _vcph_s.osdmap.num_in_osds
+        fail_msg: >-
+          OSDs total/up/in = {{ _vcph_s.osdmap.num_osds }}/
+          {{ _vcph_s.osdmap.num_up_osds }}/{{ _vcph_s.osdmap.num_in_osds }}
+
+    - name: "Assert all PGs active+clean (any non-active+clean state is a finding)"
+      ansible.builtin.assert:
+        that:
+          - (_vcph_s.pgmap.pgs_by_state | length) > 0
+          - (_vcph_s.pgmap.pgs_by_state
+              | selectattr('state_name', 'ne', 'active+clean') | list | length) == 0
+        fail_msg: >-
+          PG states are {{ _vcph_s.pgmap.pgs_by_state | map(attribute='state_name') | list }};
+          want every PG active+clean
+
+    - name: "ceph time-sync-status (clock skew across MONs)"
+      ansible.builtin.command: ceph time-sync-status -f json
+      become: true
+      changed_when: false
+      register: _vcph_time
+
+    - name: "Parse time-sync"
+      ansible.builtin.set_fact:
+        _vcph_t: "{{ _vcph_time.stdout | from_json }}"
+
+    - name: "Assert mon clock skew under threshold"
+      ansible.builtin.assert:
+        that:
+          - (_vcph_t.time_skew_status.values()
+              | map(attribute='skew')
+              | map('float') | list
+              | map('abs') | max) | float < (validate_ceph_clock_skew_max_s | float)
+        fail_msg: >-
+          mon clock skew exceeds {{ validate_ceph_clock_skew_max_s }}s threshold —
+          {{ _vcph_t.time_skew_status }}
+      when:
+        - _vcph_t.time_skew_status is defined
+        - _vcph_t.time_skew_status | length > 0
+
+    - name: "MDS daemons (active per filesystem)"
+      ansible.builtin.command: ceph fs status -f json
+      become: true
+      changed_when: false
+      register: _vcph_fs
+      when: ceph.pools | selectattr('type', 'eq', 'cephfs') | list | length > 0
+
+    - name: "Assert at least one MDS active per CephFS pool"
+      ansible.builtin.assert:
+        that:
+          - (_vcph_fs.stdout | from_json).mdsmap is defined
+          - ((_vcph_fs.stdout | from_json).mdsmap
+              | selectattr('state', 'eq', 'active') | list | length) >= 1
+        fail_msg: "no active MDS — CephFS unmount imminent"
+      when: _vcph_fs.stdout is defined
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'ceph', 'status': 'ok',
+               'msg': 'health=' ~ _vcph_s.health.status ~ ', osds=' ~
+                      _vcph_s.osdmap.num_up_osds ~ '/' ~ _vcph_s.osdmap.num_osds ~
+                      ', mons=' ~ (_vcph_s.quorum | length) ~ '/' ~
+                      (_vcph_s.monmap.mons | length)}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'ceph', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('ceph check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('ceph check failed') }}"
+      when: not (validate_warn_only | bool)

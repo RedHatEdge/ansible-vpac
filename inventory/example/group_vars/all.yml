@@ -676,7 +676,35 @@ cluster_iso_admin_password_hash: ""
 # 14. Validation thresholds
 # --------------------------------------------------------------------
 validate:
+  # Cyclictest
   cyclictest_duration_s: 300
   cyclictest_max_latency_us: 120         # alert if tail > this on RT hosts
-  ptp_max_offset_ns: 1000
+  # Skip cyclictest on hosts NOT running a +rt kernel (lab dev nodes,
+  # nested-KVM-on-AMD where the RT kernel won't boot). The check no-ops
+  # and the summary records "skipped (no +rt kernel)".
+  cyclictest_skip_on_non_rt: true
+
+  # PTP / chrony
+  ptp_max_offset_ns: 1000                # warn threshold (ns)
+  chrony_max_offset_ms: 1                # ms
+
+  # Ceph
   ceph_require_health_ok: true
+  # Allow specific HEALTH_WARN check codes through. Use sparingly —
+  # every entry here is a known-and-accepted divergence from clean state.
+  # Example: ["MDS_CLIENTS_LAGGY", "POOL_BACKFILLFULL"].
+  ceph_warn_allowlist: []
+
+  # Memory / journal
+  mem_available_min_gib: 2
+  journal_max_disk_gb: 4                 # silent killer above this
+
+  # Network
+  storage_nic_min_mbps: 10000            # 0 disables the assertion
+
+  # Summary report — defaults to ~/vpac-validate-reports/ on the
+  # controller (no sudo needed). Set to /var/log + summary_become: true
+  # when running ansible as a user with NOPASSWD sudo on the controller
+  # and central log paths are preferred.
+  summary_dir: "~/vpac-validate-reports"
+  summary_become: false

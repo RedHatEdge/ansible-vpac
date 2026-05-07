@@ -1,0 +1,83 @@
+---
+# validate/memory — hugepages, MemAvailable, swap activity.
+#
+# The dual-source-of-truth hugepage bug (cmdline default_hugepagesz vs
+# sysctl vm.nr_hugepages drifting apart) burns hosts months after deploy
+# when one side gets edited without the other. This is the late-cycle
+# check.
+
+- name: "validate-memory"
+  block:
+
+    - name: "Read /proc/meminfo"
+      ansible.builtin.slurp:
+        src: /proc/meminfo
+      register: _vm_meminfo
+
+    - name: "Parse meminfo into a dict"
+      ansible.builtin.set_fact:
+        _vm_mi: >-
+          {{ dict(
+               (_vm_meminfo.content | b64decode).split('\n')
+               | select('match', '^[A-Za-z(_)]+: ')
+               | map('regex_replace', '^([A-Za-z(_)]+):\\s+([0-9]+).*$', '\\1=\\2')
+               | map('split', '=')
+            ) }}
+
+    - name: "Assert HugePages_Total matches inventory budget"
+      ansible.builtin.assert:
+        that:
+          - (_vm_mi['HugePages_Total'] | int) ==
+            (rt_tuning_nr_hugepages | default(rt_tuning.nr_hugepages_override | default(0)) | int)
+        fail_msg: >-
+          HugePages_Total = {{ _vm_mi['HugePages_Total'] }}, expected
+          {{ rt_tuning_nr_hugepages | default(rt_tuning.nr_hugepages_override | default(0)) }}
+          (hugepage dual-source-of-truth drift?)
+      when:
+        - rt_tuning is defined
+        - (rt_tuning_nr_hugepages | default(rt_tuning.nr_hugepages_override | default(0)) | int) > 0
+
+    - name: "Assert MemAvailable above floor"
+      ansible.builtin.assert:
+        that:
+          - (_vm_mi['MemAvailable'] | int) >=
+            (validate_mem_available_min_gib | int * 1024 * 1024)
+        fail_msg: >-
+          MemAvailable = {{ (_vm_mi['MemAvailable'] | int) // 1024 }} MiB,
+          below {{ validate_mem_available_min_gib }} GiB floor
+
+    - name: "Read swap counters (5s sample)"
+      ansible.builtin.shell: vmstat 1 2 | tail -1 | awk '{print $7" "$8}'
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vm_swap
+
+    - name: "Assert no swap thrashing (si == so == 0)"
+      ansible.builtin.assert:
+        that:
+          - (_vm_swap.stdout.split() | first | int) == 0
+          - (_vm_swap.stdout.split() | last | int) == 0
+        fail_msg: >-
+          vmstat reports swap activity (si/so) = "{{ _vm_swap.stdout }}"
+          — RT determinism gone the moment a relay VM page is paged out
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'memory', 'status': 'ok',
+               'msg': 'HugePages_Total=' ~ _vm_mi['HugePages_Total'] ~
+                      ', MemAvailable=' ~ ((_vm_mi['MemAvailable'] | int) // 1024) ~ 'MiB'}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'memory', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('memory check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('memory check failed') }}"
+      when: not (validate_warn_only | bool)

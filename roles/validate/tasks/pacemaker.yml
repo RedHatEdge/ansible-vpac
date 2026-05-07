@@ -1,0 +1,127 @@
+---
+# validate/pacemaker — runs once on the bootstrap node (first member).
+# Single-node deployments skip the role.
+
+- name: "validate-pacemaker"
+  when:
+    - vpac_nodes | length >= 3
+    - inventory_hostname == ceph.bootstrap_node
+  block:
+
+    - name: "pcs status text"
+      ansible.builtin.command: pcs status
+      become: true
+      changed_when: false
+      register: _vpc_status
+
+    - name: "pcs status xml (parsable form)"
+      ansible.builtin.command: pcs status xml
+      become: true
+      changed_when: false
+      register: _vpc_xml
+
+    - name: "Count Online vs Offline nodes"
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '{{ _vpc_xml.stdout }}' |
+          xmllint --xpath 'count(//nodes/node[@online="true"])' - 2>/dev/null
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vpc_online_count
+
+    - name: "Assert all configured nodes Online"
+      ansible.builtin.assert:
+        that:
+          - (_vpc_online_count.stdout | int) == (vpac_nodes | length)
+        fail_msg: >-
+          Pacemaker reports {{ _vpc_online_count.stdout }}/{{ vpac_nodes | length }}
+          nodes Online. pcs status:
+          {{ _vpc_status.stdout }}
+
+    - name: "Assert no Failed Actions / Failed Resource Actions block"
+      ansible.builtin.assert:
+        that:
+          - "'Failed Resource Actions' not in _vpc_status.stdout"
+          - "'Failed Fencing Actions' not in _vpc_status.stdout"
+        fail_msg: >-
+          pcs status reports failed actions:
+          {{ _vpc_status.stdout }}
+
+    - name: "corosync-quorumtool"
+      ansible.builtin.command: corosync-quorumtool -s
+      become: true
+      changed_when: false
+      register: _vpc_quorum
+
+    - name: "Assert quorum is met"
+      ansible.builtin.assert:
+        that:
+          - "'Quorate:          Yes' in _vpc_quorum.stdout"
+        fail_msg: "corosync reports no quorum: {{ _vpc_quorum.stdout }}"
+
+    - name: "corosync-cfgtool ring health"
+      ansible.builtin.command: corosync-cfgtool -s
+      become: true
+      changed_when: false
+      register: _vpc_rings
+
+    - name: "Assert no faulty rings"
+      ansible.builtin.assert:
+        that:
+          - "'FAULTY' not in _vpc_rings.stdout"
+        fail_msg: "corosync ring fault: {{ _vpc_rings.stdout }}"
+
+    - name: "Read stonith-enabled property"
+      ansible.builtin.command: pcs property config stonith-enabled
+      become: true
+      changed_when: false
+      register: _vpc_stonith_prop
+
+    - name: "Assert stonith-enabled=true"
+      ansible.builtin.assert:
+        that:
+          - "'stonith-enabled: true' in _vpc_stonith_prop.stdout"
+        fail_msg: >-
+          stonith-enabled is not true:
+          {{ _vpc_stonith_prop.stdout | trim }}.
+          STONITH-disabled clusters are ineligible for production.
+      when: validate_pacemaker_require_stonith | bool
+
+    - name: "List location constraints"
+      ansible.builtin.command: pcs constraint location
+      become: true
+      changed_when: false
+      register: _vpc_constraints
+
+    - name: "Assert no leftover cli-prefer / cli-ban move constraints"
+      ansible.builtin.assert:
+        that:
+          - "'cli-prefer-' not in _vpc_constraints.stdout"
+          - "'cli-ban-' not in _vpc_constraints.stdout"
+        fail_msg: >-
+          Found leftover `pcs resource move` constraints (cli-prefer- /
+          cli-ban-). The operator must `pcs resource clear <rsc>` after
+          a manual move; otherwise Pacemaker keeps placing the resource
+          where the constraint says.
+          {{ _vpc_constraints.stdout }}
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'pacemaker', 'status': 'ok',
+               'msg': 'all ' ~ vpac_nodes | length ~ ' nodes online, quorate, ' ~
+                      'stonith-enabled, no failed actions, no leftover move constraints'}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'pacemaker', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('pacemaker check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('pacemaker check failed') }}"
+      when: not (validate_warn_only | bool)

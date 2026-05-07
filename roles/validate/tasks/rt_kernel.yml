@@ -1,0 +1,117 @@
+---
+# validate/rt_kernel — kernel + tuned + cmdline + isolated CPU geometry.
+#
+# The deploy-time rt_tuning role's verify.yml asserts the same things
+# right after install. This file is the late-cycle restatement: that the
+# host is still in the configured RT state long after VMs were started,
+# updates were pulled, and operators logged in. It catches drift, not
+# initial misconfiguration.
+
+- name: "validate-rt-kernel"
+  block:
+
+    - name: "Read uname"
+      ansible.builtin.command: uname -r
+      changed_when: false
+      register: _vrk_uname
+
+    - name: "Detect whether host is on a +rt kernel"
+      ansible.builtin.set_fact:
+        validate_host_is_rt: "{{ _vrk_uname.stdout.endswith('+rt') }}"
+
+    - name: "Skip RT kernel asserts on non-RT hosts when allowed"
+      ansible.builtin.meta: end_host
+      when:
+        - not (validate_host_is_rt | bool)
+        - validate_cyclictest_skip_on_non_rt | bool
+
+    - name: "Assert running kernel ends with +rt"
+      ansible.builtin.assert:
+        that: validate_host_is_rt | bool
+        fail_msg: "Running kernel is {{ _vrk_uname.stdout }} — not +rt"
+
+    - name: "Read active tuned profile"
+      ansible.builtin.command: /usr/sbin/tuned-adm active
+      changed_when: false
+      register: _vrk_tuned
+
+    - name: "Assert tuned profile is realtime-virtual-host"
+      ansible.builtin.assert:
+        that: "'realtime-virtual-host' in _vrk_tuned.stdout"
+        fail_msg: "tuned profile is {{ _vrk_tuned.stdout | trim }}, expected realtime-virtual-host"
+
+    - name: "Read /proc/cmdline"
+      ansible.builtin.slurp:
+        src: /proc/cmdline
+      register: _vrk_cmdline
+
+    - name: "Decode cmdline"
+      ansible.builtin.set_fact:
+        _vrk_cmdline_str: "{{ _vrk_cmdline.content | b64decode }}"
+
+    - name: "Assert RT cmdline tokens present"
+      ansible.builtin.assert:
+        that:
+          - "'isolcpus=' in _vrk_cmdline_str"
+          - "'nohz_full=' in _vrk_cmdline_str"
+          - "'rcu_nocbs=' in _vrk_cmdline_str"
+          - "'idle=poll' in _vrk_cmdline_str"
+          - "'default_hugepagesz=' in _vrk_cmdline_str"
+        fail_msg: "/proc/cmdline missing RT tokens: {{ _vrk_cmdline_str }}"
+
+    - name: "Read kernel-isolated CPUs"
+      ansible.builtin.slurp:
+        src: /sys/devices/system/cpu/isolated
+      register: _vrk_isolated
+
+    - name: "Read nohz_full CPUs"
+      ansible.builtin.slurp:
+        src: /sys/devices/system/cpu/nohz_full
+      register: _vrk_nohz
+
+    - name: "Assert isolated_cpus matches inventory"
+      ansible.builtin.assert:
+        that:
+          - (_vrk_isolated.content | b64decode | trim) == rt_tuning.isolated_cpus
+        fail_msg: >-
+          /sys/devices/system/cpu/isolated reads
+          "{{ _vrk_isolated.content | b64decode | trim }}", expected
+          "{{ rt_tuning.isolated_cpus }}"
+
+    - name: "Assert nohz_full matches isolated_cpus"
+      ansible.builtin.assert:
+        that:
+          - (_vrk_nohz.content | b64decode | trim) == rt_tuning.isolated_cpus
+        fail_msg: >-
+          /sys/devices/system/cpu/nohz_full reads
+          "{{ _vrk_nohz.content | b64decode | trim }}", expected
+          "{{ rt_tuning.isolated_cpus }}"
+
+    - name: "Assert NMI watchdog disabled"
+      ansible.builtin.slurp:
+        src: /proc/sys/kernel/nmi_watchdog
+      register: _vrk_nmi
+
+    - name: "Verify nmi_watchdog == 0"
+      ansible.builtin.assert:
+        that: (_vrk_nmi.content | b64decode | trim) == "0"
+        fail_msg: "nmi_watchdog is enabled — RT determinism degraded"
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'rt_kernel', 'status': 'ok',
+               'msg': 'kernel ' ~ _vrk_uname.stdout ~ ', isolated=' ~ rt_tuning.isolated_cpus}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'rt_kernel', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('rt_kernel drift')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('rt_kernel drift') }}"
+      when: not (validate_warn_only | bool)

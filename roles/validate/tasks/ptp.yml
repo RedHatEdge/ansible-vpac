@@ -1,0 +1,160 @@
+---
+# validate/ptp — runs on every cluster node. Behavior splits on whether
+# the host has a dedicated PTP NIC (timemaster + ptp4l) or is an
+# NTP-follower (system chronyd against PTP-having peers).
+
+- name: "validate-ptp"
+  vars:
+    _vpt_role: "{{ ptp_timesync_role | default('ntp_follower') }}"
+  block:
+
+    - name: "Skip when PTP is not in the time-sync mix"
+      ansible.builtin.meta: end_host
+      when: time_sync.mode | default('ntp') == 'ntp'
+
+    - name: "Probe timemaster service (PTP role)"
+      ansible.builtin.command: systemctl is-active timemaster
+      changed_when: false
+      register: _vpt_tm
+      when: _vpt_role == 'ptp'
+
+    - name: "Assert timemaster active on PTP role"
+      ansible.builtin.assert:
+        that: _vpt_tm.stdout | trim == 'active'
+        fail_msg: "timemaster is not active on PTP host"
+      when: _vpt_role == 'ptp'
+
+    - name: "Probe chronyd state (NTP-follower role)"
+      ansible.builtin.command: systemctl is-active chronyd
+      changed_when: false
+      register: _vpt_chronyd
+      when: _vpt_role != 'ptp'
+
+    - name: "Assert chronyd active on NTP-follower role"
+      ansible.builtin.assert:
+        that: _vpt_chronyd.stdout | trim == 'active'
+        fail_msg: "chronyd is not active on NTP-follower host"
+      when: _vpt_role != 'ptp'
+
+    - name: "Read ptp4l socket path (PTP role)"
+      ansible.builtin.shell: |
+        ls /var/run/timemaster/ptp4l.*.socket 2>/dev/null | head -1
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vpt_socket
+      when: _vpt_role == 'ptp'
+
+    - name: "Query CURRENT_DATA_SET via pmc (PTP role)"
+      ansible.builtin.command: >-
+        pmc -u -b 0 -s {{ _vpt_socket.stdout | trim }}
+            "GET CURRENT_DATA_SET"
+      become: true
+      changed_when: false
+      register: _vpt_pmc
+      when:
+        - _vpt_role == 'ptp'
+        - _vpt_socket.stdout | trim | length > 0
+
+    - name: "Extract offsetFromMaster (ns)"
+      ansible.builtin.set_fact:
+        _vpt_offset_ns: >-
+          {{ (_vpt_pmc.stdout_lines | default([])
+              | select('match', '.*offsetFromMaster.*')
+              | list | first | default('offsetFromMaster 0'))
+              | regex_findall('-?[0-9]+') | last | int }}
+      when: _vpt_pmc is defined and _vpt_pmc.stdout is defined
+
+    - name: "Assert PTP offset under hard ceiling (1ms = UNCALIBRATED)"
+      ansible.builtin.assert:
+        that:
+          - (_vpt_offset_ns | default(0) | int | abs) < (validate_ptp_hard_fail_offset_ns | int)
+        fail_msg: >-
+          PTP offsetFromMaster = {{ _vpt_offset_ns }}ns,
+          exceeds hard ceiling {{ validate_ptp_hard_fail_offset_ns }}ns
+          (ptp4l flips PORT_DATA_SET to UNCALIBRATED above this)
+      when: _vpt_offset_ns is defined
+
+    - name: "Warn if PTP offset above soft threshold"
+      ansible.builtin.assert:
+        that:
+          - (_vpt_offset_ns | default(0) | int | abs) < (validate_ptp_max_offset_ns | int)
+        fail_msg: >-
+          PTP offsetFromMaster = {{ _vpt_offset_ns }}ns above soft
+          threshold {{ validate_ptp_max_offset_ns }}ns (still under
+          hard ceiling, but worth investigating)
+      when:
+        - _vpt_offset_ns is defined
+        - not (validate_warn_only | bool)
+      ignore_errors: "{{ validate_warn_only | bool }}"
+
+    - name: "chronyc tracking"
+      ansible.builtin.command: chronyc tracking
+      changed_when: false
+      register: _vpt_tracking
+
+    - name: "Extract chrony Last offset (sec)"
+      ansible.builtin.set_fact:
+        _vpt_chrony_offset_s: >-
+          {{ ((_vpt_tracking.stdout_lines
+                | select('match', '^Last offset.*')
+                | list | first | default('Last offset : 0'))
+              | regex_findall('-?[0-9.]+e?-?[0-9]*') | first | float) }}
+
+    - name: "Extract chrony Leap status"
+      ansible.builtin.set_fact:
+        _vpt_chrony_leap: >-
+          {{ (_vpt_tracking.stdout_lines
+                | select('match', '^Leap status.*')
+                | list | first | default('Leap status : Unknown'))
+              | regex_replace('^.*: ', '') | trim }}
+
+    - name: "Assert chrony Leap status Normal"
+      ansible.builtin.assert:
+        that:
+          - _vpt_chrony_leap == "Normal"
+        fail_msg: "chrony Leap status is {{ _vpt_chrony_leap }}, expected Normal"
+
+    - name: "Assert chrony offset under threshold"
+      ansible.builtin.assert:
+        that:
+          - (_vpt_chrony_offset_s | abs * 1000) < (validate_chrony_max_offset_ms | float)
+        fail_msg: >-
+          chrony Last offset {{ _vpt_chrony_offset_s }} s
+          exceeds {{ validate_chrony_max_offset_ms }} ms threshold
+
+    - name: "chronyc sources -v"
+      ansible.builtin.command: chronyc sources
+      changed_when: false
+      register: _vpt_sources
+
+    - name: "Assert at least one selected source (^*)"
+      ansible.builtin.assert:
+        that:
+          - "'^*' in _vpt_sources.stdout"
+        fail_msg: >-
+          chrony has no selected source (no ^* line) — every peer
+          is either Unreachable, falseticker, or rejected.
+          {{ _vpt_sources.stdout }}
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'ptp', 'status': 'ok',
+               'msg': 'role=' ~ _vpt_role ~
+                      ', ptp_offset=' ~ (_vpt_offset_ns | default('n/a')) ~ 'ns' ~
+                      ', chrony_offset=' ~ _vpt_chrony_offset_s ~ 's' ~
+                      ', leap=' ~ _vpt_chrony_leap}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'ptp', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('ptp check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('ptp check failed') }}"
+      when: not (validate_warn_only | bool)

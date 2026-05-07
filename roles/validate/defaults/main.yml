@@ -1,0 +1,93 @@
+---
+# Stage 90 — validate role defaults.
+#
+# Every threshold has a fallback here so the role is usable on a stock
+# inventory. Operators tune via the `validate.*` block in inventory
+# group_vars/all.yml (section 14 of the example contract).
+#
+# Each check is independently tag-addressable AND gated by a
+# `validate_check_*` toggle, so an operator can re-run a single check
+# post-incident without re-walking the rest of the role.
+#
+# The role is read-only by design. STONITH dry-run is a separate
+# explicit operator step (op-stonith-fence-test.yml) and lives outside
+# this role on purpose.
+
+# ----- Per-check toggles (set false to skip a single check) ----------
+validate_check_preflight: true
+validate_check_rt_kernel: true
+validate_check_rt_scheduling: true
+validate_check_cyclictest: true
+validate_check_memory: true
+validate_check_ceph: true
+validate_check_network: true
+validate_check_pacemaker: true
+validate_check_ptp: true
+validate_check_vms: true
+validate_check_dmesg_journal: true
+validate_emit_summary: true
+
+# ----- Soft-fail toggle ----------------------------------------------
+# When true, individual asserts log warnings instead of failing the run.
+# Lets the summary aggregate every finding across the cluster in one
+# pass. Default false matches the rest of the project (preflight, rt
+# verify) — fail loudly on real hardware.
+validate_warn_only: false
+
+# ----- Cyclictest -----------------------------------------------------
+validate_cyclictest_duration_s: "{{ validate.cyclictest_duration_s | default(60) }}"
+validate_cyclictest_max_latency_us: "{{ validate.cyclictest_max_latency_us | default(200) }}"
+validate_cyclictest_priority: "{{ validate.cyclictest_priority | default(95) }}"
+validate_cyclictest_interval_us: "{{ validate.cyclictest_interval_us | default(200) }}"
+
+# Skip cyclictest on hosts NOT running a +rt kernel (lab dev nodes,
+# nested-KVM-on-AMD where the RT kernel won't boot). The check no-ops
+# and the summary records "skipped (no +rt kernel)" instead of failing.
+validate_cyclictest_skip_on_non_rt: "{{ validate.cyclictest_skip_on_non_rt | default(true) }}"
+
+# ----- PTP / chrony ---------------------------------------------------
+validate_ptp_max_offset_ns: "{{ validate.ptp_max_offset_ns | default(1000) }}"
+# 1 ms = the documented threshold above which ptp4l flips PORT_DATA_SET
+# state to UNCALIBRATED. Hard ceiling regardless of soft warn threshold.
+validate_ptp_hard_fail_offset_ns: "{{ validate.ptp_hard_fail_offset_ns | default(1000000) }}"
+validate_ptp_require_hw_timestamping: "{{ validate.ptp_require_hw_timestamping | default(true) }}"
+validate_chrony_max_offset_ms: "{{ validate.chrony_max_offset_ms | default(1) }}"
+validate_chrony_require_full_reach: "{{ validate.chrony_require_full_reach | default(true) }}"
+
+# ----- Ceph -----------------------------------------------------------
+validate_ceph_require_health_ok: "{{ validate.ceph_require_health_ok | default(true) }}"
+# Allow specific HEALTH_WARN check codes to pass. Use sparingly — every
+# entry here is a known-and-accepted divergence from clean state.
+# Example: ["MDS_CLIENTS_LAGGY", "POOL_BACKFILLFULL"].
+validate_ceph_warn_allowlist: "{{ validate.ceph_warn_allowlist | default([]) }}"
+validate_ceph_clock_skew_max_s: "{{ validate.ceph_clock_skew_max_s | default(0.05) }}"
+
+# ----- Memory ---------------------------------------------------------
+validate_mem_available_min_gib: "{{ validate.mem_available_min_gib | default(2) }}"
+
+# ----- Storage I/O performance ---------------------------------------
+validate_iostat_util_max_pct: "{{ validate.iostat_util_max_pct | default(90) }}"
+validate_iostat_await_max_ms: "{{ validate.iostat_await_max_ms | default(50) }}"
+
+# ----- Journal --------------------------------------------------------
+# A runaway journal eats RT determinism (documented field RCU-stall
+# recovery). 4 GiB is the soft cap above which we warn the operator.
+validate_journal_max_disk_gb: "{{ validate.journal_max_disk_gb | default(4) }}"
+
+# ----- Network --------------------------------------------------------
+# Storage NIC reported speed floor (Mbps). 10G is the published baseline
+# for the Ceph storage fabric. 0 disables the assertion.
+validate_storage_nic_min_mbps: "{{ validate.storage_nic_min_mbps | default(10000) }}"
+
+# ----- Pacemaker ------------------------------------------------------
+validate_pacemaker_require_stonith: "{{ validate.pacemaker_require_stonith | default(true) }}"
+
+# ----- Summary report -------------------------------------------------
+# Single report aggregated on the control node. Default lands under the
+# operator's home so the role works without NOPASSWD-sudo on the
+# controller. Override `validate.summary_dir` to /var/log (with
+# `validate.summary_become: true`) on a controller where central log
+# paths are wanted and root is available.
+validate_summary_dir: >-
+  {{ validate.summary_dir | default(lookup('env', 'HOME') ~ '/vpac-validate-reports') }}
+validate_summary_become: "{{ validate.summary_become | default(false) }}"

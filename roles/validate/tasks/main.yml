@@ -1,8 +1,87 @@
 ---
-# Not yet implemented. See roles/validate/README.md for planned behavior.
+# Stage 90 — validate.
+#
+# Read-only end-to-end cluster checks. Runs after every other stage and
+# is also re-runnable post-incident.
+#
+# Each check is independently tag-addressable:
+#   --tags validate-preflight       cluster reachability + sudo + RHEL
+#   --tags validate-rt              kernel + tuned + cmdline + scheduling
+#   --tags validate-cyclictest      RT latency
+#   --tags validate-memory          hugepages + MemAvailable + swap
+#   --tags validate-ceph            ceph health, OSDs, PGs, MDS, clock skew
+#   --tags validate-network         routes + storage NIC + bridges
+#   --tags validate-cluster         pacemaker + corosync + STONITH
+#   --tags validate-ptp             timemaster/chrony, offset, leap
+#   --tags validate-vms             placement, RT XML, RBD discipline
+#   --tags validate-system          dmesg, journal disk usage, SELinux
+#   --tags validate-summary         aggregate report on the control node
+#
+# Set `validate_warn_only: true` to convert hard fails into warnings —
+# every check still records its finding to the summary, useful when you
+# want one pass to surface every issue across the cluster.
 
-- name: "validate: stub notice"
-  ansible.builtin.debug:
-    msg: >-
-      Role 'validate' is a stub — not implemented yet.
-      See roles/validate/README.md for planned behavior.
+- name: "Reset findings list on each run"
+  ansible.builtin.set_fact:
+    validate_findings: []
+  tags: [always]
+
+- name: "Cluster reachability + sudo + RHEL"
+  ansible.builtin.import_tasks: preflight.yml
+  when: validate_check_preflight | bool
+  tags: [validate, validate-preflight]
+
+- name: "RT kernel + tuned + cmdline + isolated CPU geometry"
+  ansible.builtin.import_tasks: rt_kernel.yml
+  when: validate_check_rt_kernel | bool
+  tags: [validate, validate-rt, validate-rt-kernel]
+
+- name: "RT scheduling + IRQ + system.slice cpuset"
+  ansible.builtin.import_tasks: rt_scheduling.yml
+  when: validate_check_rt_scheduling | bool
+  tags: [validate, validate-rt, validate-rt-scheduling]
+
+- name: "Cyclictest latency"
+  ansible.builtin.import_tasks: cyclictest.yml
+  when: validate_check_cyclictest | bool
+  tags: [validate, validate-cyclictest]
+
+- name: "Memory: hugepages + MemAvailable + swap"
+  ansible.builtin.import_tasks: memory.yml
+  when: validate_check_memory | bool
+  tags: [validate, validate-memory]
+
+- name: "Ceph health + OSDs + PGs + MDS + clock skew"
+  ansible.builtin.import_tasks: ceph.yml
+  when: validate_check_ceph | bool
+  tags: [validate, validate-ceph]
+
+- name: "Network: routes + storage NIC speed + bridges"
+  ansible.builtin.import_tasks: network.yml
+  when: validate_check_network | bool
+  tags: [validate, validate-network]
+
+- name: "Pacemaker + corosync + STONITH property"
+  ansible.builtin.import_tasks: pacemaker.yml
+  when: validate_check_pacemaker | bool
+  tags: [validate, validate-cluster]
+
+- name: "PTP / chrony offset + leap status"
+  ansible.builtin.import_tasks: ptp.yml
+  when: validate_check_ptp | bool
+  tags: [validate, validate-ptp]
+
+- name: "VM placement + RT XML invariants + RBD discipline"
+  ansible.builtin.import_tasks: vms.yml
+  when: validate_check_vms | bool
+  tags: [validate, validate-vms]
+
+- name: "dmesg + journal disk usage + SELinux mode"
+  ansible.builtin.import_tasks: dmesg_journal.yml
+  when: validate_check_dmesg_journal | bool
+  tags: [validate, validate-system]
+
+- name: "Aggregate findings into a control-node summary report"
+  ansible.builtin.import_tasks: summary.yml
+  when: validate_emit_summary | bool
+  tags: [validate, validate-summary]

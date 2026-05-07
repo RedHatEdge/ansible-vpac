@@ -1,0 +1,71 @@
+---
+# validate/summary — aggregate every host's findings on the control
+# node into a single timestamped report under validate.summary_dir.
+# Default /var/log/vpac-validate-<ts>.txt with become; flip
+# validate.summary_become to false (or set summary_dir to a writable
+# path like ~/vpac-validate) when running ansible without sudo on
+# the controller.
+
+- name: "Compute summary timestamp once on the control node"
+  ansible.builtin.set_fact:
+    _vs_ts: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: "Build report body"
+  ansible.builtin.set_fact:
+    _vs_body: |
+      vPAC validate report — {{ _vs_ts }} UTC
+      site: {{ site_name | default('?') }}
+      cluster: {{ groups['vpac_cluster'] | default([]) | join(', ') }}
+
+      {% for host in groups['vpac_cluster'] | default([]) %}
+      ─── {{ host }} ─────────────────────────────────
+      {% set findings = (hostvars[host].validate_findings | default([])) %}
+      {% if findings | length == 0 %}
+      (no findings recorded — host may not have been reached)
+      {% else %}
+      {% for f in findings %}
+      [{{ f.status | upper }}] {{ f.check.ljust(20) }} {{ f.msg }}
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
+
+      ─── Summary ─────────────────────────────────────
+      {% set total_ok = namespace(count=0) %}
+      {% set total_fail = namespace(count=0) %}
+      {% for host in groups['vpac_cluster'] | default([]) %}
+      {% for f in (hostvars[host].validate_findings | default([])) %}
+      {% if f.status == 'ok' %}{% set total_ok.count = total_ok.count + 1 %}{% endif %}
+      {% if f.status == 'fail' %}{% set total_fail.count = total_fail.count + 1 %}{% endif %}
+      {% endfor %}
+      {% endfor %}
+      OK:   {{ total_ok.count }}
+      FAIL: {{ total_fail.count }}
+  delegate_to: localhost
+  run_once: true
+
+- name: "Ensure summary directory exists"
+  ansible.builtin.file:
+    path: "{{ validate_summary_dir }}"
+    state: directory
+    mode: "0755"
+  become: "{{ validate_summary_become | bool }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: "Write summary report"
+  ansible.builtin.copy:
+    dest: "{{ validate_summary_dir }}/vpac-validate-{{ _vs_ts }}.txt"
+    content: "{{ _vs_body }}"
+    mode: "0644"
+  become: "{{ validate_summary_become | bool }}"
+  delegate_to: localhost
+  run_once: true
+  register: _vs_written
+
+- name: "Tell the operator where the report landed"
+  ansible.builtin.debug:
+    msg: "validate summary written to {{ _vs_written.dest }}"
+  delegate_to: localhost
+  run_once: true

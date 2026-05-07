@@ -1,0 +1,66 @@
+---
+# validate/cyclictest — measure scheduling latency on the RT housekeeping
+# CPUs. Skipped on non-RT hosts (lab dev nodes); on RT hosts the max
+# latency must stay under validate.cyclictest_max_latency_us.
+
+- name: "validate-cyclictest"
+  block:
+
+    - name: "Skip cyclictest on non-RT hosts when allowed"
+      ansible.builtin.meta: end_host
+      when:
+        - validate_cyclictest_skip_on_non_rt | bool
+        - not (validate_host_is_rt | default(false) | bool)
+
+    - name: "Confirm cyclictest binary present"
+      ansible.builtin.command: which cyclictest
+      changed_when: false
+      register: _vc_which
+
+    - name: "Run cyclictest"
+      ansible.builtin.command: >-
+        cyclictest -m -p {{ validate_cyclictest_priority }}
+                   -t1 -n -i {{ validate_cyclictest_interval_us }}
+                   -D {{ validate_cyclictest_duration_s }}s -q
+      become: true
+      changed_when: false
+      register: _vc_run
+
+    - name: "Extract Max latency (last column on the T:0 line)"
+      ansible.builtin.set_fact:
+        _vc_max_us: >-
+          {{ (_vc_run.stdout_lines
+              | select('match', '^T: *0 ')
+              | list | first
+              | regex_findall('([0-9]+)')
+              | last) | int }}
+
+    - name: "Assert max latency under threshold"
+      ansible.builtin.assert:
+        that: _vc_max_us | int < validate_cyclictest_max_latency_us | int
+        fail_msg: >-
+          cyclictest Max = {{ _vc_max_us }}us, exceeds threshold
+          {{ validate_cyclictest_max_latency_us }}us over
+          {{ validate_cyclictest_duration_s }}s
+        success_msg: >-
+          cyclictest Max = {{ _vc_max_us }}us (< {{ validate_cyclictest_max_latency_us }}us)
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'cyclictest', 'status': 'ok',
+               'msg': 'max=' ~ _vc_max_us ~ 'us over ' ~
+                       validate_cyclictest_duration_s ~ 's'}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'cyclictest', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('cyclictest failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('cyclictest failed') }}"
+      when: not (validate_warn_only | bool)

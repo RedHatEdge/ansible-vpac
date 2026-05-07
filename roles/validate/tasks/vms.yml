@@ -1,0 +1,210 @@
+---
+# validate/vms — per-host VM placement, pinning, RT XML invariants.
+#
+# Catches the iothread+SATA/IDE/USB libvirt rejection (the
+# documented 5/6 finding): iothread is supported only on virtio-blk
+# and virtio-scsi. Anything else makes libvirt refuse to start the VM
+# and the operator only sees the failure on next migration / reboot.
+
+- name: "validate-vms"
+  block:
+
+    - name: "List running domains on this host"
+      ansible.builtin.command: virsh list --name --state-running
+      become: true
+      changed_when: false
+      register: _vv_running
+
+    - name: "Compute the VMs vm_catalog says belong on this host"
+      ansible.builtin.set_fact:
+        _vv_expected: >-
+          {{ vm_catalog | default([])
+             | selectattr('target_host', 'defined')
+             | selectattr('target_host', 'eq', inventory_hostname)
+             | map(attribute='name') | list }}
+
+    - name: "Filter actually-running list to non-empty entries"
+      ansible.builtin.set_fact:
+        _vv_running_names: "{{ _vv_running.stdout_lines | reject('equalto', '') | list }}"
+
+    - name: "Assert every catalog VM with target_host == this host is running"
+      # Only assert in the non-clustered v1 case where target_host is the
+      # source of truth. Pacemaker-managed mode is handled by the
+      # pacemaker check above (resource state via pcs status).
+      ansible.builtin.assert:
+        that:
+          - (_vv_expected | difference(_vv_running_names) | length) == 0
+        fail_msg: >-
+          VMs not running on {{ inventory_hostname }}:
+          {{ _vv_expected | difference(_vv_running_names) }}
+          (catalog target_host == this host)
+      when:
+        - vm_catalog is defined
+        - _vv_expected | length > 0
+
+    - name: "Iothread/disk-bus invariant per running VM"
+      ansible.builtin.shell: |
+        set -o pipefail
+        for vm in {{ _vv_running_names | join(' ') }}; do
+          virsh dumpxml "$vm" | python3 -c "
+        import sys, xml.etree.ElementTree as ET
+        x = ET.fromstring(sys.stdin.read())
+        bad = []
+        for d in x.iter('disk'):
+            drv = d.find('driver')
+            tgt = d.find('target')
+            if drv is None or tgt is None:
+                continue
+            if drv.get('iothread') and tgt.get('bus') not in ('virtio', 'scsi'):
+                bad.append(tgt.get('dev', '?') + ':bus=' + tgt.get('bus', '?'))
+        if bad:
+            print('$vm IOTHREAD_BUS_REJECT ' + ','.join(bad))
+        "
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vv_iothread
+      when: _vv_running_names | length > 0
+
+    - name: "Assert no iothread+non-virtio disks (libvirt rejects on next start)"
+      ansible.builtin.assert:
+        that:
+          - (_vv_iothread.stdout_lines | default([])
+              | select('match', '.*IOTHREAD_BUS_REJECT.*') | list | length) == 0
+        fail_msg: >-
+          Found iothread on a non-virtio disk — libvirt will reject the
+          VM on next start.
+          {{ _vv_iothread.stdout_lines | default([]) }}
+      when: _vv_running_names | length > 0
+
+    - name: "RT XML invariant per running VM (pmu, hugepages, locked, watchdog)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        for vm in {{ _vv_running_names | join(' ') }}; do
+          virsh dumpxml "$vm" | python3 -c "
+        import sys, xml.etree.ElementTree as ET
+        x = ET.fromstring(sys.stdin.read())
+        bad = []
+        # pmu off — required for RT determinism (PMU virtualization
+        # produces sub-microsecond jitter)
+        cpu = x.find('cpu')
+        pmu_off = False
+        if cpu is not None:
+            for f in cpu.iter('feature'):
+                if f.get('name') == 'pmu' and f.get('policy') in ('disable',):
+                    pmu_off = True
+        # also accept <pmu state='off'/> directly
+        for p in x.iter('pmu'):
+            if p.get('state') == 'off':
+                pmu_off = True
+        if not pmu_off:
+            bad.append('pmu_not_off')
+        # vcpusched fifo
+        if x.find('cputune/vcpusched[@scheduler=\"fifo\"]') is None:
+            bad.append('vcpusched_fifo_missing')
+        # hugepages backing
+        if x.find('memoryBacking/hugepages') is None:
+            bad.append('hugepages_missing')
+        # locked + nosharepages
+        if x.find('memoryBacking/locked') is None:
+            bad.append('locked_missing')
+        if x.find('memoryBacking/nosharepages') is None:
+            bad.append('nosharepages_missing')
+        # watchdog must not be itco/diag288 driving the VM (neutered or absent)
+        for w in x.iter('watchdog'):
+            model = w.get('model', '')
+            action = w.get('action', '')
+            if model in ('itco', 'i6300esb') and action != 'none':
+                bad.append('watchdog_active:' + model)
+        if bad:
+            print('$vm RT_XML_DRIFT ' + ','.join(bad))
+        "
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vv_rtxml
+      when: _vv_running_names | length > 0
+
+    - name: "Filter RT XML drift to RT-tagged VMs only"
+      ansible.builtin.set_fact:
+        _vv_rt_vm_names: >-
+          {{ vm_catalog | default([])
+             | selectattr('rt_priority', 'defined')
+             | map(attribute='name') | list }}
+
+    - name: "Assert RT XML invariant on RT VMs"
+      ansible.builtin.assert:
+        that:
+          - (_vv_rtxml.stdout_lines | default([])
+              | select('match', '^(' ~ (_vv_rt_vm_names | join('|')) ~ ') RT_XML_DRIFT')
+              | list | length) == 0
+        fail_msg: >-
+          RT XML drift on RT VMs:
+          {{ _vv_rtxml.stdout_lines | default([])
+             | select('match', '^(' ~ (_vv_rt_vm_names | join('|')) ~ ') RT_XML_DRIFT')
+             | list }}
+      when:
+        - _vv_running_names | length > 0
+        - _vv_rt_vm_names | length > 0
+
+    - name: "RBD disks must use the storage-network mon IPs (not mgmt)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        for vm in {{ _vv_running_names | join(' ') }}; do
+          virsh dumpxml "$vm" | python3 -c "
+        import sys, xml.etree.ElementTree as ET
+        x = ET.fromstring(sys.stdin.read())
+        bad = []
+        for d in x.iter('disk'):
+            src = d.find('source')
+            if src is None or src.get('protocol') != 'rbd':
+                continue
+            # cache must be 'none' on RBD per RH guidance
+            drv = d.find('driver')
+            if drv is None or drv.get('cache') != 'none':
+                bad.append('rbd_cache_not_none')
+            # auth username must be 'admin' or whatever ceph.libvirt_cephx_user resolves to
+            auth = d.find('auth')
+            if auth is None:
+                bad.append('rbd_auth_missing')
+        if bad:
+            print('$vm RBD_DRIFT ' + ','.join(bad))
+        "
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vv_rbd
+      when: _vv_running_names | length > 0
+
+    - name: "Assert RBD disk discipline (cache=none, auth present)"
+      ansible.builtin.assert:
+        that:
+          - (_vv_rbd.stdout_lines | default([])
+              | select('match', '.*RBD_DRIFT.*') | list | length) == 0
+        fail_msg: >-
+          RBD disk drift detected:
+          {{ _vv_rbd.stdout_lines | default([]) }}
+      when: _vv_running_names | length > 0
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'vms', 'status': 'ok',
+               'msg': (_vv_running_names | length) ~ ' running, ' ~
+                      (_vv_expected | length) ~ ' expected by catalog'}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'vms', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('vms check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('vms check failed') }}"
+      when: not (validate_warn_only | bool)

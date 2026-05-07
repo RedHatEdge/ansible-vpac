@@ -1,0 +1,102 @@
+---
+# validate/network — late-cycle restatement of the networking invariants
+# preflight checks at deploy time. Storage NIC speed assertion catches
+# the documented "storage NIC accidentally enslaved into a bridge"
+# regression — Ceph keeps working at 1G but the cluster falls off the
+# 10G performance envelope without a clear error.
+
+- name: "validate-network"
+  block:
+
+    - name: "Read default ipv4 route table"
+      ansible.builtin.command: ip -4 route show
+      changed_when: false
+      register: _vn_routes
+
+    - name: "Assert no linkdown routes (NetworkManager leftover)"
+      ansible.builtin.assert:
+        that:
+          - "'linkdown' not in _vn_routes.stdout"
+        fail_msg: >-
+          Found `linkdown` routes — a NIC went down and NM left the
+          stale route. Cluster traffic on that path will silently fail.
+          {{ _vn_routes.stdout }}
+
+    - name: "Resolve storage interface for this host"
+      ansible.builtin.set_fact:
+        _vn_storage_if: "{{ networking_defaults.storage_bond.name | default('') }}"
+      when:
+        - networking_defaults is defined
+        - networking_defaults.storage_bond is defined
+
+    - name: "Read storage interface link state"
+      ansible.builtin.command: "ip -j link show dev {{ _vn_storage_if }}"
+      changed_when: false
+      register: _vn_storage_link
+      when: _vn_storage_if | length > 0
+
+    - name: "Assert storage interface is UP and not bridge-enslaved"
+      ansible.builtin.assert:
+        that:
+          - (_vn_storage_link.stdout | from_json | first).operstate in ['UP', 'UNKNOWN']
+          - (_vn_storage_link.stdout | from_json | first).master is not defined or
+            not ((_vn_storage_link.stdout | from_json | first).master | default('')).startswith('br-')
+        fail_msg: >-
+          storage interface {{ _vn_storage_if }} is in unexpected state:
+          operstate={{ (_vn_storage_link.stdout | from_json | first).operstate }},
+          master={{ (_vn_storage_link.stdout | from_json | first).master | default('none') }}
+          — bridges enslaving the storage NIC degrade Ceph performance
+      when: _vn_storage_link is not skipped and _vn_storage_link.stdout is defined
+
+    - name: "Read storage NIC speed"
+      ansible.builtin.shell: |
+        for slave in $(ls /sys/class/net/{{ _vn_storage_if }}/slaves 2>/dev/null); do
+          cat /sys/class/net/${slave}/speed 2>/dev/null || echo 0
+        done | sort -n | tail -1
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: _vn_storage_speed
+      when:
+        - _vn_storage_if | length > 0
+        - validate_storage_nic_min_mbps | int > 0
+
+    - name: "Assert storage NIC speed at or above floor"
+      ansible.builtin.assert:
+        that:
+          - (_vn_storage_speed.stdout | trim | int) >= (validate_storage_nic_min_mbps | int)
+        fail_msg: >-
+          storage NIC reports {{ _vn_storage_speed.stdout | trim }} Mbps,
+          below {{ validate_storage_nic_min_mbps }} Mbps floor —
+          common cause: a slave came up at 1G when the partner should be 10G
+      when:
+        - _vn_storage_speed is not skipped
+        - _vn_storage_speed.stdout is defined
+        - (_vn_storage_speed.stdout | trim | int) > 0
+
+    - name: "Assert configured bridges exist"
+      ansible.builtin.command: "ip -br link show {{ item }}"
+      loop:
+        - "{{ bridges.mgmt | default('br-mgmt') }}"
+        - "{{ bridges.station | default('station-nic') }}"
+      changed_when: false
+      when: bridges is defined
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'network', 'status': 'ok',
+               'msg': 'no linkdown routes, storage iface OK, bridges present'}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'network', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('network check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('network check failed') }}"
+      when: not (validate_warn_only | bool)

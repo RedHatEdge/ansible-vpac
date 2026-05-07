@@ -1,0 +1,91 @@
+---
+# validate/dmesg_journal — recent kernel ring + journal disk usage.
+# A runaway journal is a documented silent killer (RCU stall after
+# /var/log/journal fills its 4 GiB SystemMaxUse).
+
+- name: "validate-dmesg-journal"
+  block:
+
+    - name: "Read last 1000 dmesg lines"
+      ansible.builtin.command: dmesg --notime --time-format ctime
+      become: true
+      changed_when: false
+      register: _vd_dmesg
+
+    - name: "Detect serious kernel events"
+      ansible.builtin.set_fact:
+        _vd_problems: >-
+          {{ _vd_dmesg.stdout_lines
+             | select('search', '(rcu: INFO|hung_task|Out of memory|sd .* timing out|Buffer I/O error|EXT4-fs error)')
+             | list }}
+
+    - name: "Assert no RCU stalls / hung tasks / OOM / I/O errors"
+      ansible.builtin.assert:
+        that:
+          - (_vd_problems | length) == 0
+        fail_msg: >-
+          dmesg shows {{ _vd_problems | length }} kernel-level problems:
+          {{ _vd_problems[:5] }}{{ ' ...' if (_vd_problems | length) > 5 else '' }}
+
+    - name: "journalctl --disk-usage"
+      ansible.builtin.command: journalctl --disk-usage
+      become: true
+      changed_when: false
+      register: _vd_jdu
+
+    - name: "Compute journal MiB from `journalctl --disk-usage` output"
+      ansible.builtin.set_fact:
+        _vd_journal_mib: >-
+          {%- set m = (_vd_jdu.stdout | regex_findall('([0-9.]+)([KMGT])') | first) | default(['0', 'M']) -%}
+          {%- set v = m[0] | float -%}
+          {%- set u = m[1] -%}
+          {%- if u == 'K' -%}{{ (v / 1024.0) | round(2) }}
+          {%- elif u == 'M' -%}{{ v | round(2) }}
+          {%- elif u == 'G' -%}{{ (v * 1024.0) | round(2) }}
+          {%- elif u == 'T' -%}{{ (v * 1024.0 * 1024.0) | round(2) }}
+          {%- else -%}0{%- endif -%}
+
+    - name: "Assert journal disk usage under cap"
+      ansible.builtin.assert:
+        that:
+          - (_vd_journal_mib | float) < (validate_journal_max_disk_gb | float * 1024)
+        fail_msg: >-
+          journalctl --disk-usage = {{ _vd_jdu.stdout | trim }}
+          (~{{ _vd_journal_mib }} MiB), exceeds
+          {{ validate_journal_max_disk_gb }} GiB cap.
+          A runaway journal degrades RT determinism — review
+          /etc/systemd/journald.conf SystemMaxUse + Storage.
+
+    - name: "Read SELinux mode"
+      ansible.builtin.command: getenforce
+      changed_when: false
+      register: _vd_selinux
+
+    - name: "Assert SELinux is in the expected mode (Enforcing or Permissive — never Disabled)"
+      ansible.builtin.assert:
+        that:
+          - _vd_selinux.stdout | trim in ['Enforcing', 'Permissive']
+        fail_msg: >-
+          getenforce = {{ _vd_selinux.stdout | trim }}.
+          SELinux Disabled mode breaks Ceph OSD containers and is
+          forbidden on the platform.
+
+    - name: "Record finding"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'dmesg_journal', 'status': 'ok',
+               'msg': 'no RCU/hung/OOM/I-O events; journal=' ~ _vd_jdu.stdout | trim ~
+                      '; SELinux=' ~ _vd_selinux.stdout | trim}] }}
+
+  rescue:
+    - name: "Record finding (fail)"
+      ansible.builtin.set_fact:
+        validate_findings: >-
+          {{ validate_findings | default([]) +
+             [{'check': 'dmesg_journal', 'status': 'fail',
+               'msg': ansible_failed_result.msg | default('dmesg/journal check failed')}] }}
+    - name: "Re-raise unless warn_only"
+      ansible.builtin.fail:
+        msg: "{{ ansible_failed_result.msg | default('dmesg/journal check failed') }}"
+      when: not (validate_warn_only | bool)
