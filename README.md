@@ -145,9 +145,9 @@ Full walk-through: [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md
 | 70 | Pacemaker | `pacemaker` | ✅ ready | pcs cluster on the heartbeat network, hacluster auth, `pcsd` web UI on :2224, resource defaults, operator recovery primitives (`pcs-safe-reboot`, `pcs-cluster-precheck`, `pcs-vm-move`, `pcs-vm-status`, `op-pacemaker-recover.yml`) |
 | 75 | STONITH | `stonith` | ✅ ready | fence_ipmilan or fence_virsh per node (idempotent), location constraints (no node fences itself), atomic enable, interactive `op-stonith-fence-test.yml` playbook |
 | 80 | VM deploy | `vm` | ✅ ready | render libvirt domain XML from `vm_catalog` (RT block, RBD disks, sanlock leases, virtiofs, Windows-11 UEFI/TPM/Hyper-V); Pacemaker-managed mode by default on ≥3-node clusters (`VirtualDomain` resources, location constraints, `op-vm-undefine.yml`); standalone fallback on single-node |
-| 90 | Validate | `validate` | 🚧 stub | (will) cyclictest tail latency, `pcs status`, `ceph -s` parse, PTP offset, STONITH dry-run, subnet-uniqueness + linkdown + pending-fence checks distilled from `node-diag.sh` |
+| 90 | Validate | `validate` | ✅ ready | Read-only end-to-end check matrix — preflight, RT kernel + scheduling geometry, cyclictest, hugepage / memory / swap, ceph health + OSDs + PGs + MDS + clock skew, network discipline (no `linkdown` routes, storage NIC ≥ 10G + not bridge-enslaved), pacemaker + corosync + STONITH property, PTP / chrony offset + leap, VM placement + RT XML invariants (incl. iothread + virtio-bus), dmesg + journal disk usage + SELinux. Per-host findings aggregate into a control-node summary report. Each check independently tag-addressable. |
 
-`site.yml` runs end-to-end through stage 80 today. The only remaining stub is stage 90 (`validate`); stub stages are no-ops that emit a `"not yet implemented"` debug line, so a current `site.yml` run delivers a fully working RHEL + KVM + RT + Ceph + Pacemaker + STONITH cluster with managed VMs.
+`site.yml` runs end-to-end through stage 90. Every stage is fully implemented and re-runnable; a current `site.yml` run delivers a working RHEL + KVM + RT + Ceph + Pacemaker + STONITH cluster with managed VMs and a validation report on the control node.
 
 A few activation steps are deliberately left to the operator and not automated by `site.yml`:
 

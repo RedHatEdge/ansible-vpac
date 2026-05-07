@@ -151,12 +151,9 @@ flowchart TD
   s80 --> s90["90 validate"]
   s40 -.-> s90
   s50 -.-> s90
-
-  classDef stub fill:#fafafa,stroke:#999,stroke-dasharray:3 3,color:#666
-  s90:::stub
 ```
 
-Solid arrows are hard dependencies; dashed are read-only verification dependencies. Stage 90 (`validate`) is currently a no-op stub that emits a debug line — every other stage is fully implemented and re-runnable.
+Solid arrows are hard dependencies; dashed are read-only verification dependencies. Every stage is fully implemented and re-runnable.
 
 ### Operator activation steps (NOT automated by `site.yml`)
 

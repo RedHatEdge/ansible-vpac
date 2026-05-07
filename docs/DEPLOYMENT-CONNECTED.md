@@ -111,13 +111,23 @@ ansible-playbook -i inventory/mysite site.yml --tags validate --ask-vault-pass
 ```
 
 Checks:
-- `pcs status` — all nodes Online, no failed actions, STONITH devices registered
-- `ceph -s` — HEALTH_OK, all OSDs up, no stuck PGs
-- PTP offset — under `validate.ptp_max_offset_ns` (default 1000 ns)
-- cyclictest tail latency on RT hosts — under `validate.cyclictest_max_latency_us` (default 120 µs)
-- STONITH dry-run against a drained node (optional; skip with `--skip-tags stonith-dryrun`)
+- Cluster reachability + sudo + RHEL 9.x (`validate-preflight`)
+- RT kernel + tuned profile + cmdline + isolated CPU geometry (`validate-rt-kernel`)
+- Scheduler discipline — `sched_rt_runtime_us`, `irqbalance` inactive, `system.slice` cpuset, KSM disabled (`validate-rt-scheduling`)
+- `cyclictest` Max latency under `validate.cyclictest_max_latency_us` (default 120 µs); skipped on hosts NOT running a `+rt` kernel (`validate-cyclictest`)
+- HugePages_Total matches inventory budget, `MemAvailable` floor, no swap activity (`validate-memory`)
+- Ceph `HEALTH_OK` (with operator-provided allowlist), full mon quorum, OSDs up+in, every PG `active+clean`, MDS active, mon clock skew under threshold (`validate-ceph`)
+- No `linkdown` routes, storage NIC ≥ `validate.storage_nic_min_mbps` and not bridge-enslaved, configured bridges present (`validate-network`)
+- Pacemaker: every node Online, no failed actions/fencing, corosync quorate with no faulty rings, `stonith-enabled=true`, no leftover `cli-prefer-` / `cli-ban-` move constraints (`validate-cluster`)
+- PTP offsetFromMaster under `validate.ptp_max_offset_ns`, chrony Last offset under `validate.chrony_max_offset_ms`, Leap status Normal, at least one `^*` selected source (`validate-ptp`)
+- VM placement matches catalog, **iothread + non-virtio bus rejected** (libvirt invariant), per-RT-VM hugepages + locked + nosharepages + pmu off + vcpusched fifo + watchdog neutered, RBD disks `cache='none'` + `<auth>` element present (`validate-vms`)
+- dmesg clean of RCU stalls / hung tasks / OOM / I/O errors, `journalctl --disk-usage` under `validate.journal_max_disk_gb`, SELinux Enforcing or Permissive (`validate-system`)
 
-Report lands at `/var/log/vpac-validate-<timestamp>.txt` on the control node.
+The role is read-only — STONITH dry-run is the explicit `op-stonith-fence-test.yml` operator helper, not part of validate.
+
+Set `validate_warn_only: true` to convert hard fails into warnings — every check still records its finding to the summary, useful when you want one pass to surface every issue across the cluster.
+
+Report lands at `~/vpac-validate-reports/vpac-validate-<UTC>.txt` on the control node by default. Override `validate.summary_dir` (and `validate.summary_become: true`) to land it under `/var/log` on a controller where root is available.
 
 ## Running individual stages
 
