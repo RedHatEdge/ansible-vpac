@@ -48,7 +48,8 @@ You need:
 
 - **Your workstation** (any OS — Bazzite, Fedora, RHEL, macOS, Windows) with:
   - `podman` or `docker` (for the ISO-minting tooling container)
-  - `ansible-core` 2.15+ and the `ansible.utils` collection
+  - `ansible-core` 2.15+ and the `ansible.utils` collection (other collections via `requirements.yml`)
+  - `passlib` from pip (controller-side only — see `requirements.txt`; needed for the `password_hash` filter that `pacemaker_base` uses)
   - ~30 GB free disk space (the minted ISOs are ~13 GB each)
   - An SSH keypair (`~/.ssh/id_ed25519` by default)
 - **A stock RHEL 9.x DVD ISO** downloaded from [access.redhat.com](https://access.redhat.com/downloads/content/rhel) (the full DVD — ~13 GB; the boot-only ISO won't work)
@@ -66,6 +67,7 @@ On your Ansible control workstation:
 git clone https://github.com/RedHatEdge/ansible-vpac.git
 cd ansible-vpac
 ansible-galaxy collection install -r requirements.yml
+pip install --user -r requirements.txt
 ```
 
 ## Step 2 — Create your site inventory

@@ -1,0 +1,20 @@
+# Python pip dependencies for the Ansible CONTROL workstation only.
+# Install with: pip install --user -r requirements.txt
+#
+# The cluster nodes themselves don't read this file — they get their
+# Python deps from RHSM (host_baseline + the role's dnf installs).
+#
+# This file complements requirements.yml (which is for ansible-galaxy
+# collections, not pip).
+#
+# Why these are needed:
+#
+#   passlib      — Ansible's password_hash filter requires passlib on
+#                  the controller whenever a custom salt is supplied.
+#                  The pacemaker_base role's hacluster_user task does
+#                  exactly that (stable salt derived from cluster_name
+#                  for idempotency). Without passlib the play fails
+#                  with "Unable to encrypt nor hash, passlib must be
+#                  installed."
+
+passlib>=1.7

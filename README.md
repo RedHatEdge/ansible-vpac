@@ -43,7 +43,7 @@ Step-by-step for each:
 **Your workstation** (both paths):
 
 - Ansible 2.15+ with the collections in `requirements.yml`
-- Python 3.9+
+- Python 3.9+ with the pip packages in `requirements.txt` (currently just `passlib`, needed for the `password_hash` filter)
 
 **Connected path extras:**
 
@@ -61,10 +61,11 @@ Step-by-step for each:
 ## Quick start — connected path
 
 ```bash
-# 1. Clone and install collection deps
+# 1. Clone and install controller dependencies
 git clone https://github.com/RedHatEdge/ansible-vpac.git
 cd ansible-vpac
 ansible-galaxy collection install -r requirements.yml
+pip install --user -r requirements.txt
 
 # 2. Copy the example inventory and fill it in
 cp -r inventory/example inventory/mysite
@@ -91,6 +92,7 @@ Full walk-through: [`docs/DEPLOYMENT-CONNECTED.md`](docs/DEPLOYMENT-CONNECTED.md
 git clone https://github.com/RedHatEdge/ansible-vpac.git
 cd ansible-vpac
 ansible-galaxy collection install -r requirements.yml
+pip install --user -r requirements.txt
 cp -r inventory/example inventory/mysite
 $EDITOR inventory/mysite/hosts.yml inventory/mysite/group_vars/all.yml
 ansible-vault create inventory/mysite/group_vars/vault.yml
@@ -161,7 +163,8 @@ Ceph (stage 60) **always** runs after host baseline, networking, and virtualizat
 ```
 ansible-vpac/
 ├── ansible.cfg
-├── requirements.yml
+├── requirements.yml                      # ansible-galaxy collection deps
+├── requirements.txt                      # controller-side pip deps (passlib)
 ├── site.yml                              # 11-stage cluster deploy (connected + airgapped)
 ├── inventory/
 │   └── example/                          # copy to inventory/<your-site>/ and edit
