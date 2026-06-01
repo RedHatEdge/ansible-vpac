@@ -29,6 +29,9 @@ Step-by-step for each:
 - [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md)
 - [`docs/DEPLOYMENT-CONNECTED.md`](docs/DEPLOYMENT-CONNECTED.md)
 
+Building a **single node by hand** (no Ansible), with the ABB SSC600 relay as the reference workload — useful for understanding what the playbooks do under the hood, or for a manual proof-of-concept:
+- [`docs/single-node-manual/`](docs/single-node-manual/README.md)
+
 ## Requirements
 
 **Cluster hardware** (both paths):
@@ -221,6 +224,7 @@ ansible-vpac/
 │                                         #   workstation; no pre-built image published.
 ├── build/                                # (ignored) minted ISOs land here by default
 └── docs/
+    ├── single-node-manual/               # by-hand single-node deploy (ABB SSC600), no Ansible
     ├── ARCHITECTURE.md
     ├── DEPLOYMENT-GUIDE.md
     ├── DEPLOYMENT-CONNECTED.md
@@ -237,6 +241,7 @@ ansible-vpac/
 - **[docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md)** — one-minute picker for choosing between connected and air-gapped
 - **[docs/DEPLOYMENT-CONNECTED.md](docs/DEPLOYMENT-CONNECTED.md)** — step-by-step for internet-connected deployments
 - **[docs/DEPLOYMENT-AIRGAPPED.md](docs/DEPLOYMENT-AIRGAPPED.md)** — step-by-step for air-gapped utility POCs
+- **[docs/single-node-manual/](docs/single-node-manual/README.md)** — by-hand, no-Ansible deployment of a single RHEL 9 host running an ABB SSC600 relay; documents what the playbooks do under the hood and serves the single-node topology (connected + air-gapped callouts)
 - **[docs/IMAGE-BUILDER.md](docs/IMAGE-BUILDER.md)** — how the ISO-minting tooling container works; both `builder_iso_mint` and `cluster_iso_mint` documented
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — day-2 operations (planned reboot, node replacement, VM migration)
 - **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — common failure modes and recovery
