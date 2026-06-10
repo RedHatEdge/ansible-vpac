@@ -1,0 +1,23 @@
+# bootc-image-builder configuration.
+#
+# Turns the built bootc image into installable media (ISO / qcow2 / raw).
+# This file holds only what must be set at install time and cannot live in the
+# image: the initial admin user. Everything else comes from the image.
+#
+# Replace the placeholder SSH key with the operator's real public key before
+# building media. Do not commit a real key.
+
+[[customizations.user]]
+name = "vpacadmin"
+groups = ["wheel"]
+key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAExamplePlaceholderKeyReplaceMe operator@example.com"
+
+# Filesystem layout for the install target. A protection host keeps the relay's
+# VM disk on local storage in the single-node case; size /var generously.
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"
+
+[[customizations.filesystem]]
+mountpoint = "/var"
+minsize = "100 GiB"

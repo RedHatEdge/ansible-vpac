@@ -1,0 +1,196 @@
+---
+# Single-node vPAC networking for an image-mode host.
+#
+# Applied at DEPLOY time against the generic vpac-node image, driven by a
+# per-site var file. The image is identical for every site; this play + the
+# var file make a node site-specific. Nothing here is baked into the image.
+#
+#   ansible-playbook -i '<node-ip>,' apply-networking.yml \
+#       -e @site-vars.yml -u ansible --become
+#
+# Requirements on the node (all baked into the vpac-node image):
+#   - nmstate (nmstatectl) and NetworkManager
+#   - libvirt (for the station-bus network)
+#
+# SAFETY: management is left untouched by default (vpac_net.mgmt.manage: false)
+# so this apply cannot drop the Ansible connection. nmstatectl also rolls back
+# automatically if the apply is not confirmed within the timeout.
+
+- name: Single-node vPAC networking
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    vpac_net_apply_timeout: 60
+    nmstate_path: /etc/vpac/nmstate-singlenode.yml
+  tasks:
+    - name: nmstate is present (must be baked into the image)
+      ansible.builtin.command: nmstatectl --version
+      register: _nmstate
+      changed_when: false
+      failed_when: _nmstate.rc != 0
+
+    - name: Ensure /etc/vpac exists
+      ansible.builtin.file:
+        path: /etc/vpac
+        state: directory
+        mode: "0755"
+
+    - name: Render the single-node nmstate document
+      ansible.builtin.template:
+        src: templates/nmstate-singlenode.yml.j2
+        dest: "{{ nmstate_path }}"
+        mode: "0644"
+
+    - name: Apply network state (auto-rollback on failure)
+      ansible.builtin.command: >-
+        nmstatectl apply --timeout {{ vpac_net_apply_timeout }} {{ nmstate_path }}
+      register: _apply
+      changed_when: "'No changes to apply' not in _apply.stdout"
+
+    # ----- libvirt mgmt network (VMs attach here to join the mgmt segment) -----
+    # Only when mgmt is managed as a bridge. Gives VMs an address on the same
+    # network as the host's management IP.
+    - name: Render + define the libvirt mgmt network
+      when: vpac_net.mgmt.manage | default(false) | bool
+      block:
+        - name: Render the libvirt mgmt network XML
+          ansible.builtin.copy:
+            dest: "/etc/vpac/net-{{ vpac_net.mgmt.libvirt_net }}.xml"
+            mode: "0644"
+            content: |
+              <network>
+                <name>{{ vpac_net.mgmt.libvirt_net }}</name>
+                <forward mode='bridge'/>
+                <bridge name='{{ vpac_net.mgmt.bridge }}'/>
+              </network>
+
+        - name: Is the libvirt mgmt network already defined?
+          ansible.builtin.command: "virsh net-info {{ vpac_net.mgmt.libvirt_net }}"
+          register: _mnetinfo
+          changed_when: false
+          failed_when: false
+
+        - name: Define the libvirt mgmt network
+          ansible.builtin.command: "virsh net-define /etc/vpac/net-{{ vpac_net.mgmt.libvirt_net }}.xml"
+          when: _mnetinfo.rc != 0
+
+        - name: Autostart + start the libvirt mgmt network
+          ansible.builtin.command: "virsh net-{{ item }} {{ vpac_net.mgmt.libvirt_net }}"
+          loop:
+            - autostart
+            - start
+          changed_when: false
+          failed_when: false
+
+    # ----- libvirt station-bus network (the relay XML references it by name) -----
+    - name: Render the libvirt station-bus network XML
+      ansible.builtin.copy:
+        dest: "/etc/vpac/net-{{ vpac_net.station_bus.libvirt_net }}.xml"
+        mode: "0644"
+        content: |
+          <network>
+            <name>{{ vpac_net.station_bus.libvirt_net }}</name>
+            <forward mode='bridge'/>
+            <bridge name='{{ vpac_net.station_bus.bridge }}'/>
+          </network>
+
+    - name: Is the libvirt station-bus network already defined?
+      ansible.builtin.command: "virsh net-info {{ vpac_net.station_bus.libvirt_net }}"
+      register: _netinfo
+      changed_when: false
+      failed_when: false
+
+    - name: Define the libvirt station-bus network
+      ansible.builtin.command: "virsh net-define /etc/vpac/net-{{ vpac_net.station_bus.libvirt_net }}.xml"
+      when: _netinfo.rc != 0
+
+    - name: Autostart + start the libvirt station-bus network
+      ansible.builtin.command: "virsh net-{{ item }} {{ vpac_net.station_bus.libvirt_net }}"
+      loop:
+        - autostart
+        - start
+      register: _netop
+      changed_when: false
+      failed_when: false
+
+    # ----- libvirt process-bus network (macvtap; the relay XML references it) -----
+    # Gives the process bus a logical name so the relay XML attaches by network
+    # name, not by physical NIC — the same decoupling the station bus gets.
+    - name: Render the libvirt process-bus network XML
+      ansible.builtin.copy:
+        dest: "/etc/vpac/net-{{ vpac_net.process_bus.libvirt_net }}.xml"
+        mode: "0644"
+        content: |
+          <network>
+            <name>{{ vpac_net.process_bus.libvirt_net }}</name>
+            <forward mode='{{ vpac_net.process_bus.macvtap_mode | default('vepa') }}'>
+              <interface dev='{{ vpac_net.process_bus.interface }}'/>
+            </forward>
+          </network>
+
+    - name: Is the libvirt process-bus network already defined?
+      ansible.builtin.command: "virsh net-info {{ vpac_net.process_bus.libvirt_net }}"
+      register: _pnetinfo
+      changed_when: false
+      failed_when: false
+
+    - name: Define the libvirt process-bus network
+      ansible.builtin.command: "virsh net-define /etc/vpac/net-{{ vpac_net.process_bus.libvirt_net }}.xml"
+      when: _pnetinfo.rc != 0
+
+    - name: Autostart + start the libvirt process-bus network
+      ansible.builtin.command: "virsh net-{{ item }} {{ vpac_net.process_bus.libvirt_net }}"
+      loop:
+        - autostart
+        - start
+      register: _pnetop
+      changed_when: false
+      failed_when: false
+
+    # ----- firewalld zoning (per the single-node manual guide) -----
+    - name: Zone the mgmt bridge
+      when: vpac_net.mgmt.manage | default(false) | bool
+      ansible.posix.firewalld:
+        zone: "{{ vpac_net_zones.mgmt | default('public') }}"
+        interface: "{{ vpac_net.mgmt.bridge }}"
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Zone the station bridge
+      ansible.posix.firewalld:
+        zone: "{{ vpac_net_zones.station | default('internal') }}"
+        interface: "{{ vpac_net.station_bus.bridge }}"
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Zone the PTP NIC (timing traffic must not be filtered)
+      ansible.posix.firewalld:
+        zone: "{{ vpac_net_zones.ptp | default('trusted') }}"
+        interface: "{{ vpac_net.ptp.interface }}{{ ('.' ~ vpac_net.ptp.vlan) if (vpac_net.ptp.vlan | default('') | string | length > 0) else '' }}"
+        permanent: true
+        immediate: true
+        state: enabled
+
+    # ----- verify the layout matches the contract -----
+    - name: Verify the station bridge holds the host segment address
+      ansible.builtin.command: >-
+        ip -4 addr show {{ vpac_net.station_bus.bridge }}
+      register: _stbr
+      changed_when: false
+      failed_when: vpac_net.station_bus.host_address.split('/')[0] not in _stbr.stdout
+
+    - name: Verify the process bus has NO IPv4 (reserved for macvtap)
+      ansible.builtin.command: "ip -4 addr show {{ vpac_net.process_bus.interface }}"
+      register: _pbus
+      changed_when: false
+      failed_when: "'inet ' in _pbus.stdout"
+
+    - name: Verify the PTP NIC carries its address
+      ansible.builtin.shell: >-
+        set -o pipefail; ip -4 -o addr show | grep -q {{ vpac_net.ptp.address.split('/')[0] }}
+      args:
+        executable: /bin/bash
+      changed_when: false

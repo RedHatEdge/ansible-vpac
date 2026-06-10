@@ -1,0 +1,172 @@
+---
+# Managed by ansible-vpac / image-mode single-node networking — do not edit by hand.
+# Rendered from a per-site var file (vpac_net). Applied with:
+#   nmstatectl apply --timeout {{ vpac_net_apply_timeout | default(60) }} {{ nmstate_path | default('/etc/vpac/nmstate-singlenode.yml') }}
+#
+# Single-node layout (see docs/single-node-manual/05-networking.md):
+#   station bus -> linux bridge (the relay attaches here; the host holds the
+#                  segment address, NOT the relay's address)
+#   process bus -> reserved, UP, NO IP (the relay takes it by macvtap VEPA)
+#   PTP         -> dedicated NIC with an IP, used only by ptp4l (no bridge)
+#   management  -> left untouched by default (manage: false) so this apply
+#                  cannot drop the control connection mid-run
+
+interfaces:
+
+{% if vpac_net.mgmt.manage | default(false) | bool %}
+  # ----- Management: physical port, enslaved to the mgmt bridge -----
+  - name: {{ vpac_net.mgmt.interface }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% if vpac_net.mgmt.vlan | default('') | string | length > 0 %}
+  - name: {{ vpac_net.mgmt.interface }}.{{ vpac_net.mgmt.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ vpac_net.mgmt.interface }}
+      id: {{ vpac_net.mgmt.vlan }}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% endif %}
+  # ----- Management bridge (host IP lives here; VMs attach for the mgmt net) -----
+  - name: {{ vpac_net.mgmt.bridge }}
+    type: linux-bridge
+    state: up
+    ipv4:
+{% if vpac_net.mgmt.dhcp | default(false) | bool %}
+      enabled: true
+      dhcp: true
+{% else %}
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ vpac_net.mgmt.address.split('/')[0] }}
+          prefix-length: {{ vpac_net.mgmt.address.split('/')[1] }}
+{% endif %}
+    ipv6:
+      enabled: false
+    bridge:
+      options:
+        stp:
+          enabled: false
+      port:
+        - name: {{ (vpac_net.mgmt.interface ~ '.' ~ vpac_net.mgmt.vlan) if (vpac_net.mgmt.vlan | default('') | string | length > 0) else vpac_net.mgmt.interface }}
+
+{% endif %}
+  # ----- Station bus: physical port, enslaved to the bridge (no IP of its own) -----
+  - name: {{ vpac_net.station_bus.interface }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% if vpac_net.station_bus.vlan | default('') | string | length > 0 %}
+  - name: {{ vpac_net.station_bus.interface }}.{{ vpac_net.station_bus.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ vpac_net.station_bus.interface }}
+      id: {{ vpac_net.station_bus.vlan }}
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% endif %}
+  # ----- Station bridge (relay attaches here; host holds the segment address) -----
+  - name: {{ vpac_net.station_bus.bridge }}
+    type: linux-bridge
+    state: up
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ vpac_net.station_bus.host_address.split('/')[0] }}
+          prefix-length: {{ vpac_net.station_bus.host_address.split('/')[1] }}
+    ipv6:
+      enabled: false
+    bridge:
+      options:
+        # STP off on a VM-facing bridge — guest vnet* churn under STP is
+        # documented to disrupt low-latency traffic.
+        stp:
+          enabled: false
+      port:
+        - name: {{ (vpac_net.station_bus.interface ~ '.' ~ vpac_net.station_bus.vlan) if (vpac_net.station_bus.vlan | default('') | string | length > 0) else vpac_net.station_bus.interface }}
+
+  # ----- Process bus: reserved, UP, NO IP (relay takes it by macvtap VEPA) -----
+  - name: {{ vpac_net.process_bus.interface }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+{% if vpac_net.ptp.vlan | default('') | string | length > 0 %}
+  # ----- PTP: dedicated NIC carrying a tagged timing VLAN, ptp4l only -----
+  - name: {{ vpac_net.ptp.interface }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+  - name: {{ vpac_net.ptp.interface }}.{{ vpac_net.ptp.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ vpac_net.ptp.interface }}
+      id: {{ vpac_net.ptp.vlan }}
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ vpac_net.ptp.address.split('/')[0] }}
+          prefix-length: {{ vpac_net.ptp.address.split('/')[1] }}
+    ipv6:
+      enabled: false
+{% else %}
+  # ----- PTP: dedicated NIC, IP, ptp4l only — no bridge, no macvtap -----
+  - name: {{ vpac_net.ptp.interface }}
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ vpac_net.ptp.address.split('/')[0] }}
+          prefix-length: {{ vpac_net.ptp.address.split('/')[1] }}
+    ipv6:
+      enabled: false
+{% endif %}
+
+{% if vpac_net.mgmt.manage | default(false) | bool and not (vpac_net.mgmt.dhcp | default(false) | bool) and (vpac_net.mgmt.gateway | default('') | length > 0) %}
+routes:
+  config:
+    - destination: 0.0.0.0/0
+      next-hop-address: {{ vpac_net.mgmt.gateway }}
+      next-hop-interface: {{ vpac_net.mgmt.bridge }}
+{% endif %}
+{% if vpac_net_dns.servers | default([]) | length > 0 %}
+dns-resolver:
+  config:
+{% if vpac_net_dns.search | default('') | length > 0 %}
+    search:
+      - {{ vpac_net_dns.search }}
+{% endif %}
+    server:
+{% for s in vpac_net_dns.servers %}
+      - {{ s }}
+{% endfor %}
+{% endif %}

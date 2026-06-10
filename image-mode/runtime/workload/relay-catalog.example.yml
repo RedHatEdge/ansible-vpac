@@ -1,0 +1,66 @@
+# Per-site relay VM catalog — single-node image-mode host. EXAMPLE.
+#
+# Copy and fill in per deployment. The vendor relay disk is supplied by the
+# operator (not in this repo) and must already exist at `source` before deploy.
+#
+# Apply:
+#   ansible-playbook -i '<node-ip>,' deploy-relay.yml -e @relay-catalog.yml -u ansible --become
+
+# Single-node node list (length 1). The project keys cluster behaviour off
+# len(vpac_nodes): with one node, Pacemaker/Ceph self-skip and vm_deploy
+# resolves to standalone automatically. hostname must match the node.
+vpac_nodes:
+  - hostname: "site1-node-a"
+    storage_ip: "127.0.0.1"
+
+# Belt-and-suspenders: single-node is always standalone (no Pacemaker).
+vm_deploy_managed_mode: false
+
+# Define the domain but don't start it until you've confirmed the disk is in
+# place; flip to true (or run `virsh start`) when ready.
+vm_deploy_autostart: false
+vm_deploy_autostart_on_boot: true
+
+vm_catalog:
+  - name: ssc600-01
+    profile: ssc600                 # ABB SSC600-style relay: RT, virtio, BIOS, 1 GiB hugepages
+    target_host: "{{ inventory_hostname }}"
+
+    # CPU: pin vCPUs + emulator within the host's ISOLATED cores (the kargs
+    # set isolcpus per topology). These must be a subset of that isolated set.
+    vcpus: 4
+    pinned_cpus: [12, 13, 14, 15]
+    emulator_cpus: [10, 11]
+
+    # Memory: a whole number of 1 GiB hugepages the host reserved at boot.
+    memory_gb: 8
+    hugepages: true
+
+    # Disk: the operator-supplied vendor image, local file (no Ceph on single
+    # node). For a non-virtio vendor guest (e.g. NovaTech Orion / Photon OS),
+    # use profile: vpr and bus: sata + a nic model of e1000 instead.
+    disks:
+      - source: "/var/lib/libvirt/images/ssc600-01.img"
+        format: raw
+        bus: virtio
+        cache: none
+        io: threads
+
+    # NICs reference the libvirt LOGICAL networks the networking step created,
+    # so this catalog is decoupled from the host's physical interface names.
+    nics:
+      - network: station-bus        # MMS / engineering / web HMI
+      - network: process-bus        # macvtap; GOOSE / Sampled Values
+      # - network: mgmt             # optional: put the relay on the mgmt segment too
+
+    # virtiofs share: the host publishes its PTP sync status here; the relay
+    # mounts it (mount -t virtiofs ptp /mnt/ptp). The ssc600 profile enables
+    # shared guest memory for this.
+    filesystems:
+      - host_path: /var/lib/libvirt/ptp-status
+        guest_tag: ptp
+
+    # MAC preservation (optional) — uncomment to pin the relay's NIC MAC, e.g.
+    # when a license is bound to it:
+    # preserve_mac: true
+    # mac_address: "52:54:00:11:22:33"

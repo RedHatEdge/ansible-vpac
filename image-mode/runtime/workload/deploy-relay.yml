@@ -1,0 +1,46 @@
+---
+# Deploy the vPAC relay VM(s) onto a single-node image-mode host.
+#
+# Reuses the project's vm_templates (render the RT libvirt domain XML) and
+# vm_deploy (define/start the domain) roles — the image-mode single-node path
+# differs only in that it is STANDALONE (no Pacemaker) and uses a local
+# file-backed disk (no Ceph RBD, no sanlock lease).
+#
+#   ansible-playbook -i '<node-ip>,' deploy-relay.yml \
+#       -e @relay-catalog.yml -u ansible --become
+#
+# Run from the ansible-vpac repo root (so roles_path/collections_path from
+# ansible.cfg resolve), or set ANSIBLE_ROLES_PATH to the repo's roles/.
+#
+# Requirements on the node (all baked into the vpac-node image): libvirt/KVM,
+# virtiofsd, the RT host tuning (isolated cores + 1 GiB hugepages), and the
+# networking already applied (station-bus / process-bus logical networks).
+#
+# The vendor relay disk is supplied by the operator and must already exist at
+# the path in the catalog — these roles do not create disk images.
+
+- name: Deploy vPAC relay VM(s) — single-node image-mode host
+  hosts: all
+  become: true
+  vars:
+    # Single-node is always standalone; Pacemaker management needs >=3 nodes.
+    vm_deploy_managed_mode: false
+    vpac_ptp_status_dir: /var/lib/libvirt/ptp-status
+  pre_tasks:
+    - name: Ensure the virtiofs PTP-status share directory exists on the host
+      ansible.builtin.file:
+        path: "{{ vpac_ptp_status_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Confirm each catalog disk image is already present
+      ansible.builtin.stat:
+        path: "{{ (item.1.source | string).split(':', 1)[1] if ':' in (item.1.source | string) else item.1.source }}"
+      loop: "{{ vm_catalog | subelements('disks') }}"
+      loop_control:
+        label: "{{ item.0.name }} -> {{ item.1.source }}"
+      register: _disk_stat
+      failed_when: not _disk_stat.stat.exists
+  roles:
+    - role: vm_templates
+    - role: vm_deploy

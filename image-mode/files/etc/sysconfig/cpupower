@@ -1,0 +1,4 @@
+# Pin the CPU frequency governor to performance on every boot.
+# Read by the cpupower service (enabled in the image build).
+CPUPOWER_START_OPTS="frequency-set -g performance"
+GOVERNOR=performance

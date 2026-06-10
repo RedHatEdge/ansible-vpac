@@ -1,0 +1,12 @@
+[Unit]
+Description=Mount resctrl for Intel CAT (pqos) L3 cache partitioning
+DefaultDependencies=no
+Before=local-fs.target
+
+[Mount]
+What=resctrl
+Where=/sys/fs/resctrl
+Type=resctrl
+
+[Install]
+WantedBy=local-fs.target

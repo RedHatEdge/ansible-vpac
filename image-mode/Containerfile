@@ -1,0 +1,121 @@
+# Single-node vPAC — RHEL image-mode (bootc) host.
+#
+# Builds a real-time-tuned KVM host image that reaches the same OS end-state as
+# the package-mode single-node path (docs/single-node-manual/), with everything
+# static baked in. Site/hardware identity (networking, hostname, the relay VM,
+# isolated-core indices) is applied at provision/runtime — see runtime/README.md.
+#
+# Build: see build.sh. Base image pull requires a terms-based registry service
+# account for registry.redhat.io.
+
+FROM registry.redhat.io/rhel9/rhel-bootc:9.7
+
+# ---------------------------------------------------------------------------
+# Package source.
+#
+# Connected build (default): leave REPO_BASEURL empty. dnf uses the base image's
+# subscription-manager repos via the host entitlement (build rootful on a
+# subscribed RHEL host).
+#
+# Air-gapped build: pass --build-arg REPO_BASEURL=http://mirror.example/mirror
+# pointing at a reposync'd tree with per-repo subdirectories. The subscription
+# repos are then disabled and dnf uses only the mirror.
+#
+# The RT tuned profiles and kernel-rt come from the Real Time / NFV repo, which
+# is not enabled by default. RT_REPO names it; override for a different channel
+# (e.g. the plain RT repo) with --build-arg RT_REPO=rhel-9-for-x86_64-rt-rpms.
+# ---------------------------------------------------------------------------
+ARG REPO_BASEURL=
+ARG RT_REPO=rhel-9-for-x86_64-nfv-rpms
+
+RUN if [ -n "${REPO_BASEURL}" ]; then \
+      printf '[main]\nenabled=0\n' > /etc/dnf/plugins/subscription-manager.conf; \
+      printf '[main]\nenabled=0\n' > /etc/dnf/plugins/product-id.conf; \
+      rm -f /etc/yum.repos.d/redhat.repo; \
+      for r in rhel-9-for-x86_64-baseos-rpms rhel-9-for-x86_64-appstream-rpms "${RT_REPO}"; do \
+        printf '[%s]\nname=%s\nbaseurl=%s/%s\nenabled=1\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release\n\n' \
+          "$r" "$r" "${REPO_BASEURL}" "$r" >> /etc/yum.repos.d/vpac-build.repo; \
+      done; \
+    fi
+
+RUN dnf -y --enablerepo="${RT_REPO}" install \
+      qemu-kvm libvirt libvirt-client virt-install \
+      edk2-ovmf swtpm swtpm-tools virtiofsd \
+      tuned tuned-profiles-realtime tuned-profiles-nfv \
+      linuxptp chrony firewalld \
+      NetworkManager nmstate \
+      intel-cmt-cat kernel-tools \
+ && dnf clean all
+
+# Deferred packages, intentionally not in this host image:
+#   - rt-tests (cyclictest): lives in the plain RT repo
+#     (rhel-9-for-x86_64-rt-rpms), not NFV. Install it at validation time from
+#     a source that carries it; an air-gapped mirror must include the RT repo.
+#   - cabextract: EPEL-only, and only needed to unpack a vendor relay bundle —
+#     belongs to the workload (relay-VM) step, not the host image.
+#   - bridge-utils: legacy on RHEL 9; bridges are managed by NetworkManager.
+
+# ---------------------------------------------------------------------------
+# Real-time kernel.
+#
+# Image mode requires exactly ONE kernel under /usr/lib/modules. Install
+# kernel-rt and remove the stock kernel so the built image boots PREEMPT_RT.
+#
+# HIGH-RISK STEP — verify on a booted node (`uname -r` shows ...rt...) before
+# relying on this. The exact erase set may need adjusting to the base image's
+# kernel package layout.
+# ---------------------------------------------------------------------------
+RUN dnf -y --enablerepo="${RT_REPO}" install kernel-rt kernel-rt-core \
+ && dnf -y remove --noautoremove kernel kernel-core \
+ && dnf clean all
+
+# ---------------------------------------------------------------------------
+# Operator web console (Cockpit). Gives a browser view of the host plus VM
+# management for the relay (cockpit-machines) and image-mode update status
+# (cockpit-ostree). Listens on 9090; enabled below. No credentials are baked —
+# the login account/password is set per deployment (bib config / kickstart).
+# ---------------------------------------------------------------------------
+RUN dnf -y install \
+      cockpit cockpit-system cockpit-ws \
+      cockpit-machines cockpit-storaged cockpit-ostree \
+ && dnf clean all
+
+# ---------------------------------------------------------------------------
+# Static config (sysctl, resctrl mount, cpupower, tuned defaults).
+# Placed under /usr/lib where it should not be hand-edited; /etc entries are
+# documented defaults the operator may localize.
+# ---------------------------------------------------------------------------
+COPY files/ /
+
+# Baked kernel arguments (RT isolation + 1 GiB hugepages). The isolated-core
+# indices are an EXAMPLE — override per CPU topology with `bootc kargs`.
+COPY kargs.d/ /usr/lib/bootc/kargs.d/
+
+# ---------------------------------------------------------------------------
+# Select the real-time host tuned profile and enable the supporting services.
+# tuned's active profile is set declaratively here (the daemon is not running
+# during the build). Kernel-command-line isolation is owned by kargs.d above,
+# not by tuned, to keep a single source of truth on the cmdline.
+#
+# libvirt on RHEL 9 uses the modular daemons (virtqemud/virtnetworkd/
+# virtstoraged), socket-activated. Enable those — NOT the deprecated monolithic
+# libvirtd, whose sockets stay inactive when the modular daemons own the path.
+# ---------------------------------------------------------------------------
+RUN echo realtime-virtual-host > /etc/tuned/active_profile \
+ && echo manual > /etc/tuned/profile_mode \
+ && systemctl enable tuned firewalld chronyd cpupower \
+ && systemctl enable virtqemud.socket virtnetworkd.socket virtstoraged.socket \
+ && systemctl enable cockpit.socket \
+ && systemctl enable sys-fs-resctrl.mount \
+ && firewall-offline-cmd --add-service=cockpit
+
+# ---------------------------------------------------------------------------
+# /var must be empty in a bootc image — it is per-machine state, not image
+# content. Clear the dnf metadata/cache and logs left by the build so the
+# image lints clean and nothing stale ships into a deployed node's /var.
+# ---------------------------------------------------------------------------
+RUN rm -rf /var/cache/* /var/lib/dnf/* /var/log/* /var/tmp/* /tmp/*
+
+# Validate the image build produced exactly one (rt) kernel.
+RUN test "$(ls -1 /usr/lib/modules | wc -l)" = "1" \
+ && ls /usr/lib/modules | grep -q rt

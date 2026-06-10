@@ -1,0 +1,76 @@
+# Per-site single-node vPAC networking — EXAMPLE.
+#
+# Copy this per deployment and fill in the real interface names (from
+# `ip -br link` on the node) and addresses. The vpac-node image is generic and
+# identical for every site; THIS file is what makes a node site-specific.
+#
+# Apply:
+#   ansible-playbook -i '<node-ip>,' apply-networking.yml \
+#       -e @site-vars.yml -u ansible --become
+
+vpac_net:
+
+  # Management: a BRIDGE the host IP lives on, so VMs can attach to the mgmt
+  # network and get addresses on the same segment as the host (this mirrors the
+  # cluster role's br-mgmt). A libvirt network (`libvirt_net`) is defined for the
+  # bridge so VM XML attaches by name.
+  #
+  #   manage: false  — leave the mgmt interface exactly as the installer set it
+  #                    (no bridge, no libvirt net). Safe, but VMs then CANNOT
+  #                    join the mgmt network.
+  #   manage: true   — RECONFIGURE mgmt into a bridge. Do this at provisioning;
+  #                    nmstate rolls back if it can't confirm, but plan the
+  #                    cutover (the host IP moves from the NIC to the bridge).
+  #   dhcp: true      — let the bridge pull its address from the mgmt network's
+  #                    DHCP instead of the static address/gateway below.
+  mgmt:
+    manage: true
+    interface: "ens1f0"
+    bridge: "br-mgmt"
+    libvirt_net: "mgmt"
+    dhcp: false
+    address: "10.0.0.10/24"   # host IP, now carried on the bridge
+    gateway: "10.0.0.1"
+    vlan: ""                  # optional
+
+  # Station bus: a bridge the relay attaches to. host_address is the HOST's
+  # address on the segment — it must DIFFER from the relay's own station-bus IP
+  # (the relay's address is set later via its HMI). A libvirt network named
+  # `libvirt_net` is defined pointing at the bridge; the relay XML references it.
+  station_bus:
+    interface: "ens1f1"
+    bridge: "station-bus"
+    libvirt_net: "station-bus"
+    host_address: "10.1.0.1/24"
+    vlan: ""                 # optional, e.g. 101
+
+  # Process bus: reserved, NO host IP. Carries L2 GOOSE/Sampled Values; the
+  # relay takes it by macvtap. A libvirt network (macvtap forward) is defined so
+  # the relay XML references it by name (`libvirt_net`) instead of the physical
+  # NIC — the same decoupling the station bus gets.
+  #   macvtap_mode: vepa | private | bridge | passthrough
+  #     vepa       — to an 802.1Qbg switch (the manual-guide default)
+  #     private    — guest <-> wire only; simplest for one relay on a dedicated NIC
+  #     passthrough — dedicate the whole NIC to a single guest (1:1)
+  process_bus:
+    interface: "ens2f0"
+    libvirt_net: "process-bus"
+    macvtap_mode: "vepa"
+
+  # PTP: a dedicated NIC used ONLY by ptp4l (host clock). NO VM attaches, so it
+  # has NO libvirt network — it is a host-only interface. If another process
+  # consumes its frames the host clock will not lock.
+  ptp:
+    interface: "ens2f1"
+    address: "10.2.0.10/24"
+    vlan: ""                 # optional, e.g. 102
+
+# DNS — applied only when mgmt.manage is true.
+vpac_net_dns:
+  search: ""                 # e.g. substation.example.com
+  servers: []                # e.g. ["10.0.0.1"]
+
+# firewalld zones for the configured interfaces.
+vpac_net_zones:
+  station: "internal"
+  ptp: "trusted"

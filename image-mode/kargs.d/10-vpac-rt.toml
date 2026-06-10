@@ -1,0 +1,25 @@
+# Baked default real-time / isolation / hugepage kernel arguments.
+#
+# The isolated-core range (10-15) is an EXAMPLE: a host giving the relay 4 vCPUs
+# plus 2 emulator threads on a CPU with >=16 cores, reserving the low cores for
+# the host. The correct indices DIFFER BY CPU TOPOLOGY (a 16-core and a 24-core
+# part do not use the same range). Override per host at provision time with
+# `bootc kargs --append=... --delete=...` rather than editing a deployed node.
+#
+# hugepages=8 with hugepagesz=1G reserves 8 GiB of RAM at boot (not lazily).
+# Size it to the relay's locked memory plus any additional RT guest, and confirm
+# the host has that much RAM to spare.
+#
+# isolcpus/nohz_full/rcu_nocbs must agree with isolated_cores in
+# /etc/tuned/realtime-virtual-host-variables.conf, the VM's vcpupin/emulatorpin,
+# and the cyclictest validation range.
+kargs = [
+  "default_hugepagesz=1G",
+  "hugepagesz=1G",
+  "hugepages=8",
+  "isolcpus=10-15",
+  "nohz_full=10-15",
+  "rcu_nocbs=10-15",
+  "skew_tick=1",
+  "intel_pstate=disable",
+]

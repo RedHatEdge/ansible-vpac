@@ -1,0 +1,69 @@
+# Image mode (bootc) — single-node vPAC host
+
+An alternative way to build a single-node vPAC protection host: instead of
+installing RHEL and converging it with the package-mode roles, the operating
+system is defined as a **RHEL image-mode (bootc) container image** and deployed
+transactionally. Updates become `bootc upgrade` (atomic, with rollback) rather
+than a re-run of the playbooks.
+
+This path reaches the **same OS end-state** as
+[`docs/single-node-manual/`](../docs/single-node-manual/) — a real-time-tuned
+KVM host ready to run a protection relay VM. It is **single-node only**: no
+Ceph, Pacemaker, corosync, or STONITH (those apply to 3-node clusters).
+
+## What is baked into the image
+
+Everything static, from chapters 04/06/08 of the manual guide:
+
+- the KVM-host package set (qemu-kvm, libvirt, virtiofsd, swtpm, OVMF, …)
+- the `kernel-rt` real-time kernel (replacing the stock kernel)
+- RT/isolation/hugepage kernel arguments (`kargs.d/10-vpac-rt.toml`)
+- the `realtime-virtual-host` tuned profile, selected
+- the RT scheduling-throttle sysctl, the resctrl mount, the `performance`
+  governor, and the supporting service enablement
+- `linuxptp` and chrony packages and units
+
+## What stays runtime (per node, after boot)
+
+Site- and hardware-specific identity cannot be baked. See
+[`runtime/README.md`](runtime/README.md):
+
+- hostname and network identity (bonds, bridges, VLANs, IPs, the PTP NIC)
+- the **isolated-core indices** — the baked kargs use an example range; override
+  per CPU topology with `bootc kargs`
+- the relay VM (vendor disk image + libvirt domain) — deployed with the existing
+  `vm_templates` / `vm_deploy` roles
+- validation (`cyclictest`, `virt-host-validate`, PTP offset)
+
+## Layout
+
+```
+Containerfile          the single-node RT KVM-host image
+kargs.d/               baked default RT/isolation/hugepage kernel args
+files/                 static config copied into the image (sysctl, units, tuned)
+bib/config.toml        bootc-image-builder install config (admin user, fs layout)
+build.sh               podman build + push, and the bootc-image-builder recipe
+runtime/               post-boot networking + relay-VM deployment notes
+```
+
+## Build
+
+Base image pull requires a `registry.redhat.io` login with a **terms-based
+registry service account**.
+
+```bash
+# Connected (push to quay.io or another registry):
+./build.sh connected quay.io/yourorg/vpac-node:9.7
+
+# Air-gapped (base image already mirrored into the local registry):
+./build.sh airgapped registry.example.internal/vpac-node:9.7
+```
+
+`build.sh` prints the `bootc-image-builder` invocation to turn the image into an
+ISO / qcow2 / raw for booting a node.
+
+## Status
+
+First cut — not yet lab-verified. The highest-risk step is the `kernel-rt` swap
+in the image build; confirm `uname -r` shows an `…rt…` kernel on a booted node
+before relying on this path.
