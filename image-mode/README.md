@@ -11,6 +11,9 @@ This path reaches the **same OS end-state** as
 KVM host ready to run a protection relay VM. It is **single-node only**: no
 Ceph, Pacemaker, corosync, or STONITH (those apply to 3-node clusters).
 
+For the build/boot pipeline, the on-node network topology, and the deploy
+sequence as diagrams, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## What is baked into the image
 
 Everything static, from chapters 04/06/08 of the manual guide:
