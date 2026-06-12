@@ -67,6 +67,14 @@ ISO / qcow2 / raw for booting a node.
 
 ## Status
 
-First cut — not yet lab-verified. The highest-risk step is the `kernel-rt` swap
-in the image build; confirm `uname -r` shows an `…rt…` kernel on a booted node
-before relying on this path.
+Lab-verified through single-node build and boot. The `kernel-rt` swap is
+confirmed — a booted node reports an `…rt…` kernel from `uname -r`, with
+`isolcpus`, 1 GiB hugepages, and the `tuned` real-time profile all active. The
+image builds clean (`bootc container lint`) in both connected and air-gapped
+modes, the generated qcow2 boots as a UEFI VM, the runtime networking applies
+via nmstate, and a relay VM renders, defines, and starts on the host.
+
+Not yet verified: checks that require bare metal (the CPU frequency governor and
+`resctrl` are inert under virtualization), and a `cyclictest` real-time baseline
+(needs the RT package repo available to the node). Booting a real vendor
+protection VM is the next validation step.
