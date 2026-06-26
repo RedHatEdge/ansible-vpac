@@ -1,6 +1,6 @@
 # Single-node manual deployment
 
-This guide builds a **single-node Virtual Protection host** on Red Hat Enterprise Linux 9 **by hand** — no Ansible, no playbooks. Each command is run directly, on one machine, producing a real-time-tuned KVM host running an **ABB SSC600** protection relay as a virtual machine.
+This guide builds a **single-node Virtual Protection host** on Red Hat Enterprise Linux 9 **by hand** — no Ansible, no playbooks. Each command is run directly, on one machine, producing a real-time-tuned KVM host running an **ABB SSC600SW** protection relay as a virtual machine.
 
 Its purposes:
 
@@ -11,11 +11,11 @@ Its purposes:
 ## What you are building
 
 ```
-                          ┌─────────────────────────────────────────┐
+                          ┌──────────────────────────────────────────┐
                           │  RHEL 9 host (real-time tuned)           │
                           │                                          │
    station bus  ──bridge──┤  ┌────────────────────────────────┐      │
-                          │  │  ABB SSC600 VM                 │      │
+                          │  │  ABB SSC600SW VM               │      │
    process bus ──macvtap──┤  │  4 vCPU pinned · FIFO prio 50  │      │
                           │  │  1 GiB hugepages · locked mem  │      │
    PTP NIC ───────────────┤  │  virtio disk + virtio NICs     │      │
@@ -23,7 +23,7 @@ Its purposes:
                           │                                          │
    management ────────────┤  libvirt / KVM · tuned realtime-host     │
                           │  ptp4l on dedicated NIC · local storage  │
-                          └─────────────────────────────────────────┘
+                          └──────────────────────────────────────────┘
 ```
 
 One host. One relay VM. **Local storage** — no Ceph. **No Pacemaker, no corosync, no STONITH** — there is no cluster to coordinate or fence. The single-node variant comprises only the host-tuning and virtualization layers required to run a relay deterministically on RHEL.
@@ -35,7 +35,7 @@ For the highly-available three-node version, use the automated path — see [`..
 The main path of this guide assumes a **connected** host — one that can reach Red Hat's CDN and the package repositories directly. Where an **air-gapped** site differs, the difference is given in a callout box:
 
 > **Air-gapped variant**
-> The procedure for a host that cannot reach the internet — point at a local Satellite, mirror, or registry.
+> The procedure for a host that cannot reach the internet — point at a local Red Hat Satellite, mirror, or registry.
 
 From host tuning onward the procedure is identical on both paths; only how packages and the vendor bundle arrive changes.
 
@@ -48,7 +48,7 @@ From host tuning onward the procedure is identical on both paths; only how packa
 | 03 | [Register and enable repos](03-register-and-repos.md) | Subscription, repositories (connected + air-gapped) |
 | 04 | [Host baseline](04-host-baseline.md) | Hostname, packages, firewall, base time sync |
 | 05 | [Networking](05-networking.md) | Station-bus bridge, process-bus reservation, dedicated PTP NIC |
-| 06 | [Virtualization](06-virtualization.md) | libvirt/KVM, tuned real-time profile, hugepages, isolated CPUs |
+| 06 | [Virtualization](06-virtualization.md) | libvirt/KVM, TuneD real-time profile, hugepages, isolated CPUs |
 | 07 | [Time synchronization (PTP)](07-time-sync-ptp.md) | ptp4l on the dedicated NIC, phc2sys, drop NTP |
 | 08 | [Real-time tuning](08-rt-tuning.md) | Kernel cmdline, scheduler, governor, L3 cache partitioning |
 | 09 | [Prepare the SSC600 bundle](09-prepare-ssc600-bundle.md) | Extract the disk image, host setup script, PTP share |

@@ -1,6 +1,7 @@
-# 09 — Prepare the SSC600 bundle
+# 09 — Prepare the SSC600SW bundle
 
 This step unpacks the ABB bundle into a runnable disk image, installs the host-side helper scripts the relay requires, and creates the PTP-status share. After it, the disk image is on local storage and the host is ready to define the domain.
+You can obtain the bundle from the ABB Library.
 
 ## Extract the disk image
 

@@ -32,7 +32,7 @@ lscpu
 lscpu -e        # per-CPU listing: core, socket, online state
 ```
 
-Select a contiguous block of physical cores at the **high end** for the VM. For example, on a host giving the SSC600 four vCPUs plus two emulator threads, isolate six cores and reserve the top of them. The exact indices depend on the CPU — a 16-core part and a 24-core part do not use the same indices. In all cases, isolate the VM's pinned cores and emulator cores, and reserve at least the first one or two cores for the host.
+Select a contiguous block of physical cores at the **high end** for the VM. For example, on a host giving the SSC600SW four vCPUs plus two emulator threads, isolate six cores and reserve the top of them. The exact indices depend on the CPU — a 16-core part and a 24-core part do not use the same indices. In all cases, isolate the VM's pinned cores and emulator cores, and reserve at least the first one or two cores for the host.
 
 Set the isolated set in the tuned variables file (replace the range with the chosen cores):
 
@@ -56,7 +56,7 @@ tuned-adm active
 
 ## Reserve 1 GiB hugepages
 
-The SSC600 backs its memory with **1 GiB hugepages**, locked so it does not swap. Reserve enough whole 1 GiB pages for the guest's memory (8 GiB → 8 pages) plus any additional RT VM.
+The SSC600SW backs its memory with **1 GiB hugepages**, locked so it does not swap. Reserve enough whole 1 GiB pages for the guest's memory (8 GiB → 8 pages) plus any additional RT VM.
 
 1 GiB hugepages must be reserved at boot via the kernel command line; runtime allocation of 1 GiB pages is unreliable once memory is fragmented. Set the kernel parameters (this also previews step 08, which adds the RT parameters):
 
@@ -75,6 +75,6 @@ The reservation takes effect after the reboot in step 08. Confirm it then with `
 virt-host-validate qemu
 ```
 
-Expect mostly `PASS`. Warnings about IOMMU apply only to PCI passthrough; the SSC600 reference uses macvtap and virtio, not PCI passthrough, so an IOMMU warning is acceptable here. A `FAIL` on hardware virtualization means VT-x is disabled in the BIOS.
+Expect mostly `PASS`. Warnings about IOMMU apply only to PCI passthrough; the SSC600SW reference uses macvtap and virtio, not PCI passthrough, so an IOMMU warning is acceptable here. A `FAIL` on hardware virtualization means VT-x is disabled in the BIOS.
 
 Continue to [07 — Time synchronization (PTP)](07-time-sync-ptp.md).

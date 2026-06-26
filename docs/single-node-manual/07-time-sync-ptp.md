@@ -93,6 +93,6 @@ A correctly synchronized host shows the PTP port in `SLAVE` state with `offsetFr
 
 ## The relay needs to see PTP health
 
-The SSC600 reads the host's PTP status from inside the guest via a shared directory (a virtiofs mount configured in step 09). The host writes its current PTP state into that directory for the relay. The directory and status writer are created in step 09. The relay depends on the host's PTP synchronization, so it must remain stable.
+The SSC600SW reads the host's PTP status from inside the guest via a shared directory (a virtiofs mount configured in step 09). The host writes its current PTP state into that directory for the relay. The directory and status writer are created in step 09. The relay depends on the host's PTP synchronization, so it must remain stable.
 
 Continue to [08 — Real-time tuning](08-rt-tuning.md).

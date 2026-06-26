@@ -72,7 +72,7 @@ sudo systemctl enable --now cpupower
 
 ## Mount the cache controller (resctrl)
 
-The SSC600 host setup partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. `pqos` has no effect if `/sys/fs/resctrl` is not mounted. Mount it persistently with a systemd mount unit:
+The SSC600SW host setup partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. `pqos` has no effect if `/sys/fs/resctrl` is not mounted. Mount it persistently with a systemd mount unit:
 
 ```bash
 sudo tee /etc/systemd/system/sys-fs-resctrl.mount >/dev/null <<'EOF'

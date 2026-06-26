@@ -1,4 +1,4 @@
-# 10 — Define the SSC600 domain
+# 10 — Define the SSC600SW domain
 
 This step defines the libvirt domain XML that applies the host tuning to the relay VM. Each element is documented in the comments.
 

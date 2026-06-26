@@ -27,7 +27,7 @@ sudo nmcli connection add type ethernet con-name station-bus-port \
 
 # Give the bridge the station-bus gateway address for this segment.
 # IMPORTANT: this is the HOST's address on the segment — it must NOT be the
-# address the SSC600 appliance uses. The relay ships with its own station-bus
+# address the SSC600SW appliance uses. The relay ships with its own station-bus
 # IP (set later via the web HMI / PCM600). Pick a host address in the same
 # subnet but distinct from the relay's.
 sudo nmcli connection modify station-bus ipv4.addresses 10.1.0.1/24 ipv4.method manual

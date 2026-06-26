@@ -6,10 +6,10 @@ Put the hardware, the network layout, and the vendor materials in place before i
 
 A single Red Hat-certified x86_64 server. Real-time behavior, not raw capacity, is the priority:
 
-- **CPU** with enough cores to *isolate* a block for the VM and still leave housekeeping cores for the host. The SSC600 reference profile pins **4 vCPUs + emulator threads**, so a minimum of 6–8 physical cores is required; more provides additional headroom. Hyper-threading **disabled** (see BIOS below).
-- **RAM** sized for the host plus 1 GiB-hugepage backing for the guest. The SSC600 uses 8 GiB of locked hugepages; budget that amount in addition to host memory and a margin.
+- **CPU** with enough cores to *isolate* a block for the VM and still leave housekeeping cores for the host. The SSC600SW reference profile pins **4 vCPUs + emulator threads**, so a minimum of 6–8 physical cores is required; more provides additional headroom. System requirements typically increase with number of protected bays per IED. Hyper-threading **disabled** (see BIOS below).
+- **RAM** sized for the host plus 1 GiB-hugepage backing for the guest. The SSC600SW uses 8 GiB of locked hugepages; budget that amount in addition to host memory and a margin.
 - **Storage** — local disk only. Single-node uses local storage, not Ceph. A single SSD/NVMe with room for the OS and the ~30 GiB relay disk image is sufficient.
-- **Intel CPU with CAT** (Cache Allocation Technology / RDT) for L3 cache partitioning of the relay — the SSC600 host setup uses it. Most modern Xeon parts include it. Non-Intel or no-CAT hardware also works; the cache-partitioning step is skipped.
+- **Intel CPU with CAT** (Cache Allocation Technology / RDT) for L3 cache partitioning of the relay — the SSC600SW host setup uses it. Most modern Xeon parts include it. Non-Intel or no-CAT hardware also works; the cache-partitioning step is skipped.
 
 ## BIOS / firmware settings
 
@@ -43,21 +43,21 @@ Two requirements govern this layout:
 
 The example names (`ens1f0`, `ens2f1`) are illustrative; site names will differ. After install, run `ip -br link` and map each physical port to its role based on the cabling.
 
-## The ABB SSC600 bundle
+## The ABB SSC600SW bundle
 
-ABB ships the SSC600 as a **KVM software bundle**, not a generic OVA. Required items:
+ABB ships the SSC600SW as a **KVM software bundle**, not a generic OVA. Required items:
 
 - **`SSC600_SW_KVM-<version>.cab`** — the bundle (e.g. `SSC600_SW_KVM-1.5.1.cab`). It contains a gzip-compressed **raw disk image** (`ssc600_disk.img.gz`, ~30 GiB uncompressed). Because it is already a raw KVM image, no OVA-to-KVM conversion is required — extract and run it. (Some vendor appliances are delivered as VMware OVAs and do require conversion; this one does not.)
-- A **license** for the instance. SSC600 licensing is **per-VM** and is activated *after* the VM is running, using ABB's tools; it is not configured beforehand. See below.
+- A **license** for the instance. SSC600SW licensing is **per-VM** and is activated *after* the VM is running, using ABB's tools; it is not configured beforehand. See below.
 
 Stage the `.cab` on the host (or on the local mirror, for air-gapped sites) before step 09.
 
 ## ABB tooling (for licensing and configuration)
 
-The relay's protection configuration and license activation are performed with **ABB PCM600** and the SSC600's **web HMI**, not from RHEL. Required:
+The relay's protection configuration and license activation are performed with **ABB PCM600** and the SSC600SW's **web HMI**, not from RHEL. Required:
 
 - A **Windows machine** with **PCM600** installed that can reach the relay over the station bus.
-- Network reachability from PCM600 / a browser to the SSC600's station-bus address.
+- Network reachability from PCM600 / a browser to the SSC600SW's station-bus address.
 
 This guide brings the VM up and makes it reachable. The protection engineering inside it (settings, SCADA bindings, license activation) is ABB's workflow and is summarized in step 11.
 
