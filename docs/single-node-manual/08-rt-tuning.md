@@ -105,10 +105,13 @@ Isolating the cores is not enough on its own. Two runtime sources can still land
 
 ### Disable services that periodically wake every CPU
 
-`irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory. None are useful here. Disable them:
+`irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory. None are useful here. Disable each one that is present (on a minimal install `ksm`/`ksmtuned` may not exist — disable them individually so a missing unit does not abort the others):
 
 ```bash
-sudo systemctl disable --now irqbalance ksm ksmtuned
+for svc in irqbalance ksm ksmtuned; do
+  sudo systemctl disable --now "$svc" 2>/dev/null || true
+done
+systemctl is-active irqbalance    # expect: inactive
 ```
 
 ### Pin the process-bus NIC IRQs to the housekeeping cores
