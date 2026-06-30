@@ -155,11 +155,9 @@ Save as `~/ssc600-01.xml`:
     </interface>
 
     <!-- NIC 2 — process bus. macvtap direct passthrough on the reserved
-         process-bus NIC, VEPA mode: GOOSE/Sampled-Value frames go directly
-         from the wire into the guest at sub-millisecond cadence, bypassing
-         the host bridge. This NIC has no host IP (step 05). -->
+         process-bus NIC, bridge mode: Bridge mode drops a switch-reflection dependency and lets the host macvtap forward directly. This NIC has no host IP (step 05). -->
     <interface type='direct' trustGuestRxFilters='yes'>
-      <source dev='ens2f0' mode='vepa'/>
+      <source dev='ens2f0' mode='bridge'/>
       <model type='virtio'/>
     </interface>
 
