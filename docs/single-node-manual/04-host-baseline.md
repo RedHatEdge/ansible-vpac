@@ -31,20 +31,19 @@ sudo dnf -y install \
   linuxptp \
   chrony \
   intel-cmt-cat \
-  cabextract \
-  rt-tests \
-  bridge-utils
+  bsdtar \
+  realtime-tests
 ```
 
 Purpose of the less obvious packages:
 
-- **`tuned-profiles-realtime` / `tuned-profiles-nfv`** — provide the `realtime-virtual-host` tuned profile used in step 06.
+- **`tuned-profiles-realtime` / `tuned-profiles-nfv`** — provide the `realtime-virtual-host` tuned profile used in step 06 (from the NFV repo enabled in step 03).
 - **`kernel-rt` / `kernel-rt-core`** — the `PREEMPT_RT` kernel. Installed now, booted in step 08.
 - **`linuxptp`** — `ptp4l`, `phc2sys`, `timemaster`, `pmc` for step 07.
 - **`intel-cmt-cat`** — the `pqos` tool for L3 cache partitioning in step 08. (It can be installed on non-Intel hardware but is unused there.)
 - **`virtiofsd`** — the host daemon backing the virtiofs PTP-status share the SSC600 consumes.
-- **`cabextract`** — unpacks the ABB `.cab` bundle in step 09.
-- **`rt-tests`** — provides `cyclictest` for validation in step 12.
+- **`bsdtar`** — extracts the ABB `.cab` bundle in step 09 (libarchive reads the cab format; the standalone `cabextract` tool is not in the RHEL 9 repositories).
+- **`realtime-tests`** — provides `cyclictest` for validation in step 12 (in AppStream; this is the RHEL 9/10 successor to the older `rt-tests` package, which no longer exists).
 
 ## Firewall baseline
 

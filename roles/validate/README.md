@@ -11,7 +11,7 @@ ad-hoc post-incident — every check is tag-addressable.
 | `validate-preflight` | sudo elevates, RHEL 9.x running |
 | `validate-rt-kernel` | `+rt` kernel, `realtime-virtual-host` tuned profile, `isolcpus` / `nohz_full` / `rcu_nocbs` / `idle=poll` / `default_hugepagesz` on cmdline, `/sys/.../{isolated,nohz_full}` matches inventory, NMI watchdog off |
 | `validate-rt-scheduling` | `sched_rt_runtime_us` matches inventory, `irqbalance` inactive, `system.slice` cpuset excludes isolated CPUs, KSM disabled |
-| `validate-cyclictest` | `cyclictest -m -p 95 -t1 -n -i200 -D <duration>` max latency under `validate.cyclictest_max_latency_us` (skipped on non-RT hosts) |
+| `validate-cyclictest` | `cyclictest -m -p 95 -t1 -i200 -D <duration>` max latency under `validate.cyclictest_max_latency_us` (skipped on non-RT hosts) |
 | `validate-memory` | `HugePages_Total` matches `rt_tuning_nr_hugepages`, `MemAvailable` ≥ floor, no swap activity |
 | `validate-ceph` | `ceph health detail` HEALTH_OK (with operator-provided allowlist), full mon quorum, all OSDs up+in, every PG `active+clean`, MDS active, mon clock skew under threshold |
 | `validate-network` | no `linkdown` routes, storage NIC up + not bridge-enslaved + ≥ 10 Gbps, configured bridges present |

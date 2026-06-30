@@ -22,7 +22,7 @@ All six isolated cores (`10-15` in the example) should be absent from the genera
 
 ```bash
 # Measure on the isolated cores (adjust the range to yours), 5-minute run.
-sudo cyclictest -m -p 95 -t1 -a 10-15 -n -i 200 -D 5m
+sudo cyclictest -m -p 95 -t1 -a 10-15 -i 200 -D 5m
 ```
 
 Read the **Max** latency. For a protection host the target is below approximately **100 µs** worst-case (the architecture pattern's real-time guarantee). A Max in the low tens of microseconds is acceptable; a Max in the hundreds indicates contention on the cores. Review isolation (step 08), the governor, C-states (BIOS, step 01), and confirm hyper-threading is disabled.

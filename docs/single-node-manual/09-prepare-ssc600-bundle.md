@@ -11,8 +11,10 @@ The bundle is a Microsoft `.cab` containing a gzip-compressed raw disk image. Ex
 # Work in a staging directory
 mkdir -p ~/ssc600-stage && cd ~/ssc600-stage
 
-# Unpack the cab (yields, among other files, ssc600_disk.img.gz)
-cabextract /path/to/SSC600_SW_KVM-<version>.cab
+# Unpack the cab (yields, among other files, ssc600_disk.img.gz).
+# bsdtar (the bsdtar package from step 04) reads the Microsoft cab format via
+# libarchive; the standalone cabextract tool is not in the RHEL 9 repositories.
+bsdtar -xf /path/to/SSC600_SW_KVM-<version>.cab
 
 # Decompress the raw disk image
 gunzip ssc600_disk.img.gz

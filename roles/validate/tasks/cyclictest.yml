@@ -20,7 +20,7 @@
     - name: "Run cyclictest"
       ansible.builtin.command: >-
         cyclictest -m -p {{ validate_cyclictest_priority }}
-                   -t1 -n -i {{ validate_cyclictest_interval_us }}
+                   -t1 -i {{ validate_cyclictest_interval_us }}
                    -D {{ validate_cyclictest_duration_s }}s -q
       become: true
       changed_when: false
