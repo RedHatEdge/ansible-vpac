@@ -83,6 +83,26 @@ Check each of the following jitter sources:
 4. **Isolation mismatch** — the measured cores are not the isolated/pinned cores. Make `isolcpus`, `<vcpupin>`, `RT_CORES`, and the cyclictest `-a` range name the same cores.
 5. **RT throttle still on** — `sysctl kernel.sched_rt_runtime_us` should be `-1`.
 6. **`irqbalance` running** — it can move IRQs onto isolated cores; ensure it is inactive and `irqaffinity` is set (step 08).
+7. **A NIC IRQ landed on an isolated core** — see the dedicated entry below. This is the usual cause of a run that is clean for a long time and then spikes once traffic is heavy.
+8. **vhost-net threads unpinned** — under heavy GOOSE/SV they steal cycles; confirm they are pinned (step 11).
+
+## cyclictest is clean for hours, then spikes to milliseconds
+
+**Cause:** a process-bus NIC's RX interrupt is being serviced on an **isolated** core, so heavy GOOSE/Sampled-Value multicast injects jitter into the relay's cores. `isolate_managed_irq=Y` only keeps managed IRQs off the isolated cores **at device probe time**; a later queue/ring change — `ethtool -L`/`-G`, an interface down/up, or tuned's `netdev_queue_count` — recreates the queues and re-spreads the IRQs across all CPUs, including isolated ones. `irqbalance` cannot move a managed IRQ back, so disabling it is not enough on its own.
+
+**Diagnose:**
+
+```bash
+cat /sys/devices/system/cpu/isolated        # the isolated set, e.g. 10-15
+for nic in ens2f0 ens2f1; do
+  for irq in /sys/class/net/$nic/device/msi_irqs/*; do
+    i=$(basename "$irq"); echo "$nic irq$i -> $(cat /proc/irq/$i/effective_affinity_list)"
+  done
+done
+# Any affinity inside the isolated set is the fault.
+```
+
+**Fix:** re-pin those IRQs to the housekeeping cores and make it persistent so it re-applies after the tuned profile and any NIC change (step 08, "Pin the process-bus NIC IRQs to the housekeeping cores").
 
 ## `pqos` reports nothing / cache partition has no effect
 

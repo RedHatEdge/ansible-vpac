@@ -54,6 +54,8 @@ tuned-adm active
 
 > Record the `isolated_cores` value. It is reused three times: the VM's `<vcpupin>`/`<emulatorpin>` (step 10), the L3 cache partitioning (step 08), and the validation checks (step 12). All three must agree.
 
+> `isolate_managed_irq=Y` keeps kernel-managed IRQs off the isolated cores, but **only at device probe time**. A later change to a NIC's queues or rings re-spreads those IRQs across all CPUs again, so step 08 adds an explicit re-pin of the process-bus NIC IRQs to the housekeeping cores. This setting is necessary but not sufficient on its own.
+
 ## Reserve 1 GiB hugepages
 
 The SSC600SW backs its memory with **1 GiB hugepages**, locked so it does not swap. Reserve enough whole 1 GiB pages for the guest's memory (8 GiB → 8 pages) plus any additional RT VM.

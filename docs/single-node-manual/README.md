@@ -50,11 +50,11 @@ From host tuning onward the procedure is identical on both paths; only how packa
 | 05 | [Networking](05-networking.md) | Station-bus bridge, process-bus reservation, dedicated PTP NIC |
 | 06 | [Virtualization](06-virtualization.md) | libvirt/KVM, TuneD real-time profile, hugepages, isolated CPUs |
 | 07 | [Time synchronization (PTP)](07-time-sync-ptp.md) | ptp4l on the dedicated NIC, phc2sys, drop NTP |
-| 08 | [Real-time tuning](08-rt-tuning.md) | Kernel cmdline, scheduler, governor, L3 cache partitioning |
+| 08 | [Real-time tuning](08-rt-tuning.md) | Kernel cmdline, scheduler, governor, L3 cache, disable jitter services, pin NIC IRQs |
 | 09 | [Prepare the SSC600 bundle](09-prepare-ssc600-bundle.md) | Extract the disk image, host setup script, PTP share |
 | 10 | [Define the SSC600 domain](10-define-ssc600-domain.md) | The annotated libvirt XML |
-| 11 | [Start and license](11-start-and-license.md) | Boot the VM, autostart, web HMI, PCM600 activation |
-| 12 | [Validate](12-validate.md) | cyclictest, PTP offset, VM health, GOOSE/SV path |
+| 11 | [Start and license](11-start-and-license.md) | Boot the VM, pin vhost-net threads, autostart, web HMI, PCM600 activation |
+| 12 | [Validate](12-validate.md) | cyclictest under load, device-IRQ/jitter checks, PTP offset, VM health, GOOSE/SV path |
 | 13 | [Troubleshooting](13-troubleshooting.md) | Symptoms and causes |
 
 Work through the steps in order. Real-time tuning depends on the kernel and isolation being in place, and the VM depends on networking, hugepages, and the cache controller being ready before it starts. Performing steps out of order produces a VM that boots but does not meet latency targets.

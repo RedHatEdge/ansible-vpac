@@ -15,6 +15,20 @@ Enable automatic start when the host boots, so the relay restarts after a power 
 sudo virsh autostart ssc600-01
 ```
 
+## Pin the relay's vhost-net threads
+
+Now that the VM is running, its `vhost-net` kernel threads exist. They move the network traffic (including the GOOSE/Sampled-Value multicast) between the host and the guest. Left alone they run at `SCHED_OTHER` and wander onto whatever core is free — stealing jitter from the relay even though the vCPUs are pinned. Pin them to the emulator cores (the `<emulatorpin>` set from step 10) and raise them to a low real-time priority:
+
+```bash
+qpid=$(pgrep -f 'guest=ssc600-01,')
+for tid in $(pgrep "vhost-$qpid"); do
+  sudo taskset -pc <emulator-cores> "$tid"   # e.g. 10-11
+  sudo chrt -fp 1 "$tid"
+done
+```
+
+Because these threads are recreated every time the VM boots, drive this from a libvirt `qemu` hook on the `started` event (`/etc/libvirt/hooks/qemu`) so it is reapplied automatically. The same hook is the right place to re-run the NIC-IRQ pinning from step 08, since a VM restart can re-touch the NIC queues.
+
 ## Watch it boot
 
 Attach to the serial console (detach with `Ctrl+]`):

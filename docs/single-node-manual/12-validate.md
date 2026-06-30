@@ -27,6 +27,35 @@ sudo cyclictest -m -p 95 -t1 -a 10-15 -n -i 200 -D 5m
 
 Read the **Max** latency. For a protection host the target is below approximately **100 µs** worst-case (the architecture pattern's real-time guarantee). A Max in the low tens of microseconds is acceptable; a Max in the hundreds indicates contention on the cores. Review isolation (step 08), the governor, C-states (BIOS, step 01), and confirm hyper-threading is disabled.
 
+> Run cyclictest **with the relay running and process-bus traffic flowing**, for long enough to catch intermittent spikes — an idle, short run hides the most important failure mode (a periodic event landing on an isolated core). A clean run for minutes that then spikes to milliseconds points at the device-IRQ and helper-thread checks below, not at the kernel tuning above.
+
+## Device IRQs and helper threads
+
+These are the runtime sources that pass every static check above and still produce occasional millisecond spikes once real traffic flows.
+
+```bash
+# 1. irqbalance must be inactive (it re-spreads IRQs onto isolated cores):
+systemctl is-active irqbalance        # inactive
+
+# 2. No process-bus NIC IRQ may sit on an isolated core. isolate_managed_irq=Y
+#    only holds at probe time; a queue/ring change (step 08) can re-spread them.
+#    Each line's affinity must be a HOUSEKEEPING core, never an isolated one:
+for nic in ens2f0 ens2f1; do          # process-bus (and PTP) NICs
+  for irq in /sys/class/net/$nic/device/msi_irqs/*; do
+    i=$(basename "$irq")
+    echo "$nic irq$i -> $(cat /proc/irq/$i/effective_affinity_list)"
+  done
+done
+
+# 3. The relay's vhost-net threads must be pinned (step 11), not on a vCPU core:
+qpid=$(pgrep -f 'guest=ssc600-01,')
+for tid in $(pgrep "vhost-$qpid"); do
+  echo "vhost $tid -> $(taskset -pc "$tid" | grep -o '[0-9,-]*$') $(chrt -p "$tid" | tail -1)"
+done
+```
+
+Cross-check the IRQ affinities against `cat /sys/devices/system/cpu/isolated`: any device IRQ whose effective affinity falls inside the isolated set will inject jitter into the relay and must be re-pinned to a housekeeping core (step 08).
+
 ## Memory
 
 ```bash
@@ -87,7 +116,8 @@ Confirmation of the GOOSE/SV path is performed from the protection side (PCM600 
 The deployment is complete when:
 
 - `uname -r` is the RT kernel and the cores are isolated
-- `cyclictest` Max is under ~100 µs while the VM runs
+- `cyclictest` Max is under ~100 µs **sustained while the VM runs and traffic flows** (not just an idle snapshot)
+- `irqbalance` is inactive, no process-bus NIC IRQ is on an isolated core, and the vhost-net threads are pinned off the vCPU cores
 - hugepages are reserved and the guest's are locked, no swap
 - PTP is `SLAVE`, sub-microsecond, not alternating
 - the VM is running, autostarting, pinned, with every RT XML invariant live

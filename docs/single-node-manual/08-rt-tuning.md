@@ -132,19 +132,9 @@ cat /proc/irq/<irq>/effective_affinity_list                   # must be within 0
 
 Make it persistent so it survives reboots and re-applies after the tuned profile settles (a small `systemd` oneshot that runs the loop above, ordered `After=network-online.target tuned.service`).
 
-### Pin the relay's vhost-net threads (after the VM is running)
+### A third source — the relay's vhost-net threads — is handled after the VM starts
 
-Once the relay VM is started (step 11), its `vhost-net` kernel threads move the network traffic between the host and the guest. Left alone they run at `SCHED_OTHER` and wander onto whatever core is free, stealing jitter even though the vCPUs are pinned. Pin them to the emulator cores and raise them to a low real-time priority:
-
-```bash
-qpid=$(pgrep -f 'guest=<vm-name>,')
-for tid in $(pgrep "vhost-$qpid"); do
-  sudo taskset -pc <emulator-cores> "$tid"   # the <emulatorpin> set from step 10
-  sudo chrt -fp 1 "$tid"
-done
-```
-
-Drive this from a libvirt `qemu` hook on the `started` event so it is reapplied automatically every time the VM boots.
+The relay's `vhost-net` kernel threads (which move network traffic between host and guest) only exist once the VM is running, and left alone they run at `SCHED_OTHER` on whatever core is free, stealing jitter even though the vCPUs are pinned. Pinning them to the emulator cores is part of bringing the VM up — see [11 — Start and license](11-start-and-license.md).
 
 ## Reboot into the tuned kernel
 
