@@ -1,0 +1,68 @@
+---
+# Re-pin RT-scoped NIC IRQs onto housekeeping CPUs.
+#
+# isolate_managed_irq=Y (rendered in realtime-virtual-host-variables.conf) is
+# necessary but NOT sufficient. It only holds at device probe time; a runtime
+# queue/ring change — tuned's netdev_queue_count, `ethtool -L/-G`, or an
+# interface down/up — re-spreads managed IRQs across ALL online CPUs and can
+# land a busy NIC's RX queue (and its softirq load) on an isolated RT core.
+# A field host showed a process-bus RX queue serving an isolated CPU under
+# Sampled-Value load. This installs a oneshot that re-pins the listed
+# interfaces after the network + tuned profile have settled.
+#
+# Empty rt_tuning_pin_irq_interfaces => the conf file holds only comments and
+# the service is a harmless no-op.
+
+- name: "Ensure /etc/vpac exists"
+  ansible.builtin.file:
+    path: /etc/vpac
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Write RT IRQ interface list"
+  ansible.builtin.copy:
+    dest: /etc/vpac/rt-irq-interfaces
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Interfaces whose device IRQs are pinned to the housekeeping
+      # (non-isolated) CPU set by vpac-pin-irqs.service.
+      # Managed by ansible-vpac / rt_tuning role — do not edit by hand.
+      {% for nic in rt_tuning_pin_irq_interfaces %}
+      {{ nic }}
+      {% endfor %}
+  register: _rt_irq_conf
+
+- name: "Install IRQ-pinning script"
+  ansible.builtin.copy:
+    src: vpac-pin-irqs.sh
+    dest: /usr/local/sbin/vpac-pin-irqs.sh
+    owner: root
+    group: root
+    mode: "0755"
+  register: _rt_irq_script
+
+- name: "Install IRQ-pinning service unit"
+  ansible.builtin.copy:
+    src: vpac-pin-irqs.service
+    dest: /etc/systemd/system/vpac-pin-irqs.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _rt_irq_unit
+
+- name: "Enable vpac-pin-irqs.service"
+  ansible.builtin.systemd_service:
+    name: vpac-pin-irqs.service
+    enabled: true
+    daemon_reload: "{{ _rt_irq_unit.changed }}"
+
+- name: "Re-pin now when the list is non-empty and anything changed"
+  ansible.builtin.command: /usr/local/sbin/vpac-pin-irqs.sh
+  changed_when: true
+  when:
+    - rt_tuning_pin_irq_interfaces | length > 0
+    - _rt_irq_conf.changed or _rt_irq_script.changed or _rt_irq_unit.changed

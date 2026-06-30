@@ -23,6 +23,10 @@
   ansible.builtin.import_tasks: intelcat.yml
   tags: [rt, rt-intelcat]
 
+- name: "Pin RT-scoped NIC IRQs to housekeeping (survives tuned/ethtool re-spread)"
+  ansible.builtin.import_tasks: irq_affinity.yml
+  tags: [rt, rt-irq]
+
 - name: "RT chrony overrides (every rt_hosts member)"
   ansible.builtin.import_tasks: rt_chrony.yml
   when: rt_tuning_is_relay_host | bool

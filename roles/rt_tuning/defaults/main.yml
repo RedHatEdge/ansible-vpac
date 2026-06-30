@@ -61,3 +61,13 @@ rt_tuning_auto_reboot: false
 # per-host via host_vars when a node is RT-tuned but doesn't run relay
 # workloads (e.g. a Windows-passthrough host on RT hardware).
 rt_tuning_is_relay_host: "{{ inventory_hostname in groups.get('rt_hosts', []) }}"
+
+# Interfaces whose device IRQs must be force-pinned to the housekeeping
+# (non-isolated) CPU set. isolate_managed_irq=Y only holds at device probe
+# time; a runtime queue/ring change (tuned netdev_queue_count, `ethtool
+# -L/-G`, interface down/up) re-spreads managed IRQs across ALL online CPUs
+# and can drop a busy NIC's RX queue + softirq onto an isolated RT core.
+# vpac-pin-irqs.service re-pins these after tuned + network settle. Set to
+# the process-bus (and any other RT-path) interfaces this host carries,
+# e.g. ["ens2f0", "ens2f1"]. Empty => the service is an installed no-op.
+rt_tuning_pin_irq_interfaces: "{{ rt_tuning.pin_irq_interfaces | default([]) }}"

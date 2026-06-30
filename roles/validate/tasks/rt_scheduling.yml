@@ -42,6 +42,48 @@
         that: _vrs_irq.stdout | trim != "active"
         fail_msg: "irqbalance is active — will rebalance device IRQs onto isolated CPUs"
 
+    - name: "Scan NIC device IRQs for isolated-CPU placement"
+      # isolate_managed_irq=Y only holds at probe; a runtime queue/ring change
+      # (tuned netdev_queue_count, ethtool -L/-G, ifdown/up) re-spreads managed
+      # IRQs across all CPUs and can land a NIC RX queue on an isolated RT core.
+      ansible.builtin.shell: |
+        set -u
+        isol=$(cat /sys/devices/system/cpu/isolated 2>/dev/null)
+        [ -z "$isol" ] && exit 0
+        declare -A ISO
+        for seg in ${isol//,/ }; do
+          if [[ $seg == *-* ]]; then for c in $(seq "${seg%-*}" "${seg#*-}"); do ISO[$c]=1; done
+          else ISO[$seg]=1; fi
+        done
+        drift=()
+        for d in /sys/class/net/*/device/msi_irqs; do
+          [[ -d $d ]] || continue
+          nic=$(basename "$(dirname "$(dirname "$d")")")
+          for irq in "$d"/*; do
+            irq=$(basename "$irq")
+            eff=$(cat "/proc/irq/$irq/effective_affinity_list" 2>/dev/null) || continue
+            for seg in ${eff//,/ }; do
+              if [[ $seg == *-* ]]; then rng=$(seq "${seg%-*}" "${seg#*-}"); else rng=$seg; fi
+              for c in $rng; do [[ ${ISO[$c]:-} == 1 ]] && drift+=("$nic:irq$irq:cpu$c"); done
+            done
+          done
+        done
+        ((${#drift[@]})) && { printf '%s\n' "${drift[@]}"; exit 1; }
+        exit 0
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+      register: _vrs_irqdrift
+
+    - name: "Assert no NIC device IRQ is pinned to an isolated CPU"
+      ansible.builtin.assert:
+        that: _vrs_irqdrift.rc == 0
+        fail_msg: >-
+          NIC device IRQ(s) are pinned to isolated CPUs (RX softirq on an RT
+          core): {{ _vrs_irqdrift.stdout_lines | default([]) | join('; ') }}
+          — re-run vpac-pin-irqs.service / re-pin to housekeeping CPUs
+
     - name: "Read system.slice cpuset (housekeeping containment)"
       ansible.builtin.slurp:
         src: /sys/fs/cgroup/system.slice/cpuset.cpus.effective

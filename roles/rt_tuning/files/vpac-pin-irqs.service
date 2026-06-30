@@ -1,0 +1,16 @@
+[Unit]
+Description=vPAC - pin RT-scoped NIC IRQs to housekeeping CPUs
+Documentation=man:isolcpus(7)
+# Run after the network is up AND after tuned has applied the profile
+# (tuned's netdev_queue_count re-spreads managed IRQs; we re-pin afterwards).
+After=network-online.target tuned.service
+Wants=network-online.target
+ConditionPathExists=/etc/vpac/rt-irq-interfaces
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/vpac-pin-irqs.sh
+
+[Install]
+WantedBy=multi-user.target

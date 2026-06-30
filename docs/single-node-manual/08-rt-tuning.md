@@ -97,6 +97,55 @@ mount | grep resctrl     # confirm it's mounted
 
 (On non-Intel hardware or CPUs without CAT, this mount may be unavailable. In that case, skip cache partitioning; the relay runs but shares L3.)
 
+> Mounting `resctrl` enables cache partitioning; it does not *create* a partition. Until a control group exists under `/sys/fs/resctrl/` with the relay's cores and an L3 mask, the relay shares the last-level cache with the rest of the host and a busy non-RT core can evict the relay's working set. The SSC600SW host setup's `pqos` service creates this group at relay start; confirm it is enabled and that `ls /sys/fs/resctrl/` shows a group after the VM is running. To partition by hand instead, create a group, assign the relay's cores, and give it a dedicated cache-bit mask (the exact mask is hardware-specific — see `man resctrl`).
+
+## Keep device IRQs and helper threads off the isolated cores
+
+Isolating the cores is not enough on its own. Two runtime sources can still land work on them.
+
+### Disable services that periodically wake every CPU
+
+`irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory. None are useful here. Disable them:
+
+```bash
+sudo systemctl disable --now irqbalance ksm ksmtuned
+```
+
+### Pin the process-bus NIC IRQs to the housekeeping cores
+
+`isolate_managed_irq=Y` (step 06) keeps kernel-managed IRQs off the isolated cores **at device probe time only**. Any later change to a NIC's queues or rings — an `ethtool -L`/`-G`, an interface down/up, or tuned's own `netdev_queue_count` — tears the queues down and recreates them, re-spreading the managed IRQs across *all* CPUs. That can drop a process-bus NIC's busy RX queue, and its softirq load, onto an isolated core carrying the relay. High-rate GOOSE/Sampled-Value multicast makes this a real latency source.
+
+Pin the process-bus interfaces' IRQs back onto the housekeeping cores (the non-isolated set — e.g. `0-9` when isolated is `10-15`). Substitute the real interface names:
+
+```bash
+HK=0-9                       # housekeeping cores = all cores minus the isolated set
+for nic in ens2f0 ens2f1; do # the process-bus (and any other RT-path) NICs
+  for irq in /sys/class/net/$nic/device/msi_irqs/*; do
+    echo "$HK" | sudo tee /proc/irq/$(basename "$irq")/smp_affinity_list >/dev/null
+  done
+done
+
+# verify nothing for these NICs is on an isolated core:
+grep -E 'ens2f0|ens2f1' /proc/interrupts | awk '{print $1}'   # note the IRQ numbers
+cat /proc/irq/<irq>/effective_affinity_list                   # must be within 0-9
+```
+
+Make it persistent so it survives reboots and re-applies after the tuned profile settles (a small `systemd` oneshot that runs the loop above, ordered `After=network-online.target tuned.service`).
+
+### Pin the relay's vhost-net threads (after the VM is running)
+
+Once the relay VM is started (step 11), its `vhost-net` kernel threads move the network traffic between the host and the guest. Left alone they run at `SCHED_OTHER` and wander onto whatever core is free, stealing jitter even though the vCPUs are pinned. Pin them to the emulator cores and raise them to a low real-time priority:
+
+```bash
+qpid=$(pgrep -f 'guest=<vm-name>,')
+for tid in $(pgrep "vhost-$qpid"); do
+  sudo taskset -pc <emulator-cores> "$tid"   # the <emulatorpin> set from step 10
+  sudo chrt -fp 1 "$tid"
+done
+```
+
+Drive this from a libvirt `qemu` hook on the `started` event so it is reapplied automatically every time the VM boots.
+
 ## Reboot into the tuned kernel
 
 ```bash
@@ -114,6 +163,11 @@ sysctl kernel.sched_rt_runtime_us     # -1
 cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
 tuned-adm active                      # realtime-virtual-host
+systemctl is-active irqbalance        # inactive (disabled above)
+# no process-bus NIC IRQ on an isolated core — effective affinity must be in 0-9:
+for irq in $(grep -E 'ens2f0|ens2f1' /proc/interrupts | awk -F: '{print $1}'); do
+  echo "irq$irq -> $(cat /proc/irq/$irq/effective_affinity_list)"
+done
 ```
 
 If the RT kernel did not boot, the hugepage reservation is missing, or the isolated set is empty, correct it before continuing. The VM depends on all three.
