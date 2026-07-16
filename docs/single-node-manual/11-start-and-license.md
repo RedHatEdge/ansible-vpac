@@ -27,7 +27,7 @@ for tid in $(pgrep "vhost-$qpid"); do
 done
 ```
 
-Because these threads are recreated every time the VM boots, drive this from a libvirt `qemu` hook on the `started` event (`/etc/libvirt/hooks/qemu`) so it is reapplied automatically. The same hook is the right place to re-run the NIC-IRQ pinning from step 08, since a VM restart can re-touch the NIC queues.
+Because these threads are recreated every time the VM boots, we drive this from a libvirt `qemu` hook on the `started` event (`/etc/libvirt/hooks/qemu`) so it is reapplied automatically. The same hook is the right place to re-run the NIC-IRQ pinning from step 08, since a VM restart can re-touch the NIC queues. Make sure to run this in case you did not implement the hook in step 10.
 
 ## Watch it boot
 

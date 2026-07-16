@@ -48,7 +48,7 @@ sudo tee /usr/local/sbin/vpac-ptp-status.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
 # Write host PTP sync state where the relay VM can read it (via virtiofs).
 set -euo pipefail
-OUT=/var/lib/libvirt/ptp-status/status
+OUT=/var/lib/libvirt/ptp-status/ptp_status
 PTP_IF=ens2f1
 while true; do
   {
@@ -98,7 +98,7 @@ set -euo pipefail
 # The relay's real-time cores — the VM's vCPU pin set, a subset of the host's
 # isolated_cores. MUST match the <vcpupin> cores in the domain XML (step 10).
 # Adjust to your topology.
-RT_CORES="12-15"
+RT_CORES="13-15"
 
 # Reset, then carve L3: give housekeeping cores one cache mask and the RT
 # cores an exclusive mask. The masks are CPU-specific (the number of cache
@@ -106,13 +106,37 @@ RT_CORES="12-15"
 pqos -R || true
 pqos -e "llc:0=0x1ff;llc:1=0xe00"     # class 0 (non-RT) vs class 1 (RT)
 pqos -a "llc:1=${RT_CORES}"           # assign RT cores to the RT cache class
+
+NICS="ens2f0 ens2f1" # CHANGE FOR YOUR PTP & Process Bus NICs in use (blank space separated list)
+# Sample CPUMASK assuming core 9 in this setup is 0x200 - adjust according to your RT_CORES. Here 12-15 are used for the VM, 10-11 for the emulator pin, leaving the mask for 9.
+CPUMASK="200"
+
+# Process bus / networking
+echo "Configuring network card interrupts and threads"
+for nic in $NICS
+do
+	echo "Disabling NIC power management"
+	ethtool --set-eee $nic eee off || echo EEE failed or not supported
+	ethtool --change $nic wol d
+	echo on > /sys/class/net/$nic/power/control
+	IRQS=$(grep $nic /proc/interrupts | cut -d':' -f1)
+	for irq in $IRQS
+	do
+	echo $CPUMASK | tee /proc/irq/$irq/smp_affinity
+	tasks=$(ps axo pid,command | grep -e "irq/$irq-" | grep -v grep | awk '{print $1}')
+	for pid in $tasks
+	do
+	  taskset -p "0x$CPUMASK" $pid
+	done
+	done
+done
 EOF
 sudo chmod +x /usr/local/sbin/vpac-ssc600-setup.sh
 
 sudo tee /etc/systemd/system/vpac-ssc600-setup.service >/dev/null <<'EOF'
 [Unit]
 Description=SSC600 L3 cache partition + IRQ affinity
-After=sys-fs-resctrl.mount
+After=sys-fs-resctrl.mount network-online.target
 Requires=sys-fs-resctrl.mount
 
 [Service]
@@ -129,6 +153,6 @@ sudo systemctl enable --now vpac-ssc600-setup.service
 sudo pqos -s         # show current allocation; confirm the RT class exists
 ```
 
-> The cache way-masks (`0x1ff`, `0xe00`) depend on the number of L3 ways the CPU exposes. Run `pqos -d` and size the masks so the RT class receives an exclusive, non-overlapping slice. The values shown are examples, not universal settings.
+> The cache way-masks (`0x1ff`, `0xe00`) depend on the number of L3 ways the CPU exposes. Run `pqos -d` and size the masks so the RT class receives an exclusive, non-overlapping slice. The values shown are examples, not universal settings. Refer to the [Troubleshooting Section](TROUBLESHOOTING.md) for more details on how to calculate the values for your specific hardware setup.
 
 With the image in place and the host helpers running, define the VM. Continue to [10 — Define the SSC600 domain](10-define-ssc600-domain.md).

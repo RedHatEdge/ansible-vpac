@@ -69,7 +69,7 @@ sudo nmcli connection modify process-bus \
 sudo nmcli connection up process-bus
 ```
 
-The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in VEPA mode. Once the VM is running, the host hands this NIC to the guest.
+The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in bridge mode. Once the VM is running, the host hands this NIC to the guest.
 
 ## PTP NIC — dedicated, nothing else
 

@@ -57,6 +57,13 @@ sudo sysctl --system
 
 ## Pin the CPU frequency governor
 
+In case CPU throtteling via the OS is disabled on BIOS-level, you may skip this part. Check via:
+```bash
+cpupower frequency-info --governors
+```
+
+If the command does not show any available options, throtteling is disabled and you may continue with the next step.
+
 The `realtime-virtual-host` profile sets the governor to `performance` on each boot. To set and persist it explicitly as well, configure the `cpupower` service. Enabling the service alone applies whatever is in `/etc/sysconfig/cpupower`, whose default is not `performance`, so set it there first:
 
 ```bash
@@ -138,6 +145,16 @@ Make it persistent so it survives reboots and re-applies after the tuned profile
 ### A third source — the relay's vhost-net threads — is handled after the VM starts
 
 The relay's `vhost-net` kernel threads (which move network traffic between host and guest) only exist once the VM is running, and left alone they run at `SCHED_OTHER` on whatever core is free, stealing jitter even though the vCPUs are pinned. Pinning them to the emulator cores is part of bringing the VM up — see [11 — Start and license](11-start-and-license.md).
+
+## Mask desktop powerslider service
+
+When RHEL has a GUI installed (e.g. via the default installation), there is an additional desktop power-slider service which interferes with tuneD. Disable it as follows in case a GUI package is installed:
+```bash
+sudo systemctl disable --now tuned-ppd.service
+sudo systemctl mask tuned-ppd.service        # belt-and-suspenders: nothing can re-enable it
+sudo tuned-adm profile realtime-virtual-host # re-pin (sets profile_mode=manual)
+sudo systemctl is-enabled tuned.service      # confirm tuned itself stays enabled
+```
 
 ## Reboot into the tuned kernel
 

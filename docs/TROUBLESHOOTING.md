@@ -107,7 +107,7 @@ If the driver is not `vfio-pci`, the host grabbed the device. Re-apply the `virt
 **Investigate in order:**
 
 1. **CPU isolation**: `cat /sys/devices/system/cpu/isolated` — should match `rt_tuning.isolated_cpus`. If not, kernel cmdline didn't apply; re-run stage 30/50, reboot.
-2. **Governor**: `cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` — should be `performance`.
+2. **Governor**: `cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` — should be `performance` (if CPU throtteling via the OS is not completely disabled on BIOS level).
 3. **RT throttling**: `cat /proc/sys/kernel/sched_rt_runtime_us` — should be `-1`.
 4. **Other RT tasks**: `ps -eLo pid,tid,class,rtprio,ni,pri,psr,comm | awk '$4 > 0'` on the isolated CPUs. Unexpected RT tasks starve the VM.
 5. **Power Profile / BIOS**: on Dell hardware, iDRAC should have Power Profile set to "Performance per Watt Optimized (DAPC)" or similar RT-friendly profile, and C-states disabled. Vendor-specific; see `HARDWARE-BOM.md`.

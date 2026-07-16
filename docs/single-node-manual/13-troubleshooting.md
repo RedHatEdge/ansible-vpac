@@ -79,7 +79,7 @@ Check each of the following jitter sources:
 
 1. **Hyper-threading still enabled** — a sibling thread shares the core. Disable HT in BIOS (step 01).
 2. **C-states / Turbo enabled** — re-clocking and deep idle add latency. Disable in BIOS (step 01).
-3. **Governor not `performance`** — `cpupower frequency-info`; re-set it (step 08).
+3. **Governor not `performance`** — `cpupower frequency-info`; re-set it (step 08) (if CPU throtteling via the OS is not completely disabled on BIOS level).
 4. **Isolation mismatch** — the measured cores are not the isolated/pinned cores. Make `isolcpus`, `<vcpupin>`, `RT_CORES`, and the cyclictest `-a` range name the same cores.
 5. **RT throttle still on** — `sysctl kernel.sched_rt_runtime_us` should be `-1`.
 6. **`irqbalance` running** — it can move IRQs onto isolated cores; ensure it is inactive and `irqaffinity` is set (step 08).
@@ -128,3 +128,71 @@ On CPUs without Intel CAT, this is expected: cache partitioning is unavailable a
 ---
 
 If a symptom is not listed here, check `journalctl -xe`, `sudo virsh dumpxml ssc600-01` (compare the live domain to the intended XML), and `dmesg` for RCU stalls or hung tasks on the isolated cores. The general project [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) and [OPERATIONS.md](../OPERATIONS.md) cover the broader stack.
+
+
+## L3 Cache Partitioning with Intel Cache Allocation Technology (CAT)
+
+### Prerequisites
+
+- CPU must support Intel CAT (check with `pqos -d` or `cpuid`)
+- `intel-cmt-cat` package installed
+- Root access
+
+### Step 1: Determine available cache ways
+
+```bash
+pqos -s
+```
+
+Look at the default COS0 mask. This is the bitmask of all available LLC ways. For example, `0x7ff` means 11 ways (bits 0-10).
+
+### Step 2: Determine per-way cache size
+
+```bash
+cat /sys/devices/system/cpu/cpu0/cache/index3/ways_of_associativity
+cat /sys/devices/system/cpu/cpu0/cache/index3/size
+```
+
+Divide total L3 size by the number of ways to get the size per way. For example, 22 MiB / 11 ways = 2 MiB per way.
+
+### Step 3: Calculate required bitmasks
+
+Partition the available ways into non-overlapping contiguous bitmasks. Each bit corresponds to one cache way. The number of bits set determines the cache size allocated (bits set x per-way size).
+
+Example for an 11-way (0x7ff) cache at 2 MiB/way, targeting a 6 MiB isolated partition (as required by ABB SSC600SW):
+
+| Partition | Ways needed | Bits | Mask |
+|-----------|-------------|------|------|
+| General (16 MiB) | 8 | 0-7 | `0x0ff` |
+| Isolated (6 MiB) | 3 | 8-10 | `0x700` |
+
+To compute a mask: for ways M through N, the mask is `((1 << (N - M + 1)) - 1) << M`.
+
+**Constraints:**
+
+- Masks must not exceed the available ways (must be a subset of the default COS0 mask)
+- Masks should be non-overlapping for true isolation
+- Masks must have contiguous bits set (hardware requirement on most platforms)
+
+### Step 4: Apply configuration
+
+```bash
+pqos -R                                        # reset to defaults
+pqos -e "llc:0=<mask0>;llc:1=<mask1>"          # set COS bitmasks
+pqos -a "llc:1=<core_list>"                    # assign cores to COS
+```
+
+All cores default to COS0 after reset. Only reassign cores that belong to non-default partitions.
+
+### Step 5: Verify
+
+```bash
+pqos -s
+```
+
+Confirm each COS shows the expected mask and core assignments.
+
+### Samples
+For an Intel Xeon Gold 6226R CPU @ 2.90GHz (1 Socket, 16 cores) with 22MB Cache Size, vCPUs of SSC600SW on cores 12-15 and the L3 cache of 6MB for cores 13-15:
+  pqos -e "llc:0=0x1ff;llc:1=0x600"
+  pqos -a "llc:1=13,14,15"

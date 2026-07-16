@@ -35,7 +35,7 @@ ntp_program chronyd
 # ptp4l options for the host clock: slave-only — discipline from the
 # grandmaster on the segment, never act as a master.
 [ptp4l.conf]
-slaveOnly 1
+clientOnly 1
 
 # Do NOT add any [ntp_server <address>] sections. Their absence is what makes
 # PTP the only time source; add one only if site policy requires a fallback.

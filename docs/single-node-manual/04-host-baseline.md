@@ -32,7 +32,8 @@ sudo dnf -y install \
   chrony \
   intel-cmt-cat \
   bsdtar \
-  realtime-tests
+  realtime-tests \
+  cockpit cockpit-machines
 ```
 
 Purpose of the less obvious packages:
@@ -44,6 +45,7 @@ Purpose of the less obvious packages:
 - **`virtiofsd`** — the host daemon backing the virtiofs PTP-status share the SSC600 consumes.
 - **`bsdtar`** — extracts the ABB `.cab` bundle in step 09 (libarchive reads the cab format; the standalone `cabextract` tool is not in the RHEL 9 repositories).
 - **`realtime-tests`** — provides `cyclictest` for validation in step 12 (in AppStream; this is the RHEL 9/10 successor to the older `rt-tests` package, which no longer exists).
+- **`cockpit` / `cockpit-machines`** — provides the RHEL Web Console incl. VM management
 
 ## Firewall baseline
 
@@ -78,5 +80,19 @@ chronyc tracking
 ```
 
 Do not tune chrony now; step 07 reconfigures it (or transfers timekeeping entirely to PTP and removes NTP sources). This step only establishes an approximately correct clock during the build.
+
+
+## Configure RHEL Web Console
+
+```bash
+# Enable the service:
+sudo systemctl enable --now cockpit.socket
+
+# Open firewall:
+sudo firewall-cmd --permanent --zone=public --add-service=cockpit
+
+# Allow root user to login to cockpit:
+sudo sed -i "/root/d" "/etc/cockpit/disallowed-users"
+```
 
 Continue to [05 — Networking](05-networking.md).

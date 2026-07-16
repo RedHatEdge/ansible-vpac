@@ -219,4 +219,79 @@ sudo virsh list --all      # ssc600-01 should appear as "shut off"
 
 If `virsh define` rejects the XML, review the error. Common causes are a pin to a nonexistent core, a hugepage size with no matching reservation, or a referenced network or NIC that is not present. Correct the value — which will trace back to an earlier step — and define again.
 
+
+## Create the Qemu-hook for emulator-pins on isolated cores
+
+```bash
+# create hooks directory if it does not exist yet
+sudo mkdir -p /etc/libvirt/hooks/
+# create hook file
+sudo tee /etc/libvirt/hooks/qemu >/dev/null <<'EOF'
+#!/bin/env bash
+#libvirt qemu hook script for ssc600
+set -e
+set -x
+
+vm_name=$1
+vm_action=$2
+
+echo "qemu hook: name=${vm_name} action=${vm_action}"
+
+if ! [[ $vm_name == *ssc600* ]]; then
+    exit 0
+fi
+
+count=0
+
+case $vm_action in
+    started)
+        while [ -z "$qemu_pid" ]
+        do
+            sleep 1
+            qemu_pid=$(ps axo pid,command | grep [q]emu- | grep $vm_name | awk '{print $1}')
+            count=$((count+1))
+            if [ $count -gt 10 ]; then
+                echo "No qemu process found"
+                exit 1
+            fi
+        done
+        count=0
+        if [ -n "$qemu_pid" ]; then
+            while [ -z "$vnet_pids" ]
+            do
+                sleep 1
+                vnet_pids=$(pidof -w vhost-$qemu_pid || echo "")
+                count=$((count+1))
+                if [ $count -gt 10 ]; then
+                    echo "no vhost-$qemu_pid processes found"
+                    exit 1
+                fi
+            done
+            echo "qemu $qemu_pid, vhost $vnet_pids"
+            affinity=$(taskset -p $qemu_pid | cut -d':' -f2)
+            #cut out leading blank space
+            affinity=${affinity:1}
+            for pid in $vnet_pids
+            do
+                taskset -p $affinity $pid
+                chrt -p 1 $pid
+            done
+            if [ -n "$(pgrep kvm-pit/$qemu_pid)" ]; then
+                kppid=$(pgrep kvm-pit/$qemu_pid)
+                taskset -p $affinity $kppid
+                chrt -p 1 $kppid
+            fi
+        fi
+        ;;
+    default)
+        ;;
+esac
+
+exit 0
+EOF
+# fix permissions
+sudo chmod +x /etc/libvirt/hooks/qemu
+
+```
+
 Continue to [11 — Start and license](11-start-and-license.md).
