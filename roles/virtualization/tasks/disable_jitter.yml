@@ -20,3 +20,16 @@
     - ksmtuned
   failed_when: false
   register: _virt_jitter
+
+# tuned-ppd (the desktop power-slider shim) silently flips the tuned
+# profile back to `balanced` when a GUI stack is present — observed on a
+# field host installed "Server with GUI" (RH KB 7127032). Minimal installs
+# don't carry it, so this is a no-op there. Mask rather than just disable
+# so a later GUI package install cannot re-enable it.
+- name: "Mask tuned-ppd (GUI power-slider daemon) if present"
+  ansible.builtin.systemd_service:
+    name: tuned-ppd
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false

@@ -82,7 +82,7 @@ v1 does **not** create the qcow2 or RBD image — they must already exist before
 
 - `network: <name>` — references a libvirt virtual network defined by `virtualization` stage 30 (e.g. `br-mgmt`, `station-bus`). **Preferred** — decouples the VM XML from the underlying host bridge name so a bridge rename doesn't break VMs.
 - `bridge: <name>` — raw host bridge attachment. Legacy fallback for bridges not declared as libvirt networks.
-- `host_dev: <nic>` — process-bus macvtap passthrough (`<interface type='direct' mode='vepa'>`). For relay VMs receiving GOOSE/SV at sub-millisecond cadence; goes direct to the wire, skipping the host bridge. Override mode via `macvtap_mode` (default `vepa`). Conflicts with the dedicated PTP NIC — preflight catches that.
+- `host_dev: <nic>` — process-bus macvtap passthrough (`<interface type='direct' mode='bridge'>`). For relay VMs receiving GOOSE/SV at sub-millisecond cadence; goes direct to the wire, skipping the host bridge. Override mode via `macvtap_mode` (default `bridge` — VEPA depends on the adjacent switch doing 802.1Qbg reflective relay, which most don't; observed in the field as SV multicast loss). Conflicts with the dedicated PTP NIC — preflight catches that.
 
 Optional per-NIC `queues: N` enables multi-queue virtio-net (`<driver name='vhost' queues='N'/>`). Useful for RT VMs receiving high-rate unicast/multicast bursts where single-queue virtio bottlenecks at ~1 Gbps. Set `queues` to the vCPU count of the VM.
 

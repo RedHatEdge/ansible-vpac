@@ -37,6 +37,12 @@ for p in "${PATTERNS[@]}"; do
 done
 [[ $match -eq 1 ]] || exit 0
 
+# A VM start (re)creates macvtaps, which can re-spread kernel-managed NIC
+# IRQs across all CPUs — including isolated RT cores. Re-assert the RT IRQ
+# pinning before pinning the VM's own threads. No-op on hosts without an
+# RT IRQ interface list (the unit gates on its conf file).
+systemctl restart vpac-pin-irqs.service 2>/dev/null || true
+
 # Find the qemu PID for this domain.
 qemu_pid=$(pgrep -f "guest=${VM_NAME}," | head -1)
 [[ -n "$qemu_pid" ]] || exit 0
