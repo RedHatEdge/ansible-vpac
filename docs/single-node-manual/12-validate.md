@@ -83,7 +83,7 @@ The PTP port should be in `SLAVE` state and should not alternate to `UNCALIBRATE
 Confirm the relay can see host PTP health through the share:
 
 ```bash
-cat /var/lib/libvirt/ptp-status/status     # offsetFromMaster + leap, refreshed every few seconds
+cat /var/lib/libvirt/images/ptp/ptp_status   # written by the vendor's ptp_status service, refreshed continuously
 ```
 
 ## The VM itself

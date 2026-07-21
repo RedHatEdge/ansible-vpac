@@ -32,10 +32,19 @@ interfaces ens2f1
 [timemaster]
 ntp_program chronyd
 
-# ptp4l options for the host clock: slave-only — discipline from the
-# grandmaster on the segment, never act as a master.
+# ptp4l options for the host clock.
+# clientOnly       — discipline from the grandmaster, never act as a server.
+# network_transport / delay_mechanism / step_threshold — the IEC 61850-9-3
+#   power-utility profile: PTP over Ethernet (L2) with peer-to-peer delay.
+#   This matches the SSC600 vendor documentation and most substation
+#   grandmasters. The transport is SITE-DEPENDENT: if the grandmaster runs
+#   PTP over UDPv4 with end-to-end delay, set network_transport UDPv4 and
+#   delay_mechanism E2E instead — confirm against the grandmaster's config.
 [ptp4l.conf]
 clientOnly 1
+network_transport L2
+delay_mechanism P2P
+step_threshold 0.1
 
 # Do NOT add any [ntp_server <address>] sections. Their absence is what makes
 # PTP the only time source; add one only if site policy requires a fallback.
@@ -72,7 +81,35 @@ EOF
 sudo systemctl enable --now phc2sys
 ```
 
-With this option, remove NTP sources from chrony so it does not pull against `phc2sys`. Either stop chronyd entirely, or comment out every `server`/`pool` line in `/etc/chrony.conf` and leave chrony only as a local clock holder.
+With this option, put the same profile settings in the `[global]` section of `/etc/ptp4l.conf`: `network_transport L2`, `delay_mechanism P2P`, `step_threshold 0.1` — or the UDPv4/E2E branch, per the grandmaster (see Option A).
+
+Remove NTP sources from chrony so it does not pull against `phc2sys`. Either stop chronyd entirely, or comment out every `server`/`pool` line in `/etc/chrony.conf` and leave chrony only as a local clock holder.
+
+## Discipline the process-bus NIC's hardware clock
+
+In this guide's four-NIC layout the process bus and PTP are separate ports. The vendor's engineering manual calls for the process-bus NIC's PHC to be disciplined from the PTP NIC's PHC in that case, so the port carrying Sampled Values agrees with the grandmaster's time. (Running ptp4l on the process-bus port directly is not an option here — its inbound frames belong to the relay's macvtap.)
+
+```bash
+sudo tee /etc/systemd/system/phc2sys-procbus.service >/dev/null <<'EOF'
+[Unit]
+Description=Sync process-bus NIC PHC from the PTP NIC PHC
+After=timemaster.service ptp4l.service
+
+[Service]
+# -c = clock being disciplined (process-bus NIC), -s = source (PTP NIC)
+ExecStart=/usr/sbin/phc2sys -c ens2f0 -s ens2f1 -O 0
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now phc2sys-procbus.service
+journalctl -u phc2sys-procbus -n 5 --no-pager    # offset should settle near 0
+```
+
+This applies to both Option A and Option B. With two process-bus ports (the PRP variant), run one instance per port.
 
 ## Verify lock
 
@@ -93,6 +130,6 @@ A correctly synchronized host shows the PTP port in `SLAVE` state with `offsetFr
 
 ## The relay needs to see PTP health
 
-The SSC600SW reads the host's PTP status from inside the guest via a shared directory (a virtiofs mount configured in step 09). The host writes its current PTP state into that directory for the relay. The directory and status writer are created in step 09. The relay depends on the host's PTP synchronization, so it must remain stable.
+The SSC600SW reads the host's PTP status from inside the guest via a shared directory (a virtiofs mount configured in step 09). The status writer is **shipped by ABB in the bundle** — step 09 installs the vendor's `ptp_status` service, which writes the file the relay parses into that directory. The relay depends on the host's PTP synchronization, so it must remain stable.
 
 Continue to [08 — Real-time tuning](08-rt-tuning.md).

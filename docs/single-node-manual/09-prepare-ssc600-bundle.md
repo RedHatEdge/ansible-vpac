@@ -37,52 +37,35 @@ sudo restorecon -v /var/lib/libvirt/images/ssc600-01.img   # correct SELinux lab
 
 ## The PTP-status share
 
-The SSC600 reads the host's PTP sync state from a directory shared into the guest by virtiofs. Create the directory and a writer that updates the relay's view of host time status.
+The SSC600 reads the host's PTP sync state from a directory shared into the guest by virtiofs, from a file named **`ptp_status`** in a format the relay parses. **ABB ships the status writer with the bundle** — a `ptp_status.sh` script and a `ptp_status.service` unit in the extracted `virtual_products/` directory. Install the shipped files; do not substitute a custom writer (an earlier revision of this guide did, and the relay could not read it — wrong file name and untested format).
 
 ```bash
-# Host directory that will be shared into the guest
-sudo mkdir -p /var/lib/libvirt/ptp-status
+# The vendor scripts/units are in the extracted bundle (location within the
+# bundle can vary by version — locate them if needed):
+cd ~/ssc600-stage
+find . -name 'ptp_status*'
 
-# A minimal status writer: snapshot the host PTP state every few seconds.
-sudo tee /usr/local/sbin/vpac-ptp-status.sh >/dev/null <<'EOF'
-#!/usr/bin/env bash
-# Write host PTP sync state where the relay VM can read it (via virtiofs).
-set -euo pipefail
-OUT=/var/lib/libvirt/ptp-status/ptp_status
-PTP_IF=ens2f1
-while true; do
-  {
-    echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    # Offset from the grandmaster, if ptp4l is reachable on the PTP NIC.
-    pmc -u -b 0 'GET CURRENT_DATA_SET' -i "$PTP_IF" 2>/dev/null \
-      | awk '/offsetFromMaster/ {print "offsetFromMaster="$2}'
-    # chrony's view of the disciplined system clock, if present.
-    chronyc tracking 2>/dev/null | awk -F: '/Leap status/ {gsub(/^ /,"",$2); print "leap="$2}'
-  } > "${OUT}.tmp" && mv "${OUT}.tmp" "$OUT"
-  sleep 5
-done
-EOF
-sudo chmod +x /usr/local/sbin/vpac-ptp-status.sh
-
-# Run it as a service
-sudo tee /etc/systemd/system/vpac-ptp-status.service >/dev/null <<'EOF'
-[Unit]
-Description=Write host PTP status for the relay VM
-After=timemaster.service ptp4l.service
-
-[Service]
-ExecStart=/usr/local/sbin/vpac-ptp-status.sh
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
+# Install per the SSC600 engineering manual:
+cd virtual_products/
+chmod +x *.sh
+sudo cp *.sh /usr/sbin/
+sudo cp *.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now vpac-ptp-status.service
+
+# The service writes into /var/lib/libvirt/images/ptp/ by default; the
+# PTP_STATUS_FOLDER environment setting in the unit overrides it. Create the
+# default location and start the service:
+sudo mkdir -p /var/lib/libvirt/images/ptp
+sudo systemctl enable --now ptp_status.service
+systemctl status ptp_status.service --no-pager
+
+# Confirm the status file appears and refreshes:
+cat /var/lib/libvirt/images/ptp/ptp_status
 ```
 
-(Set `PTP_IF` to the PTP NIC name. This writer is a minimal reference; a production implementation may publish additional fields, but offset and leap status are the values the relay uses.)
+> The shipped script reads ptp4l's state over its UNIX socket. If SELinux denials appear for that access (`ausearch -m AVC -ts recent`), build a local policy module from the actual denials (`audit2allow -M`) — do **not** switch SELinux to permissive or disabled on a protection host.
+
+The virtiofs `<source dir>` in the domain XML (step 10) must point at the same directory this service writes to. This guide uses the vendor default, `/var/lib/libvirt/images/ptp`.
 
 ## The host real-time setup script (cache + IRQ affinity)
 
