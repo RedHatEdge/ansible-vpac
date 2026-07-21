@@ -277,6 +277,11 @@ count=0
 
 case $vm_action in
     started)
+        # A VM start (re)creates the macvtap and can re-spread the NIC's
+        # kernel-managed IRQs across all CPUs (see step 08). Re-assert the
+        # cache partition + NIC IRQ affinity before pinning the VM threads:
+        systemctl restart vpac-ssc600-setup.service || true
+
         while [ -z "$qemu_pid" ]
         do
             sleep 1
@@ -325,5 +330,7 @@ EOF
 sudo chmod +x /etc/libvirt/hooks/qemu
 
 ```
+
+> The `systemctl restart vpac-ssc600-setup.service` line is this guide's addition to the vendor hook: a VM start (re)creates the macvtap and can re-spread the NIC's managed IRQs onto isolated cores, so the affinity from step 09 is re-asserted on every start. The rest of the hook is the vendor's as shipped.
 
 Continue to [11 — Start and license](11-start-and-license.md).
