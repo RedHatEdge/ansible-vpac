@@ -119,6 +119,41 @@ sudo pqos -s                                # the RT cache class should be prese
 
 On CPUs without Intel CAT, this is expected: cache partitioning is unavailable and the relay shares L3. This is acceptable and not a failure.
 
+## Random spikes / stray multicast on a host installed "Server with GUI"
+
+**Cause:** the guide specifies a minimal/server install (step 02), but hosts installed with the **Server with GUI** environment carry a set of services that inject traffic and scheduling noise a protection host should not have. Observed on a field install: `avahi-daemon` holding the mDNS multicast group **on the relay's process-bus macvtap devices**, live IPv6 link-local stacks on the process-bus parent NICs (host-originated NDP/MLD multicast on the Sampled-Values LANs), `cups`/`cups-browsed`, `ModemManager`, `wpa_supplicant`, a full GNOME console session, and periodic `dnf-makecache`/`fwupd-refresh` timer jobs — plus `tuned-ppd` reverting the tuned profile (its own entry above).
+
+**Fix (in order; the structural fix is reinstalling minimal/server):**
+
+```bash
+# Stop the network-active desktop services:
+sudo systemctl disable --now avahi-daemon.socket avahi-daemon.service \
+  cups.socket cups.path cups.service cups-browsed ModemManager wpa_supplicant
+
+# Stop the periodic download jobs:
+sudo systemctl disable --now dnf-makecache.timer fwupd-refresh.timer
+
+# Host IPv6 OFF on the process-bus parent NICs (no NDP/MLD on the SV LANs).
+# The guide's step 05 already sets this; GUI installs may have it enabled:
+sudo nmcli connection modify <process-bus-con> ipv6.method disabled
+
+# Boot to multi-user (GUI only on demand):
+sudo systemctl set-default multi-user.target
+```
+
+Then correlate: if latency/loss events line up with `journalctl -u dnf-makecache -u fwupd-refresh` timestamps, the timer jobs were the trigger.
+
+## Intel NIC (ice driver) misbehaves — no PHC, flaky timestamps, DDP errors in dmesg
+
+**Cause:** E810-class NICs load a DDP (Dynamic Device Personalization) package at probe; an outdated DDP package or firmware can produce missing/erratic PTP hardware clocks, timestamping failures, or `ice: DDP` load errors in `dmesg`.
+
+**Fix, in order of preference:**
+
+1. **Update the DDP package** consumed by the in-box driver: place the newer package under `/lib/firmware/intel/ice/ddp/` and point the `ice.pkg` symlink at it (keep the old file to roll back), then reload the driver or reboot. This stays within the supported RHEL driver.
+2. **Update the NIC firmware** via the vendor's tooling.
+3. **Open a Red Hat support case** — in-box `ice` fixes land via z-stream updates; on a protection host, a supported driver beats a newer one.
+4. **Out-of-tree `ice` driver from Intel — last resort only.** It must be rebuilt for every kernel update *including `kernel-rt` z-streams*, must be signed and MOK-enrolled on a Secure Boot host, and places the host outside the supported Red Hat driver set. If a site accepts that trade, document it as a deviation.
+
 ## Relay lost its license / config after a disk swap
 
 **Cause:** the disk image was restored to the pristine factory copy. License activation and all in-VM configuration are stored on the disk.
