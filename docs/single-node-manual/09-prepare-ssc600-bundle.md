@@ -95,9 +95,10 @@ sudo tee /usr/local/sbin/vpac-ssc600-setup.sh >/dev/null <<'EOF'
 # Requires /sys/fs/resctrl mounted (see step 08) and intel-cmt-cat installed.
 set -euo pipefail
 
-# The relay's real-time cores — the VM's vCPU pin set, a subset of the host's
-# isolated_cores. MUST match the <vcpupin> cores in the domain XML (step 10).
-# Adjust to your topology.
+# The relay's protection cores — the subset of the VM's vCPU pins that gets
+# the RT cache class. SSC600 vCPU 0 (host core 12 here) runs the relay's
+# OS/WebHMI and is excluded; vCPUs 1-3 (host cores 13-15) run protection.
+# Keep consistent with the <vcpupin> cores in the domain XML (step 10).
 RT_CORES="13-15"
 
 # Reset, then carve L3: give housekeeping cores one cache mask and the RT
@@ -108,7 +109,9 @@ pqos -e "llc:0=0x1ff;llc:1=0xe00"     # class 0 (non-RT) vs class 1 (RT)
 pqos -a "llc:1=${RT_CORES}"           # assign RT cores to the RT cache class
 
 NICS="ens2f0 ens2f1" # CHANGE FOR YOUR PTP & Process Bus NICs in use (blank space separated list)
-# Sample CPUMASK assuming core 9 in this setup is 0x200 - adjust according to your RT_CORES. Here 12-15 are used for the VM, 10-11 for the emulator pin, leaving the mask for 9.
+# CPUMASK targets the core that services these NICs' IRQs. 0x200 = core 9,
+# the top HOUSEKEEPING core in this example (isolated set is 10-15: emulator
+# pin on 10-11, vCPUs on 12-15). Adjust to your topology.
 CPUMASK="200"
 
 # Process bus / networking
@@ -116,10 +119,11 @@ echo "Configuring network card interrupts and threads"
 for nic in $NICS
 do
 	echo "Disabling NIC power management"
-	ethtool --set-eee $nic eee off || echo EEE failed or not supported
-	ethtool --change $nic wol d
-	echo on > /sys/class/net/$nic/power/control
-	IRQS=$(grep $nic /proc/interrupts | cut -d':' -f1)
+	ethtool --set-eee $nic eee off || echo "EEE off failed or not supported on $nic"
+	ethtool --change $nic wol d || echo "WoL disable failed or not supported on $nic"
+	echo on > /sys/class/net/$nic/power/control 2>/dev/null \
+	  || echo "runtime PM control not available on $nic"
+	IRQS=$(grep $nic /proc/interrupts | cut -d':' -f1 || true)
 	for irq in $IRQS
 	do
 	echo $CPUMASK | tee /proc/irq/$irq/smp_affinity
@@ -137,6 +141,7 @@ sudo tee /etc/systemd/system/vpac-ssc600-setup.service >/dev/null <<'EOF'
 [Unit]
 Description=SSC600 L3 cache partition + IRQ affinity
 After=sys-fs-resctrl.mount network-online.target
+Wants=network-online.target
 Requires=sys-fs-resctrl.mount
 
 [Service]

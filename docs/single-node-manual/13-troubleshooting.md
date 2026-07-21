@@ -193,6 +193,15 @@ pqos -s
 Confirm each COS shows the expected mask and core assignments.
 
 ### Samples
-For an Intel Xeon Gold 6226R CPU @ 2.90GHz (1 Socket, 16 cores) with 22MB Cache Size, vCPUs of SSC600SW on cores 12-15 and the L3 cache of 6MB for cores 13-15:
-  pqos -e "llc:0=0x1ff;llc:1=0x600"
-  pqos -a "llc:1=13,14,15"
+
+For an Intel Xeon Gold 6226R CPU @ 2.90GHz (1 socket, 16 cores) with a 22 MiB,
+11-way L3 (2 MiB per way), vCPUs of SSC600SW on cores 12-15 and a 6 MiB RT
+partition (3 ways) for cores 13-15:
+
+```bash
+pqos -e "llc:0=0x0ff;llc:1=0x700"    # general: ways 0-7 (16 MiB) | RT: ways 8-10 (6 MiB)
+pqos -a "llc:1=13,14,15"
+```
+
+(`0x600` would be only 2 ways = 4 MiB on this part — below the 6 MiB the relay
+requires. Non-overlap matters: the general mask must not include the RT ways.)

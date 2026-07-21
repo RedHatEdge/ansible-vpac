@@ -88,11 +88,21 @@ Do not tune chrony now; step 07 reconfigures it (or transfers timekeeping entire
 # Enable the service:
 sudo systemctl enable --now cockpit.socket
 
-# Open firewall:
+# Open firewall (management zone only):
 sudo firewall-cmd --permanent --zone=public --add-service=cockpit
-
-# Allow root user to login to cockpit:
-sudo sed -i "/root/d" "/etc/cockpit/disallowed-users"
+sudo firewall-cmd --reload
 ```
+
+Log in at `https://<management-ip>:9090` with the sudo admin user. Root web
+login is disallowed by default (`/etc/cockpit/disallowed-users`) — leave it
+that way on a protection host; the admin user can escalate privileges inside
+the session where needed.
+
+Two operational caveats:
+
+- Expose the web console on the **management network only** — never toward the
+  station or process bus.
+- Close web console sessions before running latency validation (step 12); an
+  open session polls the host and adds avoidable noise to the measurement.
 
 Continue to [05 — Networking](05-networking.md).
