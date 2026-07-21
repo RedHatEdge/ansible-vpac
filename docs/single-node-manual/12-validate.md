@@ -109,6 +109,8 @@ sudo virsh domiflist ssc600-01             # one interface of type 'direct' (mac
 ip -br addr show ens2f0                     # process-bus NIC: UP, still NO host IP
 ```
 
+In the PRP variant (steps 01/05/10): `domiflist` shows **two** `direct` interfaces on two different physical NICs, and both process-bus NICs must show UP with no host IP.
+
 Confirmation of the GOOSE/SV path is performed from the protection side (PCM600 or the relay's diagnostics showing receipt of subscribed GOOSE and Sampled Values) rather than from RHEL; the frames do not surface to the host by design.
 
 ## Completion criteria

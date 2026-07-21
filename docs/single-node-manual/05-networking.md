@@ -71,6 +71,23 @@ sudo nmcli connection up process-bus
 
 The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in bridge mode. Once the VM is running, the host hands this NIC to the guest.
 
+> **PRP variant (two process-bus LANs — see step 01)**
+> Reserve a **second** process-bus NIC the same way, and rename for clarity:
+>
+> ```bash
+> # Rename the existing connection to process-bus-a (optional but clearer):
+> sudo nmcli connection modify process-bus connection.id process-bus-a
+>
+> # Process bus B — reserved, no addressing, same as process bus A:
+> sudo nmcli connection add type ethernet con-name process-bus-b ifname ens2f1
+> sudo nmcli connection modify process-bus-b \
+>   ipv4.method disabled ipv6.method disabled \
+>   connection.autoconnect yes
+> sudo nmcli connection up process-bus-b
+> ```
+>
+> In the 5-NIC PRP layout the port this guide used for PTP (`ens2f1`) becomes process bus B, and **PTP moves to a fifth port** (e.g. `ens3f0`) — substitute accordingly in step 07. Each PRP LAN must be its own physical port on its own switch.
+
 ## PTP NIC — dedicated, nothing else
 
 The PTP NIC runs **only** `ptp4l`: no bridge, no macvtap, no other traffic. If another process consumes its inbound frames, the host clock will not lock.

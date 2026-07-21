@@ -161,6 +161,18 @@ Save as `~/ssc600-01.xml`:
       <model type='virtio'/>
     </interface>
 
+    <!-- PRP variant (see steps 01/05): add a THIRD interface — one macvtap
+         per PRP LAN, each on its own physical NIC. The relay performs the
+         PRP duplicate-discard across the two; assign LAN A / LAN B inside
+         the relay per ABB's PRP configuration.
+
+    <interface type='direct' trustGuestRxFilters='yes'>
+      <source dev='ens2f1' mode='bridge'/>
+      <model type='virtio'/>
+      <driver name='vhost' queues='4'/>
+    </interface>
+    -->
+
     <!-- No memory ballooning — a relay's memory footprint is fixed; balloon
          inflate/deflate is not used. -->
     <memballoon model='none'/>
@@ -207,6 +219,26 @@ Save as `~/ssc600-01.xml`:
   </devices>
 </domain>
 ```
+
+## If the process-bus interfaces show RX errors or drops
+
+Sampled Values is high-rate L2 multicast (≈4000–4800 frames/s per stream). Under load, a single-queue macvtap is the usual source of `rx_dropped` / `rx_fifo` / `overrun` counts. Mitigations, in order:
+
+1. **Use `mode='bridge'`, not `mode='vepa'`.** VEPA forces all guest frames out to the adjacent switch and depends on it doing reflective relay (802.1Qbg hairpin); most switches don't, which drops frames. The XML above already specifies bridge mode.
+2. **Enable virtio multiqueue** — `<driver name='vhost' queues='N'/>` on the interface (N up to the vCPU count). Confirm the guest brings the queues online.
+3. **Raise the NIC ring buffers** on the host: `sudo ethtool -G <nic> rx 4096`. (A ring/queue change re-spreads the NIC's managed IRQs — re-run the IRQ pinning afterward; see steps 08/09.)
+4. **Keep NIC IRQs and vhost-net threads off the isolated cores.** If either lands on an isolated core you get RX drops and RT jitter from the same cause — verify per step 12.
+
+Diagnose which counter is incrementing first — it points at the cause:
+
+```bash
+ip -s -s link show <nic>                       # errors vs dropped vs fifo/overrun
+ethtool -S <nic> | grep -iE 'drop|err|fifo|miss|over'
+ethtool -g <nic>                               # current vs max ring
+```
+
+- `rx_fifo` / `overrun` / `missed` → rate / ring-buffer / IRQ placement.
+- `rx_dropped` at low rate → multicast filtering or a VEPA-mode reflection dependency.
 
 ## Define the domain
 

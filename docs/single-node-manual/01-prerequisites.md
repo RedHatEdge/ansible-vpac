@@ -43,6 +43,14 @@ Two requirements govern this layout:
 
 The example names (`ens1f0`, `ens2f1`) are illustrative; site names will differ. After install, run `ip -br link` and map each physical port to its role based on the cabling.
 
+### Process bus: single-attached vs PRP
+
+The process bus can be wired two ways. Decide before provisioning NICs:
+
+- **Single-attached (no PRP).** One process-bus NIC. The relay receives GOOSE/SV on a single LAN. This is the layout in the base guide (**4 NICs**).
+- **PRP (IEC 62439-3), relay as DANP.** The relay attaches to **two physically independent process-bus LANs (A and B)**, sends every frame on both, and discards the duplicate. This requires **two** process-bus NICs, each cabled to a separate LAN/switch (**5 NICs total**). The redundancy only exists if the two paths are genuinely independent — two VLANs on one port is **not** PRP and will produce duplicate/error frames. The SSC600SW performs the PRP duplicate-discard itself; the host simply presents both NICs (steps 05 and 10 carry the PRP variant in callouts).
+- **PRP terminated by an external RedBox.** If a RedBox does the PRP and the relay sits behind it as a singly-attached node, the relay needs only **one** process-bus NIC (the 4-NIC layout). The relay is not doing PRP in this case.
+
 ## The ABB SSC600SW bundle
 
 ABB ships the SSC600SW as a **KVM software bundle**, not a generic OVA. Required items:

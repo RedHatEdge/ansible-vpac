@@ -28,6 +28,8 @@ Its purposes:
 
 One host. One relay VM. **Local storage** — no Ceph. **No Pacemaker, no corosync, no STONITH** — there is no cluster to coordinate or fence. The single-node variant comprises only the host-tuning and virtualization layers required to run a relay deterministically on RHEL.
 
+> **PRP variant:** for a redundant process bus (IEC 62439-3, relay as DANP), the host presents **two** process-bus NICs on two independent LANs — 5 NICs total — and the relay does the duplicate-discard. Carried as callouts in steps 01, 05, 10, and 12.
+
 For the highly-available three-node version, use the automated path — see [`../DEPLOYMENT-CONNECTED.md`](../DEPLOYMENT-CONNECTED.md) and [`../DEPLOYMENT-AIRGAPPED.md`](../DEPLOYMENT-AIRGAPPED.md).
 
 ## Connected and air-gapped
