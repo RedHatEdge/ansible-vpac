@@ -3,7 +3,8 @@
 # Regenerate: ansible-playbook site.yml --tags rt-irq
 #
 # Pin the device IRQs of the listed interfaces onto the housekeeping
-# (non-isolated) CPU set.
+# (non-isolated) CPU set, and disable per-NIC power saving (EEE, WoL,
+# runtime PM) — all three add wake-up latency on RT-path NICs.
 #
 # Why this exists: isolate_managed_irq=Y only constrains kernel-managed IRQ
 # placement at device PROBE time. A runtime queue/ring change — tuned's
@@ -43,6 +44,23 @@ while read -r nic; do
   nic="${nic%%#*}"; nic="${nic//[[:space:]]/}"
   [[ -n $nic ]] || continue
   if [[ ! -e /sys/class/net/$nic ]]; then echo "skip $nic (absent)"; continue; fi
+
+  # Disable NIC power-saving features that add latency on RT-path NICs.
+  # Every step is guarded: support varies by NIC/driver and a missing
+  # feature must not stop the remaining NICs from being handled.
+  if command -v ethtool >/dev/null; then
+    ethtool --set-eee "$nic" eee off 2>/dev/null && echo "$nic: EEE off" \
+      || echo "$nic: EEE off failed or not supported"
+    ethtool --change "$nic" wol d 2>/dev/null && echo "$nic: WoL off" \
+      || echo "$nic: WoL off failed or not supported"
+  fi
+  for pmctl in "/sys/class/net/$nic/power/control" \
+               "/sys/class/net/$nic/device/power/control"; do
+    if [[ -w $pmctl ]]; then
+      echo on > "$pmctl" 2>/dev/null && echo "$nic: runtime PM off ($pmctl)"
+    fi
+  done
+
   irqs=$(ls "/sys/class/net/$nic/device/msi_irqs" 2>/dev/null)
   [[ -n $irqs ]] || { echo "skip $nic (no msi_irqs)"; continue; }
   for irq in $irqs; do

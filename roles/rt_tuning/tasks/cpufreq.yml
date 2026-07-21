@@ -5,8 +5,19 @@
 # at max frequency. RT workloads need `performance` to avoid frequency
 # transitions that add jitter.
 #
-# Apply twice: live now via cpupower, and at boot via a systemd oneshot
-# (otherwise the kernel default re-applies on every reboot).
+# Two skip paths, both legitimate (neither is a failure):
+#   - No cpufreq at all: hypervisors present static-frequency CPUs with
+#     no cpufreq driver (cpupower would exit 237 "invalid policy").
+#   - cpufreq present but the target governor is not in
+#     scaling_available_governors: the BIOS owns P-state control (e.g. a
+#     Dell "Performance" system profile without OS DBPM). The firmware
+#     pins the frequency; there is nothing for the OS to govern.
+#     Confirmed in the field — the empty `cpupower frequency-info
+#     --governors` output on such hosts is the CORRECT state.
+#
+# When a governor is settable: apply twice — live now via cpupower, and
+# at boot via a systemd oneshot (otherwise the kernel default re-applies
+# on every reboot).
 
 - name: "Install cpupower (kernel-tools provides it)"
   ansible.builtin.dnf:
@@ -18,44 +29,69 @@
     path: /sys/devices/system/cpu/cpu0/cpufreq
   register: _rt_cpufreq_present
 
-- name: "Set cpufreq governor live"
-  # Hypervisors typically present static-frequency CPUs with no cpufreq
-  # driver — cpupower then exits 237 ("Trying to set an invalid policy").
-  # Bare-metal RT hosts always have cpufreq; gate on its presence so the
-  # role stays clean in nested-virt labs.
+- name: "Read available cpufreq governors"
   ansible.builtin.command:
-    cmd: "cpupower frequency-set -g {{ rt_tuning.cpu_governor | default('performance') }}"
-  changed_when: true
+    cmd: cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors
+  register: _rt_cpufreq_governors
+  changed_when: false
+  failed_when: false
   when: _rt_cpufreq_present.stat.exists
 
-- name: "Drop systemd oneshot to re-apply governor on boot"
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/vpac-cpufreq.service
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      [Unit]
-      Description=Re-apply vPAC cpufreq governor on boot
-      After=multi-user.target
+- name: "Decide whether the OS can set the governor"
+  ansible.builtin.set_fact:
+    _rt_governor_target: "{{ rt_tuning.cpu_governor | default('performance') }}"
+    _rt_governor_settable: >-
+      {{ _rt_cpufreq_present.stat.exists
+         and (_rt_cpufreq_governors.stdout | default(''))
+             is search(rt_tuning.cpu_governor | default('performance')) }}
 
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/bin/cpupower frequency-set -g {{ rt_tuning.cpu_governor | default('performance') }}
-      RemainAfterExit=yes
+- name: "Note when the BIOS owns P-state control"
+  ansible.builtin.debug:
+    msg: >-
+      cpufreq governors unavailable (or '{{ _rt_governor_target }}' not
+      offered) — the BIOS owns P-state control on this host. Expected on
+      BIOS performance profiles without OS frequency control; skipping
+      governor configuration. Confirm the BIOS profile pins max frequency
+      (step 01 BIOS table in the single-node manual / HARDWARE-BOM.md).
+  when:
+    - _rt_cpufreq_present.stat.exists
+    - not (_rt_governor_settable | bool)
 
-      [Install]
-      WantedBy=multi-user.target
-  register: _rt_cpufreq_unit
+- name: "OS-controlled governor path"
+  when: _rt_governor_settable | bool
+  block:
+    - name: "Set cpufreq governor live"
+      ansible.builtin.command:
+        cmd: "cpupower frequency-set -g {{ _rt_governor_target }}"
+      changed_when: true
 
-- name: "Reload systemd if the unit changed"
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: _rt_cpufreq_unit.changed
+    - name: "Drop systemd oneshot to re-apply governor on boot"
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/vpac-cpufreq.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Re-apply vPAC cpufreq governor on boot
+          After=multi-user.target
 
-- name: "Enable vpac-cpufreq.service"
-  ansible.builtin.systemd_service:
-    name: vpac-cpufreq.service
-    enabled: true
-    state: started
-  when: _rt_cpufreq_present.stat.exists
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/cpupower frequency-set -g {{ _rt_governor_target }}
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+      register: _rt_cpufreq_unit
+
+    - name: "Reload systemd if the unit changed"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: _rt_cpufreq_unit.changed
+
+    - name: "Enable vpac-cpufreq.service"
+      ansible.builtin.systemd_service:
+        name: vpac-cpufreq.service
+        enabled: true
+        state: started
