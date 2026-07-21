@@ -66,6 +66,16 @@ ptp_timesync_status_dir: "/home/libvirt-local/ptp"
 ptp_timesync_status_filename: "ptp_status"
 ptp_timesync_socket_template: "/var/run/timemaster/ptp4l.<num>.socket"
 
+# Cross-NIC PHC sync (vendor engineering-manual guidance): discipline the
+# hardware clock of each listed NIC — typically the process-bus ports —
+# from the PTP NIC's PHC, so the port carrying Sampled Values agrees with
+# the grandmaster. Needed because ptp4l cannot run on a process-bus port
+# directly: its inbound frames belong to the relay's macvtap. One
+# phc2sys instance is installed per listed NIC. Empty list => nothing
+# installed. Populate from the inventory, e.g.
+#   time_sync.ptp.procbus_phc_nics: ["ens2f0"]
+ptp_timesync_procbus_phc_nics: "{{ time_sync.ptp.procbus_phc_nics | default([]) }}"
+
 # GM-stability check at the tail of the role: take N samples spaced
 # `interval` seconds apart and assert the GM clockIdentity does not
 # change. Prevents the role from declaring success while BMCA is still

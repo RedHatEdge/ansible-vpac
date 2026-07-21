@@ -1,0 +1,19 @@
+# Managed by ansible-vpac / ptp_timesync role — do not edit by hand.
+# Regenerate: ansible-playbook site.yml --tags ptp-phc-procbus
+[Unit]
+Description=Sync {{ item }} PHC from the PTP NIC ({{ ptp_timesync_nic }}) PHC
+# Vendor engineering-manual guidance: the process-bus port's hardware
+# clock must agree with the grandmaster, but ptp4l cannot run there (the
+# relay's macvtap owns its inbound frames) — so copy the disciplined PTP
+# NIC's PHC across.
+After=timemaster.service
+Wants=timemaster.service
+
+[Service]
+# -c = clock being disciplined ({{ item }}), -s = source ({{ ptp_timesync_nic }})
+ExecStart=/usr/sbin/phc2sys -c {{ item }} -s {{ ptp_timesync_nic }} -O 0
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

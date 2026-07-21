@@ -38,6 +38,10 @@
       ansible.builtin.import_tasks: ptp_status.yml
       tags: [ptp, ptp-status]
 
+    - name: "Cross-NIC PHC sync for process-bus ports (when configured)"
+      ansible.builtin.import_tasks: phc_procbus.yml
+      tags: [ptp, ptp-phc-procbus]
+
     - name: "Verify timemaster is running and PTP grandmaster is stable"
       ansible.builtin.import_tasks: verify.yml
       tags: [ptp, ptp-verify]

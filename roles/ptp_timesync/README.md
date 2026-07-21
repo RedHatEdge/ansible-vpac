@@ -102,6 +102,7 @@ Almost everything reads from the inventory's `time_sync.*` and
 | `ptp_timesync_ptp4l.{...}` | see `defaults/main.yml` | per-knob ptp4l overrides |
 | `ptp_timesync_chrony.{...}` | reads from `rt_chrony.*` | embedded chrony settings |
 | `ptp_timesync_status_dir` | `/home/libvirt-local/ptp` | virtiofs share root |
+| `ptp_timesync_procbus_phc_nics` | `[]` (reads `time_sync.ptp.procbus_phc_nics`) | process-bus NICs whose PHC is disciplined from the PTP NIC's PHC (one phc2sys instance each) |
 | `ptp_timesync_gm_samples` | `4` | GM-stability samples |
 | `ptp_timesync_gm_sample_interval` | `8` | seconds between samples (~30s window) |
 

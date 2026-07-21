@@ -1,0 +1,36 @@
+---
+# Cross-NIC PHC sync — one phc2sys instance per listed process-bus NIC,
+# each disciplining that NIC's hardware clock from the PTP NIC's PHC.
+# Vendor engineering-manual guidance for hosts where the process bus and
+# PTP are separate ports (the reference layout): the SV-carrying port's
+# PHC must agree with the grandmaster, and ptp4l cannot run on it because
+# the relay's macvtap owns its inbound frames.
+#
+# Empty ptp_timesync_procbus_phc_nics => nothing installed.
+
+- name: "Install phc2sys-procbus unit per process-bus NIC"
+  ansible.builtin.template:
+    src: phc2sys-procbus.service.j2
+    dest: "/etc/systemd/system/phc2sys-procbus-{{ item }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ ptp_timesync_procbus_phc_nics }}"
+  register: _ptp_phc_units
+
+- name: "Enable + start phc2sys-procbus instances"
+  ansible.builtin.systemd_service:
+    name: "phc2sys-procbus-{{ item }}.service"
+    state: started
+    enabled: true
+    daemon_reload: "{{ _ptp_phc_units.changed | default(false) }}"
+  loop: "{{ ptp_timesync_procbus_phc_nics }}"
+
+- name: "Restart instances whose unit changed"
+  ansible.builtin.systemd_service:
+    name: "phc2sys-procbus-{{ item.item }}.service"
+    state: restarted
+  loop: "{{ _ptp_phc_units.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('n/a') }}"
+  when: item.changed | default(false)

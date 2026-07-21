@@ -345,6 +345,11 @@ time_sync:
     transport: "L2"                      # L2 | UDPv4
     delay_mechanism: "P2P"               # P2P | E2E — relay domains usually P2P
     profile: "default"                   # default | G.8275.1 | G.8275.2
+    # Process-bus NICs whose hardware clock should be disciplined from the
+    # PTP NIC's PHC (vendor guidance: the SV-carrying port must agree with
+    # the grandmaster; ptp4l can't run there — the relay macvtap owns its
+    # inbound frames). One phc2sys instance per NIC. Empty = skip.
+    procbus_phc_nics: []                 # e.g. ["ens2f0"]
 
 # --------------------------------------------------------------------
 # 8. Real-time tuning
