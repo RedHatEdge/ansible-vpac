@@ -1,6 +1,6 @@
-# 02 — Install RHEL 9
+# 02 — Install RHEL
 
-Install **RHEL 9.7 or later** on the host. Any installation method works — interactive ISO, kickstart, or PXE. Host tuning occurs in the later steps; a few installation choices simplify them.
+Install **RHEL 9.7 or later** — or **RHEL 10.2 or later**, on which this guide has been verified end-to-end in the field. Any installation method works — interactive ISO, kickstart, or PXE. The procedure is identical on both major versions; only the repository labels differ (step 03 carries the substitution). Host tuning occurs in the later steps; a few installation choices simplify them.
 
 ## Base environment
 
@@ -27,7 +27,7 @@ Install **RHEL 9.7 or later** on the host. Any installation method works — int
 Log in over the management NIC and confirm the basics:
 
 ```bash
-# RHEL version — must be 9.7 or newer
+# RHEL version — must be 9.7+ (or 10.2+)
 cat /etc/redhat-release
 
 # Confirm SELinux is enforcing
