@@ -29,12 +29,13 @@
     fail_msg: >-
       {{ bridges.station }} does not have {{ _net_node.station_ip }} after apply.
 
-- name: "Assert heartbeat NIC has the expected IP (when configured)"
+- name: "Assert heartbeat interface has the expected IP (when configured)"
   ansible.builtin.assert:
     that:
-      - hostvars[inventory_hostname]['ansible_' ~ (networking_defaults.heartbeat_nic | replace('-', '_'))].ipv4.address == _net_node.heartbeat_ip
+      - hostvars[inventory_hostname]['ansible_' ~ (networking_heartbeat_iface | replace('-', '_') | replace('.', '_'))].ipv4.address == _net_node.heartbeat_ip
     fail_msg: >-
-      {{ networking_defaults.heartbeat_nic }} does not have {{ _net_node.heartbeat_ip }} after apply.
+      heartbeat interface {{ networking_heartbeat_iface }} does not have
+      {{ _net_node.heartbeat_ip }} after apply.
   when: not (networking_skip_heartbeat | bool)
 
 - name: "Assert PTP NIC is up but unconfigured (no IP)"

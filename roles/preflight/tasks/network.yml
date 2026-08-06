@@ -47,7 +47,7 @@
       Known interfaces: {{ ansible_facts['interfaces'] | sort | join(', ') }}
   loop: "{{ networking_defaults.station_bond.members }}"
 
-- name: "Assert declared heartbeat NIC exists on this host"
+- name: "Assert declared heartbeat NIC exists on this host (dedicated mode)"
   ansible.builtin.assert:
     that: networking_defaults.heartbeat_nic in ansible_facts['interfaces']
     fail_msg: >-
@@ -56,14 +56,47 @@
       {{ ansible_facts['interfaces'] | sort | join(', ') }}
   when:
     - vpac_nodes | length >= 3
+    - not (networking_heartbeat_shared | bool)
     - (networking_defaults.heartbeat_nic | default('')) | length > 0
 
-- name: "Warn when heartbeat NIC is unset (3+ node cluster)"
-  ansible.builtin.debug:
-    msg: >-
-      networking_defaults.heartbeat_nic is empty. The pacemaker role will
-      refuse to proceed until a dedicated heartbeat NIC is declared. OK for
-      lab bring-up of stages 10–60; must be set before stage 70.
+- name: "Validate shared heartbeat-on-VLAN config (shared mode)"
+  ansible.builtin.assert:
+    that:
+      - (networking_heartbeat_bond_name | default('')) | length > 0
+      - networks.heartbeat.vlan is not none
+      - (networks.heartbeat.vlan | int) > 0
+    fail_msg: >-
+      networks.heartbeat.shared_bond is set ({{ networking_heartbeat_shared_bond_role }}) but the
+      shared-heartbeat config is incomplete: resolved bond '{{ networking_heartbeat_bond_name }}',
+      vlan '{{ networks.heartbeat.vlan | default("unset") }}'. Shared mode needs a resolvable bond
+      (storage|mgmt|station or a bond ifname) AND a non-null networks.heartbeat.vlan on its own subnet.
+    success_msg: >-
+      Heartbeat rides VLAN {{ networks.heartbeat.vlan }} on bond
+      {{ networking_heartbeat_bond_name }} ({{ networking_heartbeat_shared_bond_role }}) — shared mode.
   when:
     - vpac_nodes | length >= 3
-    - (networking_defaults.heartbeat_nic | default('')) | length == 0
+    - networking_heartbeat_shared | bool
+  run_once: true
+
+- name: "Warn if heartbeat shares the mgmt bond (storage bond preferred)"
+  ansible.builtin.debug:
+    msg: >-
+      networks.heartbeat.shared_bond resolves to the management bond
+      ({{ networking_heartbeat_bond_name }}). The storage bond is preferred — it is L2-only and
+      not subject to the guest-bridge churn that can starve corosync. Note the mgmt/heartbeat CIDR
+      assert above still applies: the ring must be a distinct network.
+  when:
+    - networking_heartbeat_shared | bool
+    - networking_heartbeat_bond_name == (networking_defaults.mgmt_bond.name | default(''))
+  run_once: true
+
+- name: "Warn when NO heartbeat interface is configured (3+ node cluster)"
+  ansible.builtin.debug:
+    msg: >-
+      No heartbeat interface configured — neither a dedicated networking_defaults.heartbeat_nic
+      nor a shared networks.heartbeat.shared_bond. Fine for lab bring-up of stages 10–60, but
+      stage 70 (pacemaker_base) binds each node's corosync ring to its heartbeat_ip and needs that
+      address present. Configure one (dedicated NIC or shared VLAN) before stage 70.
+  when:
+    - vpac_nodes | length >= 3
+    - networking_skip_heartbeat | bool

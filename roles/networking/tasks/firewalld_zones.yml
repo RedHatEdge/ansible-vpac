@@ -33,9 +33,9 @@
     - _net_zone_station.rc != 0
     - "'unknown connection' not in _net_zone_station.stderr"
 
-- name: "Put heartbeat NIC in {{ networking_heartbeat_zone }} zone"
+- name: "Put heartbeat interface in {{ networking_heartbeat_zone }} zone"
   ansible.builtin.command: >-
-    nmcli connection modify {{ networking_defaults.heartbeat_nic }}
+    nmcli connection modify {{ networking_heartbeat_iface }}
     connection.zone {{ networking_heartbeat_zone }}
   register: _net_zone_hb
   changed_when: _net_zone_hb.rc == 0

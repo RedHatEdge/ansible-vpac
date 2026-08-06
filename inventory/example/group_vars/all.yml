@@ -221,10 +221,22 @@ networks:
   # Cluster heartbeat: corosync ring, separate from VM mgmt bridge.
   # DO NOT collapse this onto mgmt if mgmt also hosts VM libvirt networks —
   # bridge churn from guest VMs will starve corosync heartbeats.
+  #
+  # Two ways to carry it (see roles/networking/README.md "Heartbeat modes"):
+  #   dedicated (default): heartbeat_ip on its own raw NIC
+  #                        (networking_defaults.heartbeat_nic).
+  #   shared:   set shared_bond below to ride a VLAN on an existing bond
+  #             instead of a dedicated NIC — for 4-NIC hardware that can't
+  #             spare a fifth port. Storage bond is preferred. Requires `vlan`.
+  # Red Hat support does NOT require a dedicated heartbeat network (KB 3068841);
+  # the constraint is that the ring live on its own network, which the VLAN
+  # subinterface provides.
   heartbeat:
-    cidr: "10.0.30.0/24"
+    cidr: "10.0.30.0/24"                  # must be its own subnet (corosync ring separation)
     gateway: null
-    vlan: 30
+    vlan: 30                              # applied only in shared mode; ignored for a raw NIC
+    shared_bond: null                    # null/"" = dedicated NIC (default).
+                                         # storage | mgmt | station | <bond ifname> = shared VLAN mode.
 
   # BMC / IPMI: usually a separate physical network, accessed by STONITH agent.
   bmc:

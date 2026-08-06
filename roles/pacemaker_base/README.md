@@ -60,7 +60,7 @@ Pick the first node thoughtfully — it should be the most-likely-healthy node (
 ## Dependencies
 
 - `host_baseline` (stage 10) — needs `firewall-cmd --add-service=high-availability` already in effect via `firewalld_baseline_services`
-- `networking` (stage 20) — needs the heartbeat NIC up with `heartbeat_ip` bound on every node
+- `networking` (stage 20) — needs each node's `heartbeat_ip` bound and reachable, on whichever interface carries it (a dedicated heartbeat NIC or a shared VLAN-on-bond — see the networking role's *Heartbeat modes*). This role binds the ring to `heartbeat_ip`; it does not require a *dedicated* NIC.
 - `ceph_expand` (stage 60) — Ceph health is independent, but pacemaker before ceph would race the storage layer
 
 `stonith` (stage 75) flips `stonith-enabled` from `false` to `true` after fence devices are configured.

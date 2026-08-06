@@ -38,6 +38,27 @@ interfaces:
 {% endif %}
 
 {% if not (networking_skip_heartbeat | bool) %}
+{%   if networking_heartbeat_shared | bool %}
+  # ----- Heartbeat — VLAN subinterface on the {{ networking_heartbeat_shared_bond_role }} bond (shared mode) -----
+  # Corosync ring rides its own VLAN/subnet on a shared bond. Red Hat permits a
+  # shared interconnect (support KB 3068841); the ring stays on a distinct
+  # network, which is the constraint that actually matters. base-iface (the
+  # bond) is defined later in this document — nmstate resolves declaratively.
+  - name: {{ networking_heartbeat_bond_name }}.{{ networks.heartbeat.vlan }}
+    type: vlan
+    state: up
+    vlan:
+      base-iface: {{ networking_heartbeat_bond_name }}
+      id: {{ networks.heartbeat.vlan }}
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: {{ _net_node.heartbeat_ip }}
+          prefix-length: {{ heartbeat_prefix }}
+    ipv6:
+      enabled: false
+{%   else %}
   # ----- Heartbeat NIC — raw IP, not a bridge, not a bond slave -----
   - name: {{ networking_defaults.heartbeat_nic }}
     type: ethernet
@@ -50,6 +71,7 @@ interfaces:
           prefix-length: {{ heartbeat_prefix }}
     ipv6:
       enabled: false
+{%   endif %}
 {% endif %}
 
   # ----- Management bond -----
