@@ -1,0 +1,33 @@
+---
+# Assert that none of the interfaces currently carrying a linkdown route is one
+# this role manages. Factored out of verify.yml so the regression test exercises
+# the exact production logic — see tests/regression/test_linkdown_scope.yml.
+#
+# Input: _linkdown_devs — list of interface names that have a linkdown route.
+#        verify.yml derives it from `ip route show`; the test injects it.
+#
+# Why scoped: libvirt's default NAT bridge (virbr0) is kept on connected-mode
+# deployments by design, for the Windows `virt-install --network default` install
+# path. virbr0 sits linkdown until a guest attaches and carries no cluster route,
+# so it cannot mask the duplicate-subnet collision this check guards against. The
+# original unscoped `grep linkdown` flagged it on any stage-20 re-run after stage
+# 30 had created it — a hard failure on a healthy cluster. Scoping to the managed
+# interfaces (mgmt/station bridges, storage bond, heartbeat) matches the check's
+# stated intent.
+- name: "Assert no cluster-managed interface has a linkdown route"
+  ansible.builtin.assert:
+    that:
+      - (_linkdown_devs | select('in', _net_managed_route_ifaces) | list | length) == 0
+    fail_msg: >-
+      A cluster-managed interface has a route with no carrier (linkdown):
+      {{ _linkdown_devs | select('in', _net_managed_route_ifaces) | list | join(', ') }}.
+      A linkdown managed bridge/bond can mask a duplicate-subnet collision and let
+      a bad config pass. Bring carrier up on that interface before proceeding.
+      (libvirt NAT bridges like virbr0 are intentionally excluded.)
+    success_msg: "No managed interface is linkdown (unmanaged NAT bridges ignored)."
+  vars:
+    _net_managed_route_ifaces: >-
+      {{ ([bridges.mgmt, bridges.station, networking_defaults.storage_bond.name]
+          + ([ (networking_heartbeat_iface | default('')) or (networking_defaults.heartbeat_nic | default('')) ]
+             if not (networking_skip_heartbeat | bool) else []))
+         | select | list }}

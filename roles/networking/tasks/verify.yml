@@ -50,14 +50,9 @@
 
 # ---- Defense-in-depth: re-verify post-apply state ----
 
-# Scope the linkdown check to the interfaces THIS role manages. The original
-# unscoped `grep linkdown` swept up libvirt's default NAT bridge (virbr0), which
-# connected-mode deployments keep by design for the Windows `virt-install
-# --network default` path. virbr0 sits linkdown until a guest attaches and
-# carries no cluster route, so it cannot mask a duplicate-subnet collision — the
-# very thing this check exists to catch. First deploys passed because stage 20
-# runs before stage 30 creates virbr0; any stage-20 RE-RUN after stage 30 then
-# hard-failed on a healthy cluster. Scope to managed ifaces to match intent.
+# Linkdown-route check, scoped to the interfaces this role manages (the assert
+# lives in assert_linkdown_scope.yml so the regression test can exercise it with
+# controlled input — libvirt's NAT virbr0 must NOT trip it; see that file).
 - name: "List interfaces carrying a linkdown route"
   ansible.builtin.shell: |
     set -o pipefail
@@ -65,22 +60,10 @@
   register: _net_linkdown_devs
   changed_when: false
 
-- name: "Assert no cluster-managed interface has a linkdown route"
-  ansible.builtin.assert:
-    that:
-      - (_net_linkdown_devs.stdout_lines | select('in', _net_managed_route_ifaces) | list | length) == 0
-    fail_msg: >-
-      A cluster-managed interface has a route with no carrier (linkdown):
-      {{ _net_linkdown_devs.stdout_lines | select('in', _net_managed_route_ifaces) | list | join(', ') }}.
-      A linkdown managed bridge/bond can mask a duplicate-subnet collision and let
-      a bad config pass. Bring carrier up on that interface before proceeding.
-      (libvirt NAT bridges like virbr0 are intentionally excluded.)
+- name: "Scope-check linkdown routes against managed interfaces"
+  ansible.builtin.include_tasks: assert_linkdown_scope.yml
   vars:
-    _net_managed_route_ifaces: >-
-      {{ ([bridges.mgmt, bridges.station, networking_defaults.storage_bond.name]
-          + ([ (networking_heartbeat_iface | default('')) or (networking_defaults.heartbeat_nic | default('')) ]
-             if not (networking_skip_heartbeat | bool) else []))
-         | select | list }}
+    _linkdown_devs: "{{ _net_linkdown_devs.stdout_lines | default([]) }}"
 
 - name: "Re-enumerate IPv4 networks after apply"
   ansible.builtin.shell: |

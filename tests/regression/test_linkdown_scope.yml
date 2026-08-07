@@ -1,0 +1,113 @@
+---
+# Regression test for the stage-20 linkdown-route assertion scoping.
+#
+# BUG: the "no linkdown routes" check grepped the whole route table and flagged
+# libvirt's NAT bridge virbr0, which connected-mode deployments keep by design.
+# Every stage-20 RE-RUN after stage 30 (which creates virbr0) then hard-failed a
+# healthy cluster. First runs passed vacuously because stage 20 precedes stage 30.
+#
+# This test drives the EXTRACTED production assertion
+# (roles/networking/tasks/assert_linkdown_scope.yml) with controlled interface
+# lists — no live cluster, no libvirt, runnable anywhere:
+#
+#   ansible-playbook tests/regression/test_linkdown_scope.yml
+#
+# NOTE on the integration form: a true 20 -> 30 -> 20 run (which is what actually
+# regressed) needs real NICs + libvirt and only runs in the lab. This unit test
+# locks the assertion LOGIC; the ordering caveat is documented in tests/README.md.
+- name: "Regression: linkdown assert must scope to managed interfaces"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Minimal inventory context the assertion reads. Dedicated-heartbeat shape;
+    # a second play below covers the shared-VLAN (bondN.<vlan>) shape.
+    bridges: { mgmt: "br-mgmt", station: "station-nic" }
+    networking_defaults:
+      storage_bond: { name: "bond1" }
+      heartbeat_nic: "ens3f0"
+    networking_skip_heartbeat: false
+    _test_failures: 0
+
+  tasks:
+    - name: "CASE 1 — virbr0 linkdown alone must NOT fail (the regression)"
+      block:
+        - ansible.builtin.include_role:
+            name: networking
+            tasks_from: assert_linkdown_scope
+          vars:
+            _linkdown_devs: ["virbr0"]
+        - ansible.builtin.debug:
+            msg: "PASS CASE 1: virbr0 linkdown correctly ignored"
+      rescue:
+        - ansible.builtin.set_fact:
+            _test_failures: "{{ _test_failures | int + 1 }}"
+        - ansible.builtin.debug:
+            msg: "FAIL CASE 1 (REGRESSION): virbr0 linkdown was wrongly flagged"
+
+    - name: "CASE 2 — a managed interface (br-mgmt) linkdown MUST fail"
+      block:
+        - ansible.builtin.include_role:
+            name: networking
+            tasks_from: assert_linkdown_scope
+          vars:
+            _linkdown_devs: ["br-mgmt"]
+        # reaching here means the assert did NOT fire — that's a bug
+        - ansible.builtin.set_fact:
+            _test_failures: "{{ _test_failures | int + 1 }}"
+        - ansible.builtin.debug:
+            msg: "FAIL CASE 2: br-mgmt linkdown was NOT flagged"
+      rescue:
+        - ansible.builtin.debug:
+            msg: "PASS CASE 2: br-mgmt linkdown correctly flagged"
+
+    - name: "CASE 3 — no linkdown routes at all must pass"
+      block:
+        - ansible.builtin.include_role:
+            name: networking
+            tasks_from: assert_linkdown_scope
+          vars:
+            _linkdown_devs: []
+        - ansible.builtin.debug:
+            msg: "PASS CASE 3: empty linkdown list passes"
+      rescue:
+        - ansible.builtin.set_fact:
+            _test_failures: "{{ _test_failures | int + 1 }}"
+        - ansible.builtin.debug:
+            msg: "FAIL CASE 3: empty linkdown list wrongly flagged"
+
+    - name: "CASE 4 — virbr0 + managed down together flags ONLY the managed one"
+      block:
+        - ansible.builtin.include_role:
+            name: networking
+            tasks_from: assert_linkdown_scope
+          vars:
+            _linkdown_devs: ["virbr0", "bond1"]
+        - ansible.builtin.set_fact:
+            _test_failures: "{{ _test_failures | int + 1 }}"
+        - ansible.builtin.debug:
+            msg: "FAIL CASE 4: storage bond linkdown was NOT flagged"
+      rescue:
+        - ansible.builtin.debug:
+            msg: "PASS CASE 4: storage bond flagged, virbr0 still ignored"
+
+    - name: "CASE 5 — shared-VLAN heartbeat (bond1.23) linkdown MUST fail"
+      block:
+        - ansible.builtin.include_role:
+            name: networking
+            tasks_from: assert_linkdown_scope
+          vars:
+            networking_heartbeat_iface: "bond1.23"   # shared-mode iface
+            _linkdown_devs: ["bond1.23"]
+        - ansible.builtin.set_fact:
+            _test_failures: "{{ _test_failures | int + 1 }}"
+        - ansible.builtin.debug:
+            msg: "FAIL CASE 5: heartbeat VLAN linkdown was NOT flagged"
+      rescue:
+        - ansible.builtin.debug:
+            msg: "PASS CASE 5: heartbeat VLAN (bond1.23) correctly flagged"
+
+    - name: "Summary — fail the play if any case regressed"
+      ansible.builtin.assert:
+        that: (_test_failures | int) == 0
+        fail_msg: "{{ _test_failures }} regression case(s) FAILED — see messages above."
+        success_msg: "All 5 linkdown-scope regression cases passed."
