@@ -68,7 +68,14 @@
             done
           done
         done
-        ((${#drift[@]})) && { printf '%s\n' "${drift[@]}"; exit 1; }
+        # NOTE: do not use the bash array-length expansion (a hash immediately
+        # inside the brace) here. That brace-hash pair is Jinja2's comment-open
+        # delimiter, and Ansible's split_args() scans this free-form module arg
+        # for jinja delimiters BEFORE templating — it sees the open delimiter
+        # with no close and refuses to load the whole file (a raw block does not
+        # help; split_args runs pre-templating). The form below is equivalent:
+        # empty array -> the joined string is empty -> skip; non-empty -> fire.
+        [ -n "${drift[*]:-}" ] && { printf '%s\n' "${drift[@]}"; exit 1; }
         exit 0
       args:
         executable: /bin/bash
