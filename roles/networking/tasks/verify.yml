@@ -50,22 +50,37 @@
 
 # ---- Defense-in-depth: re-verify post-apply state ----
 
-- name: "List routes with linkdown annotation"
+# Scope the linkdown check to the interfaces THIS role manages. The original
+# unscoped `grep linkdown` swept up libvirt's default NAT bridge (virbr0), which
+# connected-mode deployments keep by design for the Windows `virt-install
+# --network default` path. virbr0 sits linkdown until a guest attaches and
+# carries no cluster route, so it cannot mask a duplicate-subnet collision — the
+# very thing this check exists to catch. First deploys passed because stage 20
+# runs before stage 30 creates virbr0; any stage-20 RE-RUN after stage 30 then
+# hard-failed on a healthy cluster. Scope to managed ifaces to match intent.
+- name: "List interfaces carrying a linkdown route"
   ansible.builtin.shell: |
     set -o pipefail
-    ip route show | grep linkdown || true
-  register: _net_linkdown
+    ip route show | awk '/linkdown/ { for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1) }' | sort -u
+  register: _net_linkdown_devs
   changed_when: false
 
-- name: "Assert no routes are masked by linkdown carrier"
+- name: "Assert no cluster-managed interface has a linkdown route"
   ansible.builtin.assert:
-    that: _net_linkdown.stdout | length == 0
+    that:
+      - (_net_linkdown_devs.stdout_lines | select('in', _net_managed_route_ifaces) | list | length) == 0
     fail_msg: >-
-      Routes are present but their next-hop interface has no carrier (linkdown).
-      A linkdown bridge can mask duplicate-subnet collisions and let bad configs
-      pass validation. Bring carrier up on every configured bridge before
-      proceeding. Routes:
-      {{ _net_linkdown.stdout }}
+      A cluster-managed interface has a route with no carrier (linkdown):
+      {{ _net_linkdown_devs.stdout_lines | select('in', _net_managed_route_ifaces) | list | join(', ') }}.
+      A linkdown managed bridge/bond can mask a duplicate-subnet collision and let
+      a bad config pass. Bring carrier up on that interface before proceeding.
+      (libvirt NAT bridges like virbr0 are intentionally excluded.)
+  vars:
+    _net_managed_route_ifaces: >-
+      {{ ([bridges.mgmt, bridges.station, networking_defaults.storage_bond.name]
+          + ([ (networking_heartbeat_iface | default('')) or (networking_defaults.heartbeat_nic | default('')) ]
+             if not (networking_skip_heartbeat | bool) else []))
+         | select | list }}
 
 - name: "Re-enumerate IPv4 networks after apply"
   ansible.builtin.shell: |
