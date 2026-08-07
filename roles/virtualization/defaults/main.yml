@@ -6,7 +6,10 @@
 #   swtpm-tools     TPM state init for Windows-11 / TPM-required guests
 #   intel-cmt-cat   `pqos` for cache monitoring + partitioning (Intel CAT)
 #   virt-viewer     operator console
-#   cabextract      vendor SW bundle extraction (e.g. SSC600 .cab files)
+#   NOTE cabextract (vendor .cab extraction, e.g. SSC600 bundles) is deliberately
+#   NOT here -- it ships only in EPEL, so on a stock RHSM-only host this task
+#   fails with "No package cabextract available" and takes stage 30 with it.
+#   Add it to virtualization_packages per-site if that site has EPEL and needs it.
 #   cockpit-machines Cockpit's VM management panel
 virtualization_packages:
   - libvirt
@@ -19,7 +22,6 @@ virtualization_packages:
   - swtpm-tools
   - edk2-ovmf
   - intel-cmt-cat
-  - cabextract
   - cockpit-machines
   - tuned
   - tuned-profiles-cpu-partitioning

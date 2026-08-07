@@ -5,9 +5,17 @@
 # accidentally concatenated onto a single line, where the kernel returns
 # the first match and node2's hostname silently resolves to node1's IP.
 # Live migration and Ceph both depend on hostname URIs.
+#
+# Use `getent ahosts`, NOT `getent hosts`. For the node's OWN hostname the
+# `myhostname` NSS module (default in nsswitch.conf on RHEL) synthesises the
+# interface link-local addresses and wins the `hosts` database, so
+# `getent hosts <self>` returns fe80::... and the assert below fails even
+# though /etc/hosts is perfectly correct. `ahosts` does proper address-family
+# sorting and returns the IPv4 mgmt address. Cross-node lookups work either
+# way -- this only bites on the local hostname, which is why it looks random.
 
 - name: "Forward resolution: mgmt hostnames"
-  ansible.builtin.command: "getent hosts {{ item.hostname }}"
+  ansible.builtin.command: "getent ahosts {{ item.hostname }}"
   loop: "{{ vpac_nodes }}"
   loop_control:
     label: "{{ item.hostname }}"
@@ -21,7 +29,7 @@
       - item.rc == 0
       - item.item.mgmt_ip in (item.stdout | default(''))
     fail_msg: >-
-      getent hosts {{ item.item.hostname }} returned '{{ item.stdout | default('(no answer)') }}';
+      getent ahosts {{ item.item.hostname }} returned '{{ item.stdout | default('(no answer)') }}';
       expected to contain mgmt_ip {{ item.item.mgmt_ip }}. /etc/hosts may have entries
       concatenated onto one line (silent failure mode), or DNS is misconfigured.
   loop: "{{ _preflight_resolve_mgmt.results }}"
@@ -29,7 +37,7 @@
     label: "{{ item.item.hostname }}"
 
 - name: "Forward resolution: storage-network hostnames (<host>-storage)"
-  ansible.builtin.command: "getent hosts {{ item.hostname }}-storage"
+  ansible.builtin.command: "getent ahosts {{ item.hostname }}-storage"
   loop: "{{ vpac_nodes }}"
   loop_control:
     label: "{{ item.hostname }}-storage"
@@ -43,7 +51,7 @@
       - item.rc == 0
       - item.item.storage_ip in (item.stdout | default(''))
     fail_msg: >-
-      getent hosts {{ item.item.hostname }}-storage returned '{{ item.stdout | default('(no answer)') }}';
+      getent ahosts {{ item.item.hostname }}-storage returned '{{ item.stdout | default('(no answer)') }}';
       expected to contain storage_ip {{ item.item.storage_ip }}. host_baseline must populate
       <hostname>-storage entries in /etc/hosts (required for live migration and Ceph private mons).
   loop: "{{ _preflight_resolve_storage.results }}"
