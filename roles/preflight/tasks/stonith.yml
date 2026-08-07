@@ -11,6 +11,33 @@
     _preflight_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"
 
 # ---- fence_ipmilan path (real BMCs) ----
+# ipmitool is installed by the stonith role at stage 75 (fence_ipmilan shells
+# out to it). Preflight runs at stage 00, before any package install, so on a
+# greenfield node ipmitool may be absent. Rather than hard-fail with a
+# misleading "BMC unreachable", detect it: run the real BMC check when present,
+# warn-and-defer when not. Installing ipmitool by hand and re-running preflight
+# validates BMCs early — strongly recommended, since iDRACs frequently ship
+# with IPMI-over-LAN Disabled and fence_ipmilan then fails silently at stage 75.
+
+- name: "fence_ipmilan: is ipmitool available for the BMC check?"
+  ansible.builtin.shell: "command -v ipmitool"
+  register: _preflight_ipmitool
+  changed_when: false
+  failed_when: false
+  when: stonith.fence_agent == "fence_ipmilan"
+
+- name: "fence_ipmilan: WARN — ipmitool absent, BMC check deferred to stage 75"
+  ansible.builtin.debug:
+    msg: >-
+      ipmitool is not installed on {{ inventory_hostname }} yet, so the BMC
+      reachability + IPMI-over-LAN check is skipped here (the stonith role
+      installs ipmitool at stage 75). To validate the BMC BEFORE stage 75 —
+      recommended — install ipmitool and re-run preflight. Also confirm
+      IPMI-over-LAN is Enabled in each BIOS/iDRAC; it is often Disabled by
+      default and fence_ipmilan fails silently without it.
+  when:
+    - stonith.fence_agent == "fence_ipmilan"
+    - _preflight_ipmitool.rc != 0
 
 - name: "fence_ipmilan: check BMC responds to chassis status"
   ansible.builtin.command: >-
@@ -22,7 +49,9 @@
   changed_when: false
   failed_when: false
   no_log: true
-  when: stonith.fence_agent == "fence_ipmilan"
+  when:
+    - stonith.fence_agent == "fence_ipmilan"
+    - _preflight_ipmitool.rc == 0
 
 - name: "fence_ipmilan: assert BMC answered"
   ansible.builtin.assert:
@@ -32,7 +61,9 @@
       Check: IPMI-over-LAN enabled in BIOS/iDRAC? User/password correct? BMC network reachable
       from {{ inventory_hostname }}? STONITH will not work until this is fixed.
     success_msg: "BMC {{ _preflight_node.bmc_ip }} reachable"
-  when: stonith.fence_agent == "fence_ipmilan"
+  when:
+    - stonith.fence_agent == "fence_ipmilan"
+    - _preflight_ipmitool.rc == 0
 
 # ---- fence_virsh path (lab) ----
 

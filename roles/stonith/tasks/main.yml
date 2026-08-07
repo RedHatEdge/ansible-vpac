@@ -11,14 +11,19 @@
 
 # RHEL 9 ships fence-agents-* split per-protocol — installing only the
 # agent the inventory requested keeps the cluster footprint minimal.
-- name: "Install the fence agent package for the chosen agent"
+# fence_ipmilan shells out to the `ipmitool` binary, which fence-agents-ipmilan
+# does NOT pull as a dependency — install it explicitly or fencing fails at
+# runtime (and preflight's BMC check has nothing to run).
+- name: "Install the fence agent package(s) for the chosen agent"
   ansible.builtin.dnf:
-    name: >-
-      {{ {
-        'fence_ipmilan': 'fence-agents-ipmilan',
-        'fence_virsh':   'fence-agents-virsh',
-      }[stonith.fence_agent] }}
+    name: "{{ _stonith_packages }}"
     state: present
+  vars:
+    _stonith_packages: >-
+      {{ {
+        'fence_ipmilan': ['fence-agents-ipmilan', 'ipmitool'],
+        'fence_virsh':   ['fence-agents-virsh'],
+      }[stonith.fence_agent] }}
   tags: [stonith, stonith-install]
 
 - name: "Preflight assertions (agent supported, binary present, pacemaker up)"
