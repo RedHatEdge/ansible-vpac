@@ -9,55 +9,15 @@ nmstate_apply_timeout: 60
 networking_disable_stp: true
 
 # --- Heartbeat interface mode -------------------------------------------------
-# The corosync/pacemaker ring network. Two ways to carry it:
-#
-#   dedicated (default): heartbeat_ip on its own raw NIC
-#                        (networking_defaults.heartbeat_nic). Production default,
-#                        unchanged.
-#   shared:   heartbeat_ip on a VLAN subinterface of an existing bond, when
-#             networks.heartbeat.shared_bond names a bond role. Lets 4-NIC
-#             hardware (e.g. Dell XR4510c) carry all five logical networks
-#             without a dedicated heartbeat NIC.
-#
-# Red Hat support permits a shared interconnect — a dedicated heartbeat network
-# is NOT required (support KB 3068841). The real constraint is that each
-# corosync ring live on a DIFFERENT network; a VLAN subinterface with its own
-# subnet satisfies that. The storage bond is the recommended carrier: it is
-# L2-only and not subject to the guest-bridge churn the mgmt bridge suffers —
-# which is why preflight already blesses a heartbeat/storage co-location.
-#
-# Enable in inventory:
-#   networks.heartbeat.shared_bond: storage   # storage | mgmt | station | <bond ifname>
-#   networks.heartbeat.vlan: <id>             # required in shared mode; own subnet
-networking_heartbeat_shared_bond_role: "{{ networks.heartbeat.shared_bond | default('', true) }}"
+# The five derived heartbeat vars (networking_heartbeat_shared / _bond_name /
+# _iface / _shared_bond_role / networking_skip_heartbeat) are NOT defined here.
+# They are consumed cross-role — by preflight (stage 00) as well as this role —
+# and Ansible role defaults are role-scoped, so preflight would see them as
+# undefined. They live in the inventory (group_vars/all.yml, "Heartbeat mode"
+# block) alongside their inputs (`networks.heartbeat`, `networking_defaults`),
+# which is the only scope both roles share. See that file to enable shared mode.
 
-networking_heartbeat_shared: "{{ (networking_heartbeat_shared_bond_role | length) > 0 }}"
-
-# Resolve a role name (storage|mgmt|station) to the actual bond ifname; anything
-# else is treated as a bond ifname passed directly.
-networking_heartbeat_bond_name: >-
-  {{ {'storage': (networking_defaults.storage_bond.name | default('')),
-      'mgmt': (networking_defaults.mgmt_bond.name | default('')),
-      'station': (networking_defaults.station_bond.name | default(''))}.get(
-        networking_heartbeat_shared_bond_role, networking_heartbeat_shared_bond_role) }}
-
-# The interface that actually carries heartbeat_ip — a raw NIC (dedicated) or a
-# bondN.<vlan> subinterface (shared). Consumed by the template, verify.yml, and
-# firewalld zoning so all three agree on one name.
-networking_heartbeat_iface: >-
-  {{ (networking_heartbeat_bond_name ~ '.' ~ (networks.heartbeat.vlan | string))
-     if (networking_heartbeat_shared | bool)
-     else (networking_defaults.heartbeat_nic | default('')) }}
-
-# Skip heartbeat entirely only when NEITHER a shared VLAN nor a dedicated NIC is
-# configured (early lab bring-up). Stage 70 (pacemaker_base) binds each node's
-# corosync ring to its heartbeat_ip and needs that address present before it
-# runs — it does NOT require a dedicated NIC.
-networking_skip_heartbeat: >-
-  {{ (not (networking_heartbeat_shared | bool))
-     and (((networking_defaults.heartbeat_nic | default('')) | length) == 0) }}
-
-# Skip the PTP NIC section the same way. Lab has no dedicated PTP NIC yet.
+# Skip the PTP NIC section. Lab has no dedicated PTP NIC yet.
 # When skipped, ptp_timesync will fail preflight — intentional gate.
 networking_skip_ptp: "{{ (networking_defaults.ptp_nic | default('')) | length == 0 }}"
 

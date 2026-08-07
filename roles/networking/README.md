@@ -27,6 +27,10 @@ The corosync/pacemaker ring network is carried one of two ways, selected in inve
 
 Why this is sound: **Red Hat support does not require a dedicated interconnect** — KB 3068841 states a cluster may communicate over an interface shared for another purpose, and bonding is supported. The real constraint is that each corosync ring live on a **different network**; a VLAN subinterface with its own subnet satisfies it (knet supports up to 8 rings). The **storage bond is the recommended carrier** — it is L2-only and not subject to the guest-bridge churn the mgmt bridge suffers, which is exactly why `preflight` already blesses a heartbeat/storage co-location. Latency guidance (KB 2823721): ≤2 ms RTT optimal, instability above ~300 ms.
 
+**The heartbeat VLAN must be a distinct VLAN ID and subnet from storage.** Sharing the storage *bond* is the point; sharing the storage *VLAN/subnet* is not — it collapses ring separation into one broadcast domain and trips preflight's subnet-uniqueness check. E.g. if storage is on VLAN 30, put heartbeat on its own VLAN (23, etc.) with its own subnet. The switch ports for that bond must trunk both VLAN IDs.
+
+The five derived vars that drive this (`networking_heartbeat_shared`, `_bond_name`, `_iface`, `_shared_bond_role`, `networking_skip_heartbeat`) live in the inventory (`group_vars/all.yml`), **not** in this role's `defaults/` — they are consumed by `preflight` as well, and role defaults are role-scoped.
+
 `heartbeat_ip` (per node) and the heartbeat CIDR are identical in both modes — only the interface that carries the IP changes. `pacemaker_base` (stage 70) binds each node's ring to its `heartbeat_ip` regardless of which interface holds it.
 
 ## Bond options
@@ -66,11 +70,9 @@ After apply, `verify.yml` additionally:
 | Name | Default | Notes |
 |---|---|---|
 | `nmstate_apply_timeout` | `60` | seconds; nmstate rolls back if apply doesn't confirm in time |
-| `networking_heartbeat_shared` | computed | true when `networks.heartbeat.shared_bond` is set (shared VLAN mode) |
-| `networking_heartbeat_bond_name` | computed | resolves `shared_bond` role (storage/mgmt/station) → bond ifname |
-| `networking_heartbeat_iface` | computed | the interface carrying `heartbeat_ip` — raw NIC or `bondN.<vlan>` |
-| `networking_skip_heartbeat` | computed | skips heartbeat only when NEITHER a shared VLAN nor a dedicated NIC is set |
 | `networking_disable_stp` | `true` | STP off on the VM-facing bridges; STP churn under guest-bridge load is documented to starve corosync heartbeats |
+
+The derived heartbeat vars (`networking_heartbeat_shared`, `_bond_name`, `_iface`, `_shared_bond_role`, `networking_skip_heartbeat`) are defined in the inventory `group_vars/all.yml` (**not** here) because `preflight` consumes them too and role defaults are role-scoped.
 
 Reads the full `networks`, `networking_defaults`, `bridges`, and `vpac_nodes` trees.
 

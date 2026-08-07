@@ -232,9 +232,14 @@ networks:
   # the constraint is that the ring live on its own network, which the VLAN
   # subinterface provides.
   heartbeat:
-    cidr: "10.0.30.0/24"                  # must be its own subnet (corosync ring separation)
+    cidr: "10.0.30.0/24"                  # must be its OWN subnet (corosync ring separation)
     gateway: null
-    vlan: 30                              # applied only in shared mode; ignored for a raw NIC
+    # VLAN for shared mode (ignored for a raw dedicated NIC). In shared mode this
+    # MUST be a different VLAN ID than networks.storage.vlan — reusing the storage
+    # VLAN puts heartbeat and storage in one broadcast domain and one subnet, which
+    # breaks ring separation and trips preflight's subnet-uniqueness check. Here
+    # storage is VLAN 10, so heartbeat safely uses 30; pick any distinct free VLAN.
+    vlan: 30
     shared_bond: null                    # null/"" = dedicated NIC (default).
                                          # storage | mgmt | station | <bond ifname> = shared VLAN mode.
 
@@ -286,8 +291,37 @@ networking_defaults:
       miimon: 100
       primary: "ens2f0"
 
-  # Dedicated NIC for cluster heartbeat — NOT a bridge member
+  # Dedicated NIC for cluster heartbeat — NOT a bridge member.
+  # Leave "" and set networks.heartbeat.shared_bond to run the ring on a VLAN
+  # over an existing bond instead (4-NIC hardware). See "Heartbeat mode" below.
   heartbeat_nic: "ens3f0"
+
+# --------------------------------------------------------------------
+# 6b. Heartbeat mode (derived) — DO NOT move these into a role
+# --------------------------------------------------------------------
+# These are computed from networks.heartbeat + networking_defaults and are
+# consumed by BOTH preflight (stage 00) and the networking role (stage 20).
+# Ansible role defaults are role-scoped, so they must live at inventory scope
+# (here) where every role can see them — that is the only scope preflight and
+# networking share. Do not duplicate them into a role's defaults/.
+#
+# Red Hat support does NOT require a dedicated heartbeat network (KB 3068841);
+# the constraint is that the corosync ring live on its own network, which a
+# VLAN subinterface provides. Storage bond is the recommended shared carrier.
+networking_heartbeat_shared_bond_role: "{{ networks.heartbeat.shared_bond | default('', true) }}"
+networking_heartbeat_shared: "{{ (networking_heartbeat_shared_bond_role | length) > 0 }}"
+networking_heartbeat_bond_name: >-
+  {{ {'storage': (networking_defaults.storage_bond.name | default('')),
+      'mgmt': (networking_defaults.mgmt_bond.name | default('')),
+      'station': (networking_defaults.station_bond.name | default(''))}.get(
+        networking_heartbeat_shared_bond_role, networking_heartbeat_shared_bond_role) }}
+networking_heartbeat_iface: >-
+  {{ (networking_heartbeat_bond_name ~ '.' ~ (networks.heartbeat.vlan | string))
+     if (networking_heartbeat_shared | bool)
+     else (networking_defaults.heartbeat_nic | default('')) }}
+networking_skip_heartbeat: >-
+  {{ (not (networking_heartbeat_shared | bool))
+     and (((networking_defaults.heartbeat_nic | default('')) | length) == 0) }}
 
 # Bridge names presented to VMs. station-nic matches the established
 # production convention (vendor VM XMLs and the libvirt `station-bus`
