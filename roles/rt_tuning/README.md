@@ -33,6 +33,35 @@ Hosts NOT in the `rt_hosts` group end_play immediately. Single-node deployments 
 
 Reads from `group_vars/all.yml`: `rt_tuning.{isolated_cpus, hugepage_size, nr_hugepages_override, cpu_governor, sched_rt_runtime_us}`, `rt_chrony.{lock_all, sched_priority, combinelimit}`.
 
+### `isolated_cpus` MUST be recomputed for the actual CPU topology
+
+`isolated_cpus` is platform-specific and has **no safe default** — the example
+value in `inventory/example` (`4-11,28-35`) assumes a hyper-threaded part where
+sibling threads sit at a **+24 offset** (e.g. core N and its HT sibling N+24).
+Derive the value from the real topology (`lscpu -e`, `lscpu`) before deploying:
+
+- **`isolcpus` silently ignores CPU numbers that do not exist** — no error, no
+  warning. If you deploy the example `4-11,28-35` onto a 16-core, single-thread
+  part (CPUs `0-15`), cores 28 and 35 are simply dropped and you isolate only
+  `4-11` while everything *looks* correct. Always verify after boot:
+  `cat /sys/devices/system/cpu/isolated` must equal what you intended.
+- On a **non-hyper-threaded** part there are no +24 siblings — isolate a single
+  contiguous block sized to the relay profile (vCPUs + emulator) and leave the
+  low and high cores for the host and Ceph. Example (16c/1t, single socket):
+  `isolated_cpus: "4-11"` covers the SSC600 profile's pinned `4-7` + emulator
+  `8-9` and leaves `0-3` and `12-15` for the host and Ceph.
+- Keep `isolated_cpus`, the relay VM's `<vcpupin>`/`<emulatorpin>`, the L3 cache
+  carve, and the `cyclictest` range in agreement — a mismatch produces a VM that
+  boots but misses latency targets.
+
+Note on platforms with **no OS cpufreq driver** (e.g. some Xeon D parts —
+governor reads `none`): `intel_pstate=disable` and the performance-governor
+tasks are correctly no-ops (the role guards on cpufreq presence). On such
+hardware the RT determinism — and its idle power/thermal cost — comes almost
+entirely from `idle=poll` and the C-state cmdline knobs, which keep the isolated
+cores unhalted. Budget substation cooling and power for that: an idle RT node
+draws close to a busy one.
+
 ## BIOS prerequisites (manual — document in `docs/HARDWARE-BOM.md`)
 
 System Profile: Performance · C-States: Disabled · USB Legacy: Disabled · Memory Patrol Scrub: Disabled · Hyperthreading: Disabled · Intel VT-d: Enabled · Snoop Mode: Home Snoop.
