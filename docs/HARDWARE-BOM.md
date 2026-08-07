@@ -22,7 +22,9 @@ Minimum five logical networks. Practical layout for identical hardware:
 | 1 × 1 GbE | PTP | Standalone — no bond, no bridge, no macvtap |
 | 1 × OOB | BMC / IPMI | Physically separate network |
 
-At sites where NICs are constrained, heartbeat and PTP can be VLAN-isolated on a shared NIC **only if** the shared NIC is not a bridge member. The playbook will not allow PTP on a bridge.
+At sites where NICs are constrained, heartbeat and PTP can be VLAN-isolated on a shared NIC **only if** the shared NIC is not a bridge member. The playbook will not allow PTP on a bridge. (Heartbeat over a VLAN on the storage bond is a supported, field-proven layout for 4-NIC nodes — see the networking role's *Heartbeat modes*.)
+
+> **NIC caveat — Intel E823-C (`ice`) at 1 GbE fibre.** The `ice` driver on E810/E823-C NICs flaps 1000BASE-X links continuously (advertises 1000BASE-X while declaring only 1000BASE-T supported; autoneg never settles). Intel X710 (`i40e`) is unaffected. **Run cluster fibre links (storage, heartbeat) at 10 GbE on this hardware**, or pin speed with autoneg off. See TROUBLESHOOTING.md, "Storage / heartbeat links flap." Driver-level Intel bug, worth raising upstream.
 
 ## BMC requirements
 

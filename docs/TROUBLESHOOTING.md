@@ -89,6 +89,35 @@ Common causes:
 
 3. NIC is a bond slave — PTP does not work reliably on bond slaves. Make the NIC standalone.
 
+## Storage / heartbeat links flap constantly on Intel E823-C (ice) at 1 GbE fibre
+
+**Symptom:** a fibre link on an Intel E810/E823-C NIC (`ice` driver) running
+1000BASE-X flaps continuously — `ip -s link show <nic>` shows `carrier_changes`
+climbing at ~1–2 **per minute**, and corosync/Ceph traffic on that path is
+unstable. The same optics and switch port run rock-solid on an Intel X710
+(`i40e`) NIC (single-digit carrier changes over *days*).
+
+**Cause:** an `ice`/E823-C driver defect at 1 GbE fibre — the NIC **advertises
+1000BASE-X while only declaring 1000BASE-T as supported**, so autoneg never
+settles. Confirm:
+```bash
+ethtool <nic> | grep -E 'Supported link modes|Advertised link modes|Speed'
+# ice/E823-C shows Supported: 1000baseT, Advertised: 1000baseX — the mismatch
+```
+
+**Fixes, in order:**
+1. **Move the link to a 10 GbE port** (10GBASE-SR/LR). The defect is specific to
+   1 GbE fibre negotiation; at 10 G the links are stable. This is the
+   recommended fix for cluster (storage/heartbeat) traffic.
+2. If 1 GbE fibre is unavoidable, pin the port explicitly and disable autoneg:
+   `ethtool -s <nic> speed 1000 duplex full autoneg off` (persist via a
+   NetworkManager `ethtool` setting). Test thoroughly — behavior varies by
+   `ice` version.
+3. Track/raise upstream with Intel — this is a driver/firmware bug, not a
+   cabling or optics issue.
+
+Keep cluster-critical traffic (corosync heartbeat, Ceph) on the stable links.
+
 ## Windows VM won't start on target node
 
 **Symptom:** `pcs status` shows the Windows VM resource `Stopped (blocked)`.
