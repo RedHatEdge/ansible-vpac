@@ -1,12 +1,24 @@
 ---
-# Apply RT-only kernel cmdline knobs to ALL boot entries via grubby. The
-# isolcpus / nohz_full / rcu_nocbs values are NOT here — those come from
-# the tuned realtime-virtual-host profile reading the variables file
-# tasks/tuned_profile.yml writes. Owning them here would split the
-# isolation source-of-truth.
+# Apply RT-only kernel cmdline knobs to the RT kernel entries ONLY. The
+# isolcpus / nohz_full / rcu_nocbs values are NOT here — those come from the
+# tuned realtime-virtual-host profile reading the variables file
+# tasks/tuned_profile.yml writes. Owning them here would split the isolation
+# source-of-truth.
 #
-# audit=0 is opt-in via rt_tuning_disable_audit (off by default — keeps
-# security signal at the cost of some jitter from auditd).
+# These args (idle=poll, the c-state knobs, ...) must NOT land on the rescue
+# entry or the stock non-RT kernel. `grubby --update-kernel=ALL` (the previous
+# behaviour) put them on every entry, which is actively harmful:
+#   - a recovery/rescue environment that refuses to idle and runs at maximum
+#     power is hostile — you may be booting rescue precisely BECAUSE the machine
+#     is in thermal or hardware trouble;
+#   - it leaves no known-good quiet fallback — if an RT kernel fails to boot
+#     after an update, the operator's stock kernel is also RT-tuned, so they
+#     cannot boot a normal low-power system to diagnose.
+# So: apply only to RT kernels (which survives kernel-rt updates, since we match
+# by name), and actively STRIP these args from non-RT / rescue entries to undo
+# any prior --update-kernel=ALL run.
+#
+# audit=0 is opt-in via rt_tuning_disable_audit (off by default).
 
 - name: "Compose the effective RT cmdline arg list"
   ansible.builtin.set_fact:
@@ -14,24 +26,74 @@
       {{ rt_tuning_cmdline_args
          + (['audit=0'] if (rt_tuning_disable_audit | bool) else []) }}
 
-- name: "Read current kernel cmdline arguments"
-  ansible.builtin.command: "grubby --info=DEFAULT"
-  register: _rt_grubby_info
+- name: "Find RT kernel images in /boot"
+  ansible.builtin.find:
+    paths: /boot
+    patterns: "vmlinuz-*+rt*"
+  register: _rt_vmlinuz
+
+- name: "Assert at least one RT kernel is present"
+  ansible.builtin.assert:
+    that: _rt_vmlinuz.files | length > 0
+    fail_msg: >-
+      No RT kernel (vmlinuz-*+rt*) found in /boot. install_rt_kernel.yml must run
+      before cmdline.yml — the RT power args have no RT entry to attach to.
+
+- name: "Find non-RT / rescue kernel images in /boot"
+  ansible.builtin.find:
+    paths: /boot
+    patterns: "vmlinuz-*"
+    excludes: "*+rt*"
+  register: _nonrt_vmlinuz
+
+- name: "Read current args on each RT kernel"
+  ansible.builtin.command: "grubby --info={{ item.path }}"
+  loop: "{{ _rt_vmlinuz.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _rt_kinfo
   changed_when: false
 
-- name: "Apply RT cmdline args (idempotent — grubby skips args already present)"
+- name: "Apply RT cmdline args to RT kernels that lack any of them"
+  # Idempotent: only runs when at least one arg is missing from THAT kernel's
+  # current args (reject('in') keeps the missing ones). grubby itself skips args
+  # already present, so applying the whole set is safe.
   ansible.builtin.command:
-    cmd: "grubby --update-kernel=ALL --args={{ item | quote }}"
-  loop: "{{ _rt_args }}"
-  when: item not in _rt_grubby_info.stdout
+    cmd: "grubby --update-kernel={{ item.item.path }} --args={{ _rt_args | join(' ') | quote }}"
+  loop: "{{ _rt_kinfo.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: (_rt_args | reject('in', item.stdout) | list | length) > 0
   changed_when: true
   notify: "reboot after kernel cmdline change"
 
-- name: "Reject selinux=0 if it slipped onto the cmdline somehow"
-  # Defense-in-depth — host_baseline asserts the same. selinux=0 on the
-  # cmdline removes /sys/fs/selinux and breaks Ceph OSD containers
-  # (documented field-deployment incident). Never let RT tuning add it.
+- name: "Read current args on each non-RT / rescue kernel"
+  ansible.builtin.command: "grubby --info={{ item.path }}"
+  loop: "{{ _nonrt_vmlinuz.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _nonrt_kinfo
+  changed_when: false
+  when: _nonrt_vmlinuz.files | length > 0
+
+- name: "Strip RT cmdline args from non-RT / rescue kernels (undo prior ALL)"
+  # Fixes machines already carrying the args on rescue/stock. No reboot notify:
+  # the running kernel is the RT one; non-RT/rescue take effect on their own
+  # next boot, and we do not want to force-reboot the node for their sake.
+  ansible.builtin.command:
+    cmd: "grubby --update-kernel={{ item.item.path }} --remove-args={{ _rt_args | join(' ') | quote }}"
+  loop: "{{ _nonrt_kinfo.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when:
+    - item.stdout is defined
+    - (_rt_args | select('in', item.stdout) | list | length) > 0
+  changed_when: true
+
+- name: "Reject selinux=0 if it slipped onto any entry"
+  # Defense-in-depth — host_baseline asserts the same. selinux=0 removes
+  # /sys/fs/selinux and breaks Ceph OSD containers (documented field incident).
   ansible.builtin.command: "grubby --update-kernel=ALL --remove-args=selinux=0"
-  when: "'selinux=0' in _rt_grubby_info.stdout"
+  when: "'selinux=0' in (_rt_kinfo.results | map(attribute='stdout') | join(' '))"
   changed_when: true
   notify: "reboot after kernel cmdline change"
