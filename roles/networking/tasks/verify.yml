@@ -29,13 +29,27 @@
     fail_msg: >-
       {{ bridges.station }} does not have {{ _net_node.station_ip }} after apply.
 
+# Heartbeat is checked by querying the live interface, NOT via ansible_<iface>
+# facts. A shared-mode VLAN subinterface (bondN.<vlan>) is created during this
+# same play's apply step; interface facts gathered earlier never contain it, so
+# a fact lookup reports a false failure while the config is correct. `ip addr`
+# reads current kernel state and is deterministic for dedicated NIC and VLAN
+# alike.
+- name: "Read heartbeat interface address (post-apply, fact-independent)"
+  ansible.builtin.command: "ip -j -4 addr show dev {{ networking_heartbeat_iface }}"
+  changed_when: false
+  register: _net_hb_addr
+  when: not (networking_skip_heartbeat | bool)
+
 - name: "Assert heartbeat interface has the expected IP (when configured)"
   ansible.builtin.assert:
     that:
-      - hostvars[inventory_hostname]['ansible_' ~ (networking_heartbeat_iface | replace('-', '_') | replace('.', '_'))].ipv4.address == _net_node.heartbeat_ip
+      - (_net_hb_addr.stdout | from_json | first).addr_info
+        | selectattr('local', 'equalto', _net_node.heartbeat_ip) | list | length > 0
     fail_msg: >-
       heartbeat interface {{ networking_heartbeat_iface }} does not have
-      {{ _net_node.heartbeat_ip }} after apply.
+      {{ _net_node.heartbeat_ip }} after apply. ip addr shows:
+      {{ _net_hb_addr.stdout }}
   when: not (networking_skip_heartbeat | bool)
 
 - name: "Assert PTP NIC is up but unconfigured (no IP)"
