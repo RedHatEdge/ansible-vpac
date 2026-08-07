@@ -82,8 +82,12 @@
 
 - name: "Assert PTP NIC supports hardware timestamping"
   ansible.builtin.assert:
+    # Positive test for a real PHC index, accepting both ethtool spellings
+    # (see check_hardware.yml). The old '"PTP Hardware Clock: none" not in ...'
+    # test is vacuous on ethtool >= 6.11 (RHEL 9.8): that string is never
+    # emitted, so it could no longer catch a NIC genuinely lacking a PHC.
     that:
-      - "'PTP Hardware Clock: none' not in _preflight_ptp_caps.stdout"
+      - _preflight_ptp_caps.stdout is regex('(PTP Hardware Clock|Hardware timestamp provider index):\s*[0-9]+')
       - "'hardware-transmit' in _preflight_ptp_caps.stdout"
       - "'hardware-receive' in _preflight_ptp_caps.stdout"
     fail_msg: >-

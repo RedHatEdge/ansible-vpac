@@ -39,11 +39,19 @@
 
 - name: "Extract grandmaster clockIdentity from each sample"
   ansible.builtin.set_fact:
+    # regex_findall (not regex_search): findall returns [] on no-match; since
+    # ansible-core 2.19 regex_search with capture groups RAISES on no-match
+    # ('NoneType has no attribute group') instead of returning None, which the
+    # old reject('none') guard relied on. Also: SINGLE backslash — this is a
+    # YAML block scalar, which does no escape processing, so `\\s` reached the
+    # regex as a literal backslash + s and never matched. `select` drops the
+    # empty-match samples; `first` takes each match.
     _ptp_gm_ids: >-
       {{ _ptp_gm_samples.results
          | map(attribute='stdout')
-         | map('regex_search', 'grandmasterIdentity\\s+(\\S+)', '\\1')
-         | reject('none')
+         | map('regex_findall', 'grandmasterIdentity\s+(\S+)')
+         | select
+         | map('first')
          | list }}
 
 - name: "Assert grandmaster identity is stable across all samples"

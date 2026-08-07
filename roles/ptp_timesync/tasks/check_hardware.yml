@@ -14,13 +14,19 @@
   changed_when: false
   failed_when: false
 
-- name: "Assert NIC reports a PHC index"
+- name: "Assert NIC reports a real PHC index"
   ansible.builtin.assert:
-    that: "'PTP Hardware Clock:' in _ptp_ethtool.stdout"
+    # ethtool renamed this field ~6.11 (RHEL 9.8 = 6.15): the old
+    # "PTP Hardware Clock: N" is now "Hardware timestamp provider index: N".
+    # Accept EITHER spelling, and require an actual numeric index — the old
+    # label-only match passed on "PTP Hardware Clock: none" (a NIC with no PHC).
+    that:
+      - _ptp_ethtool.stdout is regex('(PTP Hardware Clock|Hardware timestamp provider index):\s*[0-9]+')
     fail_msg: >-
-      ethtool -T {{ ptp_timesync_nic }} reports no PTP Hardware Clock. The role
-      requires HW timestamping. To deploy on a NIC without PHC support, set
-      ptp_timesync_require_hw_timestamping=false (testing/lab only).
+      ethtool -T {{ ptp_timesync_nic }} reports no PTP hardware clock index. The
+      role requires HW timestamping. To deploy on a NIC without PHC support, set
+      ptp_timesync_require_hw_timestamping=false (testing/lab only). Output:
+      {{ _ptp_ethtool.stdout }}
   when: ptp_timesync_require_hw_timestamping | bool
 
 - name: "Assert NIC reports HW transmit + receive timestamping caps"

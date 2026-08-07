@@ -89,6 +89,25 @@ Common causes:
 
 3. NIC is a bond slave — PTP does not work reliably on bond slaves. Make the NIC standalone.
 
+## PTP path delay reads `0.0` in P2P mode (red herring)
+
+`pmc -u -b 0 'GET CURRENT_DATA_SET'` shows `meanPathDelay 0.0` even on a healthy,
+locked P2P setup. This looks exactly like the classic "no transparent clock in
+the path" symptom, but in **peer-to-peer (P2P) mode it is expected**:
+`meanPathDelay` is the end-to-end (E2E) field and is unused under P2P. The real,
+measured delay lives in `peerMeanPathDelay` in the **port** dataset:
+
+```bash
+pmc -u -b 0 'GET PORT_DATA_SET' | grep peerMeanPathDelay   # e.g. 6 (ns) — the real value
+pmc -u -b 0 'GET CURRENT_DATA_SET' | grep -E 'offsetFromMaster|meanPathDelay'
+```
+
+Confirm health from: `portState SLAVE`, `delayMechanism 2` (P2P), a non-zero
+`peerMeanPathDelay`, a small `offsetFromMaster`, and `grandmasterIdentity`
+matching your grandmaster's MAC (e.g. `aabbcc.fffe.ddeeff` for MAC
+`aa:bb:cc:dd:ee:ff`). `chronyc sources` should show the PTP refclock with
+`reach` climbing to `377`.
+
 ## Storage / heartbeat links flap constantly on Intel E823-C (ice) at 1 GbE fibre
 
 **Symptom:** a fibre link on an Intel E810/E823-C NIC (`ice` driver) running
