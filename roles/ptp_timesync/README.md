@@ -110,10 +110,49 @@ Almost everything reads from the inventory's `time_sync.*` and
 | `ptp_timesync_gm_samples` | `4` | GM-stability samples |
 | `ptp_timesync_gm_sample_interval` | `8` | seconds between samples (~30s window) |
 | `ptp_timesync_cephadm_time_sync_alias` | `true` | install `chrony.service` → `timemaster.service` alias so cephadm's time-sync probe passes on pure-PTP hosts |
+| `ptp_timesync_slave_timeout` | `90` (reads `time_sync.ptp.slave_timeout`) | seconds to wait for portState SLAVE |
+| `ptp_timesync_max_offset_ns` | `100000` (reads `time_sync.ptp.max_offset_ns`) | worst-case abs offsetFromMaster accepted (~100 µs) |
 
 Reads from `group_vars/all/main.yml`: `time_sync.{mode, ntp_servers, ptp.*}`,
 `rt_chrony.{lock_all, sched_priority, combinelimit}`,
 `networking_defaults.ptp_nic`, `vpac_nodes[*].{hostname, storage_ip}`.
+
+## The verify gate checks synchronization, not just GM presence
+
+Stage-40 verify asserts three things, because a *stable grandmaster is not the
+same as a synchronized node*:
+
+1. **portState reaches SLAVE** — the port actually calibrated and locked.
+2. **grandmaster identity is stable** across samples — no BMCA flap between GMs.
+3. **offsetFromMaster is bounded AND live** — small (`< ptp_timesync_max_offset_ns`)
+   *and* varying across samples (a real servo jitters; a frozen value means it is
+   not disciplining the clock).
+
+This exists because of a real hardware failure: a node selected the grandmaster,
+held a perfectly stable GM identity, and `peerMeanPathDelay` was healthy — yet it
+sat **UNCALIBRATED, never reached SLAVE, and `offsetFromMaster` stayed frozen** at a
+default for ~70 h. GM-identity-only verification passed while PTP was dead.
+
+### PTP fabric requirement (switch-side)
+
+The node config can be flawless and PTP still be dead if the switch fabric
+mishandles the grandmaster's step mode:
+
+- A **two-step** GM sends a `Sync` followed by a separate `Follow_Up`. **Every
+  switch in the PTP path** must be a P2P transparent clock that correctly
+  forwards/regenerates the two-step `Follow_Up` — **or** run the TC as **one-step**
+  (which folds the timestamp into a self-contained `Sync`, so a dropped `Follow_Up`
+  no longer matters).
+- **Signature of a TC silently dropping `Follow_Up`:** stable GM identity + working
+  Pdelay (`peerMeanPathDelay` non-zero) + the node stuck UNCALIBRATED with a frozen
+  offset. Confirm on the wire:
+  ```bash
+  tcpdump -i <ptp-nic> ether proto 0x88f7   # expect Sync + Announce + Follow_Up;
+                                            # zero Follow_Up = the TC is dropping it
+  ```
+  The fix is on the **switch**, not the node (set the transparent clocks one-step, or
+  correct their two-step forwarding). The verify gate above surfaces this as a clean
+  stage-40 failure instead of a false green.
 
 ## cephadm compatibility (pure-PTP hosts)
 

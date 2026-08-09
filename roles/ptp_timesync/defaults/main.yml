@@ -83,6 +83,17 @@ ptp_timesync_procbus_phc_nics: "{{ time_sync.ptp.procbus_phc_nics | default([]) 
 ptp_timesync_gm_samples: 4
 ptp_timesync_gm_sample_interval: 8
 
+# Synchronization gates for the tail verify. GM-identity-stable is NOT
+# sufficient: on hardware a node sat UNCALIBRATED with a rock-stable GM
+# identity while never actually synchronizing (a switch in the PTP path
+# dropped the two-step Follow_Up), and offsetFromMaster stayed frozen at a
+# default. So also require the port to reach SLAVE and the offset to be both
+# bounded AND live (varying, i.e. the servo is actually working).
+#   slave_timeout   — seconds to wait for portState SLAVE (calibration is ~30-60s)
+#   max_offset_ns   — worst-case |offsetFromMaster| accepted (utility PTP ~100 µs)
+ptp_timesync_slave_timeout: "{{ time_sync.ptp.slave_timeout | default(90) }}"
+ptp_timesync_max_offset_ns: "{{ time_sync.ptp.max_offset_ns | default(100000) }}"
+
 # Fail vs warn when the NIC's HW timestamping doesn't expose tx/rx
 # hardware timestamps (ethtool -T). Production should fail; some lab
 # NICs report sw-only and you'll want to flip this to warn for testing.
