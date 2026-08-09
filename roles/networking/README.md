@@ -33,6 +33,92 @@ The five derived vars that drive this (`networking_heartbeat_shared`, `_bond_nam
 
 `heartbeat_ip` (per node) and the heartbeat CIDR are identical in both modes — only the interface that carries the IP changes. `pacemaker_base` (stage 70) binds each node's ring to its `heartbeat_ip` regardless of which interface holds it.
 
+## Mapping physical NICs to the inventory (operator workflow)
+
+You have a chassis full of ports and five logical networks to land on them. This
+is how you go from the hardware to the inventory files the role reads.
+
+### 1. Identify the ports on the hardware
+
+On each node, list the interfaces and match them to physical ports by cabling:
+
+```bash
+ip -br link                     # interface names + MAC + up/down
+ethtool <nic>                   # link speed / carrier
+ethtool -i <nic>                # driver + bus-info (PCI address) — pin a name to a slot
+ethtool -T <nic>                # PTP HW timestamping — REQUIRED on the PTP-role port
+```
+
+Record, per node, which interface name (`eno8303`, `ens1f0`, …) carries which
+role. RHEL's predictable names are stable **on a given machine** but differ across
+hardware models — so identical nodes share one `networking_defaults`, and any node
+that differs gets a `host_vars/<node>.yml` override (step 5).
+
+### 2. Physical layout → `networking_defaults`
+
+This block names the *physical* interfaces and how they aggregate:
+
+```yaml
+networking_defaults:
+  mgmt_bond:    { name: bond0, mode: active-backup, members: [eno1, eno2], options: {miimon: 100, primary: eno1} }
+  storage_bond: { name: bond1, mode: 802.3ad,       members: [ens1f0, ens1f1], options: {miimon: 100, xmit_hash_policy: layer3+4, lacp_rate: fast} }
+  station_bond: { name: bond2, mode: active-backup, members: [ens2f0, ens2f1], options: {miimon: 100, primary: ens2f0} }
+  ptp_nic: ens4f2        # the dedicated PTP port (never bonded/bridged)
+  heartbeat_nic: ens3f0  # dedicated heartbeat NIC — OR leave "" and use shared mode (below)
+```
+
+### 3. Logical networks → `networks`
+
+CIDR, gateway, and VLAN per role (`mgmt`, `storage`, `station`, `heartbeat`, `bmc`).
+For the shared-heartbeat mode, set `heartbeat.shared_bond` + a distinct `heartbeat.vlan`
+(see *Heartbeat modes*).
+
+### 4. Per-node addresses → `vpac_nodes`
+
+One entry per node with its `mgmt_ip` / `storage_ip` / `station_ip` / `heartbeat_ip` /
+`bmc_ip` (and BMC creds). The interface *names* live in `networking_defaults`; only the
+addresses are per node here.
+
+### 5. Per-node NIC overrides → `host_vars/<node>.yml`
+
+When a node's ports are named differently (mixed hardware), override just the
+changed keys of `networking_defaults` in that node's `host_vars`. Everything else
+inherits the group default.
+
+### Worked example — a 4-NIC node (heartbeat shares the storage bond)
+
+```yaml
+# group_vars/all.yml
+networking_defaults:
+  mgmt_bond:    { name: bond0, mode: active-backup, members: [eno8303] }   # 1-member "bond" = single NIC
+  storage_bond: { name: bond1, mode: active-backup, members: [eno8403] }
+  station_bond: { name: bond2, mode: active-backup, members: [eno8503] }
+  ptp_nic: eno8603
+  heartbeat_nic: ""                     # no dedicated NIC — shared mode carries it
+networks:
+  storage:   { cidr: 10.10.30.0/24, vlan: 30 }
+  heartbeat: { cidr: 10.10.23.0/24, vlan: 23, shared_bond: storage }  # ring on VLAN 23 over the storage bond
+```
+Four physical NICs (`eno8303/8403/8503/8603`) carry all five networks: mgmt, storage,
+station, PTP, and heartbeat-as-a-VLAN-on-storage. The switch ports for the storage
+bond must trunk **both** VLAN 30 and 23.
+
+## Production vs lab / POC — what to relax, what never to
+
+| Concern | Production | Lab / POC |
+|---|---|---|
+| Bonding (mgmt/storage/station) | Two-member bonds for link redundancy | One-member bonds are fine (no second port to spare) |
+| Storage link | 10 GbE+ (`validate.storage_nic_min_mbps: 10000`) | Set `validate.storage_nic_min_mbps: 1000` — 1 GbE works, just slower Ceph recovery |
+| Heartbeat | Dedicated NIC preferred; shared-VLAN-on-storage-bond is supported and field-proven for 4-NIC nodes | Shared-VLAN-on-storage-bond, or omit entirely for a pre-cluster single-node bring-up |
+| PTP timestamping | HW-timestamping NIC required (`ethtool -T` shows a PHC) | `ptp_timesync_require_hw_timestamping: false` to run on a sw-only NIC |
+| BMC network | Physically separate | Can share the management switch, still its own subnet |
+
+**Lines that do NOT relax, even in a lab:**
+
+- **The PTP NIC is never bridged, bonded, or a macvtap target** — the role refuses it (`ptp_isolation`). A shared PTP NIC silently loses the clock.
+- **The corosync heartbeat rides its own VLAN and subnet** — sharing the storage *bond* is fine; sharing the storage *VLAN/subnet* collapses ring separation and trips the subnet-uniqueness check.
+- **SELinux stays on** and the management path stays firewalled.
+
 ## Bond options
 
 Each `networking_defaults.<bond>` entry carries an `options` map that is rendered into nmstate's `link-aggregation.options`. Defaults shipped in `inventory/example/group_vars/all.yml`:
