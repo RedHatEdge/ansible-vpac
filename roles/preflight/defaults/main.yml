@@ -19,7 +19,16 @@ preflight_max_clock_skew_s: 30
 # more than this fraction of total RAM.
 preflight_max_hugepage_ram_fraction: 0.9
 
+# Allow unstable kernel device names (/dev/nvme0n1, /dev/sdb) in
+# ceph.osd_devices. Default false: kernel names are assigned by enumeration
+# order and can swap across boots/reinstalls — a swapped name landing on the
+# OS disk gets wiped. Field-observed near-miss: a node whose OS disk and an
+# OSD candidate sat one enumeration swap apart. Use /dev/disk/by-id/...
+# instead.
+preflight_allow_unstable_osd_device_names: false
+
 # Per-check toggles. Set to false to skip a specific check group.
+preflight_check_contract: true
 preflight_check_connectivity: true
 preflight_check_inventory: true
 preflight_check_network: true

@@ -1,0 +1,228 @@
+---
+# One-pass validation of the operator-supplied inventory values the stages
+# depend on. The example inventory promises that `site.yml --tags preflight`
+# validates your settings BEFORE you commit to a deploy — this file is that
+# promise. Issues are COLLECTED and reported together at the end, not failed
+# one at a time, so a single run tells the operator everything still left to
+# fix. Field history behind this: three example placeholders were discovered
+# serially at runtime, the last one only after a 12-OSD cluster was built.
+#
+# Reference for every value checked here: docs/OPERATOR-VALUES.md.
+
+- name: "Contract: gather shared shapes"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: []
+    _contract_hostnames: "{{ vpac_nodes | default([]) | map(attribute='hostname') | list }}"
+
+# --- placeholder scan -------------------------------------------------
+- name: "Contract: scan operator trees for example placeholder hostnames"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_ph_hits: "{{ (_contract_ph_hits | default([])) + [item.key] }}"
+  loop:
+    - { key: "vpac_nodes", blob: "{{ vpac_nodes | default([]) | to_json }}" }
+    - { key: "ceph", blob: "{{ ceph | default({}) | to_json }}" }
+    - { key: "vm_catalog", blob: "{{ vm_catalog | default([]) | to_json }}" }
+    - { key: "stonith", blob: "{{ stonith | default({}) | to_json }}" }
+    - { key: "networks", blob: "{{ networks | default({}) | to_json }}" }
+  loop_control:
+    label: "{{ item.key }}"
+  when: item.blob is search('site1-node')
+
+- name: "Contract: record placeholder findings"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "example placeholder hostnames ('site1-node-…') are still present in: "
+        ~ (_contract_ph_hits | join(', '))
+        ~ " — replace every occurrence with your real node hostnames"
+      ] }}
+  when: (_contract_ph_hits | default([])) | length > 0
+
+# --- ceph block (only meaningful on 3+ node clusters) ------------------
+- name: "Contract: ceph.bootstrap_node must be one of vpac_nodes"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "ceph.bootstrap_node '" ~ (ceph.bootstrap_node | default('')) ~ "' is not a "
+        ~ "vpac_nodes hostname " ~ (_contract_hostnames | to_json) ~ ". It is not a "
+        ~ "label: every orchestrator command in ceph_expand is delegated to this host."
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - (ceph.bootstrap_node | default('')) not in _contract_hostnames
+
+- name: "Contract: ceph.bootstrap_node must be an inventory host"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "ceph.bootstrap_node '" ~ (ceph.bootstrap_node | default('')) ~ "' is not in "
+        ~ "the ansible inventory — delegate_to against it will fail at stage 60."
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - (ceph.bootstrap_node | default('')) not in groups['all']
+
+- name: "Contract: every cluster node needs an osd_devices entry (and no strays)"
+  run_once: true
+  vars:
+    _osd_keys: "{{ ceph.osd_devices | default({}) | list }}"
+    _missing: "{{ _contract_hostnames | difference(_osd_keys) }}"
+    _stray: "{{ _osd_keys | difference(_contract_hostnames) }}"
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues
+         + ([ "ceph.osd_devices has no entry for node(s): " ~ (_missing | join(', ')) ]
+            if _missing | length > 0 else [])
+         + ([ "ceph.osd_devices has entries for unknown host(s): " ~ (_stray | join(', '))
+              ~ " — keys must exactly match vpac_nodes hostnames or those disks are "
+              ~ "silently never added" ]
+            if _stray | length > 0 else []) }}
+  when: (vpac_nodes | default([])) | length >= 3
+
+- name: "Contract: OSD devices must use stable /dev/disk/by-* paths"
+  run_once: true
+  vars:
+    _unstable: >-
+      {{ ceph.osd_devices | default({}) | dict2items
+         | map(attribute='value') | flatten
+         | reject('match', '^/dev/disk/by-') | list }}
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "ceph.osd_devices uses unstable kernel device names: " ~ (_unstable | join(', '))
+        ~ ". Kernel nvme/sd names are assigned by enumeration order and CAN SWAP across "
+        ~ "boots and reinstalls — if a swapped name lands on the OS disk, the OS disk is "
+        ~ "WIPED. Use /dev/disk/by-id/... paths (see docs/OPERATOR-VALUES.md). Set "
+        ~ "preflight_allow_unstable_osd_device_names=true only if you accept that risk."
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - not (preflight_allow_unstable_osd_device_names | bool)
+    - _unstable | length > 0
+
+- name: "Contract: registry.redhat.io requires a credentials file"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "sources.container_registry points at registry.redhat.io but "
+        ~ "ceph.registry_credentials_file is empty — every cephadm image pull will fail. "
+        ~ "Create a TERMS-BASED registry service account at "
+        ~ "access.redhat.com/terms-based-registry (a console.redhat.com IAM service "
+        ~ "account will NOT authenticate), write "
+        ~ "{\"url\":\"registry.redhat.io\",\"username\":\"…\",\"password\":\"…\"} to a root-only "
+        ~ "file on the bootstrap node, and set ceph.registry_credentials_file to its path."
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - "'registry.redhat.io' in (sources.container_registry | default(''))"
+    - (ceph.registry_credentials_file | default('', true) | length) == 0
+
+- name: "Contract: check the registry credentials file exists on the bootstrap node"
+  ansible.builtin.stat:
+    path: "{{ ceph.registry_credentials_file }}"
+  register: _contract_regfile
+  run_once: true
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - (ceph.registry_credentials_file | default('', true) | length) > 0
+    - (ceph.bootstrap_node | default('')) in groups['all']
+
+- name: "Contract: record missing registry credentials file"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "ceph.registry_credentials_file '" ~ ceph.registry_credentials_file ~ "' does not "
+        ~ "exist on the bootstrap node (" ~ ceph.bootstrap_node ~ ") — cephadm bootstrap "
+        ~ "reads it there via --registry-json."
+      ] }}
+  when:
+    - _contract_regfile.stat is defined
+    - not _contract_regfile.stat.exists
+
+- name: "Contract: pinned libvirt_secret_uuid must be a real UUID"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "ceph.libvirt_secret_uuid '" ~ ceph.libvirt_secret_uuid ~ "' is not a valid "
+        ~ "non-placeholder UUID. Leave it null (the roles derive one from the cluster "
+        ~ "FSID) or pin a value generated with uuidgen."
+      ] }}
+  when:
+    - (ceph.libvirt_secret_uuid | default('', true) | length) > 0
+    - >-
+      ceph.libvirt_secret_uuid == '00000000-0000-0000-0000-000000000000'
+      or (ceph.libvirt_secret_uuid
+          is not regex('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'))
+
+# --- vm_catalog --------------------------------------------------------
+- name: "Contract: vm_catalog target_host values must be cluster hostnames"
+  run_once: true
+  vars:
+    _bad_targets: >-
+      {{ vm_catalog | default([]) | selectattr('target_host', 'defined')
+         | rejectattr('target_host', 'in', _contract_hostnames)
+         | map(attribute='name') | list }}
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "vm_catalog entries with a target_host that is not a vpac_nodes hostname: "
+        ~ (_bad_targets | join(', '))
+        ~ " — those VMs would silently never be rendered on any node."
+      ] }}
+  when: _bad_targets | length > 0
+
+- name: "Contract: vm_catalog allowed_hosts values must be cluster hostnames"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "vm_catalog entry '" ~ (item.name | default('?')) ~ "' has allowed_hosts not in "
+        ~ "vpac_nodes: " ~ ((item.allowed_hosts | difference(_contract_hostnames)) | join(', '))
+      ] }}
+  loop: "{{ vm_catalog | default([]) | selectattr('allowed_hosts', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name | default('?') }}"
+  when: (item.allowed_hosts | difference(_contract_hostnames)) | length > 0
+
+# --- the one-pass report ----------------------------------------------
+- name: "Contract: report every unresolved operator value together"
+  run_once: true
+  ansible.builtin.fail:
+    msg: |
+      The inventory contract has {{ _contract_issues | length }} unresolved operator value(s):
+      {% for issue in _contract_issues %}
+      {{ loop.index }}. {{ issue }}
+      {% endfor %}
+      Fix all of the above, then re-run:
+        ansible-playbook -i inventory/<your-site> site.yml --tags preflight
+      Reference for every operator value (format + how to obtain it):
+        docs/OPERATOR-VALUES.md
+  when:
+    - _contract_issues | length > 0
+    - not (preflight_warn_only | bool)
+
+- name: "Contract: warn-only mode summary"
+  run_once: true
+  ansible.builtin.debug:
+    msg: "CONTRACT WARNINGS (preflight_warn_only=true): {{ _contract_issues }}"
+  when:
+    - _contract_issues | length > 0
+    - preflight_warn_only | bool
+
+- name: "Contract: clean"
+  run_once: true
+  ansible.builtin.debug:
+    msg: >-
+      Inventory contract clean: no placeholders, ceph.bootstrap_node valid,
+      osd_devices stable-path and host-matched, registry auth consistent,
+      vm_catalog hosts valid.
+  when: _contract_issues | length == 0

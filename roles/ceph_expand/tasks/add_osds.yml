@@ -12,9 +12,57 @@
 # skips the disk or accepts it with leftovers and the OSD crashloops.
 # Refuses to wipe a disk that's currently mounted — operator's safety net.
 
+# --- Never wipe a device that is already an active Ceph OSD ----------
+# The mounted-check below does NOT protect OSDs: bluestore devices are LVM
+# PVs, never mounted, so lsblk MOUNTPOINT is empty on a healthy in-service
+# OSD. Without this guard, the natural operator action — fix a mid-stage-60
+# failure and simply re-run — would wipefs 12 in-service OSDs. Detect the
+# ceph-volume LVM child ('ceph--…' device-mapper name) and skip those
+# devices. Fail-safe direction: worst case is a skipped wipe on genuinely
+# stale ceph residue, which the operator resolves deliberately with
+# ceph_expand_force_wipe_ceph_devices=true (or a manual wipe) — versus the
+# old worst case of destroying live OSD data.
+- name: "Detect declared OSD devices already carrying Ceph LVM"
+  ansible.builtin.command: "lsblk -no NAME {{ item }}"
+  loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
+  register: _ceph_dev_scan
+  changed_when: false
+  failed_when: false
+  when: ceph_expand_wipe_osd_disks | bool
+
+- name: "Partition wipe targets — active Ceph devices are skipped unless forced"
+  ansible.builtin.set_fact:
+    _ceph_wipe_targets: >-
+      {{ (ceph.osd_devices[inventory_hostname] | default([]))
+         if (ceph_expand_force_wipe_ceph_devices | bool)
+         else (_ceph_dev_scan.results | default([])
+               | selectattr('stdout', 'defined')
+               | rejectattr('stdout', 'search', 'ceph--')
+               | map(attribute='item') | list) }}
+    _ceph_wipe_skipped: >-
+      {{ [] if (ceph_expand_force_wipe_ceph_devices | bool)
+         else (_ceph_dev_scan.results | default([])
+               | selectattr('stdout', 'defined')
+               | selectattr('stdout', 'search', 'ceph--')
+               | map(attribute='item') | list) }}
+  when: ceph_expand_wipe_osd_disks | bool
+
+- name: "Report Ceph-held devices excluded from the wipe"
+  ansible.builtin.debug:
+    msg: >-
+      NOT wiping {{ _ceph_wipe_skipped | length }} device(s) on
+      {{ inventory_hostname }} that already carry Ceph LVM (likely live OSDs
+      from a previous run): {{ _ceph_wipe_skipped | join(', ') }}. This is the
+      safe default for re-runs. If these are stale leftovers you intend to
+      destroy, set ceph_expand_force_wipe_ceph_devices=true or wipe them
+      manually first.
+  when:
+    - ceph_expand_wipe_osd_disks | bool
+    - (_ceph_wipe_skipped | default([])) | length > 0
+
 - name: "Verify each declared OSD device is unmounted before wipe"
   ansible.builtin.command: "lsblk -no MOUNTPOINT {{ item }}"
-  loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
+  loop: "{{ _ceph_wipe_targets | default([]) }}"
   register: _ceph_osd_mounts
   changed_when: false
   when: ceph_expand_wipe_osd_disks | bool
@@ -38,7 +86,7 @@
     set -e
     wipefs -a {{ item }}
     sgdisk --zap-all {{ item }}
-  loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
+  loop: "{{ _ceph_wipe_targets | default([]) }}"
   register: _ceph_osd_wipe
   changed_when: true
   when: ceph_expand_wipe_osd_disks | bool

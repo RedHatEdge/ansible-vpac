@@ -1,6 +1,11 @@
 ---
 # Orchestrator. Each sub-task file is tag-addressable.
 
+- name: "Inventory contract — every operator value validated in ONE pass"
+  ansible.builtin.import_tasks: contract.yml
+  when: preflight_check_contract | bool
+  tags: [preflight, preflight-contract]
+
 - name: "Connectivity, RHEL version, disk space, clock"
   ansible.builtin.import_tasks: connectivity.yml
   when: preflight_check_connectivity | bool

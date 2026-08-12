@@ -10,7 +10,13 @@
 #
 # Fill in the values below, then run:
 #   ansible-playbook -i inventory/<your-site> site.yml --tags preflight
-# to validate your settings before committing to a full deploy.
+# to validate your settings before committing to a full deploy. Preflight
+# includes a one-pass inventory contract check that reports EVERY unresolved
+# operator value together (leftover placeholders, invalid bootstrap_node,
+# unstable OSD device names, missing registry credentials, bad vm_catalog
+# host references) — keep running it until it prints "Inventory contract
+# clean". The fill-out companion — every operator value, its format, and how
+# to obtain it — is docs/OPERATOR-VALUES.md.
 
 # --------------------------------------------------------------------
 # 1. Site identity
@@ -442,7 +448,14 @@ ceph:
   cluster_network: "10.0.10.0/24"        # typically same subnet as public
   release: "7"                           # RHCS major version (7, 6, …)
   container_image: null                  # null → derived from sources.container_registry + release
-  registry_credentials_file: null        # path on bootstrap node; JSON for cephadm --registry-json
+  # Path on the BOOTSTRAP NODE; JSON for cephadm --registry-json. Required
+  # whenever the registry needs auth — always for registry.redhat.io. Use a
+  # TERMS-BASED registry service account (access.redhat.com/terms-based-registry);
+  # a console.redhat.com IAM service account will NOT authenticate and fails
+  # only at pull time.
+  registry_credentials_file: null
+  # NOT a label: every ceph_expand orchestrator command is delegate_to'd to
+  # this host. Must be one of the vpac_nodes hostnames (preflight enforces).
   bootstrap_node: "site1-node-a"
   # SSH user cephadm uses to manage other nodes. Default `root`; override
   # when root SSH is locked down and cephadm should drive a sudoers admin.
@@ -451,19 +464,26 @@ ceph:
   ssh_user: "root"
 
   # Per-node OSD devices. Must be empty block devices. No auto-discovery.
+  # ⚠ ALWAYS use stable /dev/disk/by-id/ paths, NEVER kernel names like
+  # /dev/nvme0n1 — kernel names are assigned by enumeration order and can
+  # swap across boots/reinstalls, and a swapped name landing on the OS disk
+  # gets WIPED (field near-miss: OS disk and an OSD candidate on adjacent
+  # nvme enumeration numbers — one swap apart). Find
+  # yours with: ls -l /dev/disk/by-id/ | grep -v part
+  # Preflight fails on unstable names unless you explicitly opt out.
   osd_devices:
     site1-node-a:
-      - "/dev/nvme0n1"
-      - "/dev/nvme1n1"
-      - "/dev/nvme2n1"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0001"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0002"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0003"
     site1-node-b:
-      - "/dev/nvme0n1"
-      - "/dev/nvme1n1"
-      - "/dev/nvme2n1"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0004"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0005"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0006"
     site1-node-c:
-      - "/dev/nvme0n1"
-      - "/dev/nvme1n1"
-      - "/dev/nvme2n1"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0007"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0008"
+      - "/dev/disk/by-id/nvme-ExampleModel_SERIAL0009"
 
   pools:
     - name: "vms"

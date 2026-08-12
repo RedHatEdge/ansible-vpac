@@ -22,9 +22,18 @@ ceph_expand_mount_opts: "noatime,_netdev"
 # as OSDs. Required at any reused-hardware site; without it, prior partition
 # tables and filesystem signatures (ESXi, vSAN, prior Ceph) cause OSD-add to
 # either skip the disk or crashloop. Refuses to wipe a disk that is currently
-# mounted. Toggle false ONLY for greenfield NVMe where you have hand-verified
-# every device is empty.
+# mounted, and — independently of this toggle — devices that already carry
+# Ceph LVM (live OSDs from a previous run) are ALWAYS excluded from the wipe
+# unless ceph_expand_force_wipe_ceph_devices is set, so a plain re-run of
+# stage 60 cannot destroy an existing cluster's OSDs. Toggle false ONLY for
+# greenfield NVMe where you have hand-verified every device is empty.
 ceph_expand_wipe_osd_disks: true
+
+# Escape hatch for the guard above: also wipe devices that carry Ceph LVM.
+# Set true ONLY when redeploying over a decommissioned cluster whose OSD
+# data you intend to destroy (e.g. the RHCS version-bump redeploy). Never
+# leave it true in a site inventory.
+ceph_expand_force_wipe_ceph_devices: false
 
 # Sanlock-on-RBD lockspace. The role provisions this image in the first
 # RBD pool declared in ceph.pools[]. 1 GiB is enough for hundreds of VMs;
