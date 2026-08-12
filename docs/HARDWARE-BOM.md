@@ -26,7 +26,7 @@ At sites where NICs are constrained, heartbeat and PTP can be VLAN-isolated on a
 
 > **Switch caveat — Advantech EKI-8528-4XFL at 1 GbE fibre.** Firmware **1.00.04 flaps 1000BASE-X links** continuously (multiple NIC families affected, idle links included); **firmware ≥ 1.00.06 (r610) fixes it** — the fix is not enumerated in the vendor release notes. Config survives the upgrade (~80–105 s downtime; previous image stays in the backup slot). If 1 G fibre links flap behind these switches, upgrade firmware **before** suspecting NICs. See TROUBLESHOOTING.md, "Storage / heartbeat 1 GbE fibre links flap."
 >
-> **NIC note — Intel E823-C (`ice`) at 1 GbE fibre.** A flap on this NIC was earlier attributed to the `ice` driver; the control behind that attribution was later shown to be confounded by the switch firmware above, so an E823-C-specific defect is neither proven nor excluded. The `ethtool` mismatch (Supported `1000baseT` vs Advertised `1000baseX`) is still observable. Independent of attribution: **run cluster fibre links (storage, heartbeat) at 10 GbE on this hardware** — proven stable throughout.
+> **NIC note — Intel E823-C (`ice`) at 1 GbE fibre: exonerated.** A flap on this NIC was originally attributed to the `ice` driver; a direct retest on the same blamed NIC showed the flap stop completely (~2.4/min sustained over 78 h → zero) with the switch firmware fix above as the only variable. The `ethtool` mismatch (Supported `1000baseT` vs Advertised `1000baseX`) remains observable but is non-causal for link stability. Prefer 10 GbE for storage/heartbeat on **bandwidth** grounds; it is not required as a stability workaround on fixed switch firmware.
 
 ## BMC requirements
 

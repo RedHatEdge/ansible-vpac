@@ -134,26 +134,30 @@ stopped. Notes for the upgrade:
 
 **On the NIC attribution:** this flap was earlier attributed to the Intel
 E823-C (`ice`) driver, based on a comparison NIC that later turned out to sit
-behind a switch already running the fixed firmware — a confounded control. An
-`ice`/E823-C contribution at 1 GbE fibre is **neither proven nor excluded**.
-The `ethtool` observation on E823-C (Supported shows `1000baseT` while
-Advertised shows `1000baseX`) is real and worth recording if you hit this, but
-it is not an established cause of flapping:
+behind a switch already running the fixed firmware — a confounded control. A
+direct retest then settled it: a 1000BASE-X link on the **same blamed E823-C
+NIC**, never moved off 1 GbE, went from continuous flapping (~2.4/min sustained
+over 78 h) to **zero carrier changes** with the switch firmware upgrade as the
+only variable — NIC, optic, cabling, and port unchanged. The E823-C is
+**exonerated** for this symptom. The `ethtool` quirk on E823-C (Supported shows
+`1000baseT` while Advertised shows `1000baseX`) remains observable but is
+demonstrated **non-causal** — the link is fully stable with the mismatch
+present:
 ```bash
 ethtool <nic> | grep -E 'Supported link modes|Advertised link modes|Speed'
 ```
 
 **Fixes, in order:**
 1. **Upgrade the switch firmware** (EKI-8528-4XFL: ≥ 1.00.06) and re-measure
-   `carrier_changes` over 15+ minutes.
-2. **Move the link to a 10 GbE port** (10GBASE-SR/LR). 10 G links have been
-   stable on the same hardware throughout; this remains the recommended
-   configuration for cluster (storage/heartbeat) traffic regardless.
-3. If 1 GbE fibre is unavoidable and the flap persists on fixed firmware, pin
-   the port explicitly and disable autoneg:
+   `carrier_changes` over 15+ minutes. This is the fix, not a mitigation.
+2. If the flap persists on fixed firmware (a different fabric/NIC pair than
+   the documented case), pin the port explicitly and disable autoneg:
    `ethtool -s <nic> speed 1000 duplex full autoneg off` (persist via a
    NetworkManager `ethtool` setting), and only then pursue NIC driver/firmware
    avenues with the switch excluded.
+3. Moving cluster links to 10 GbE is a fine choice for **bandwidth**, but it
+   is a workaround, not a fix, for this symptom — 1 GbE fibre is stable on
+   this NIC once the switch firmware is current.
 
 Keep cluster-critical traffic (corosync heartbeat, Ceph) on the stable links.
 
