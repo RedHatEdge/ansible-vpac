@@ -108,32 +108,52 @@ matching your grandmaster's MAC (e.g. `aabbcc.fffe.ddeeff` for MAC
 `aa:bb:cc:dd:ee:ff`). `chronyc sources` should show the PTP refclock with
 `reach` climbing to `377`.
 
-## Storage / heartbeat links flap constantly on Intel E823-C (ice) at 1 GbE fibre
+## Storage / heartbeat 1 GbE fibre links flap constantly
 
-**Symptom:** a fibre link on an Intel E810/E823-C NIC (`ice` driver) running
-1000BASE-X flaps continuously — `ip -s link show <nic>` shows `carrier_changes`
-climbing at ~1–2 **per minute**, and corosync/Ceph traffic on that path is
-unstable. The same optics and switch port run rock-solid on an Intel X710
-(`i40e`) NIC (single-digit carrier changes over *days*).
+**Symptom:** a 1000BASE-X fibre link flaps continuously — `ip -s link show
+<nic>` shows `carrier_changes` climbing at ~1–4 **per minute** — and
+corosync/Ceph traffic on that path is unstable. The flap persists on an
+**idle** link (no traffic, no PTP), so it is pure link-layer.
 
-**Cause:** an `ice`/E823-C driver defect at 1 GbE fibre — the NIC **advertises
-1000BASE-X while only declaring 1000BASE-T as supported**, so autoneg never
-settles. Confirm:
+**Check the switch firmware FIRST.** In the confirmed field case the cause was
+**switch firmware, not the NIC**: Advantech **EKI-8528-4XFL running firmware
+1.00.04** flapped 1000BASE-X links from multiple unrelated NIC families, and
+upgrading to **1.00.06 (r610) stopped the flap completely**. This was proven by
+a controlled A/B — one host, two links from the same NIC card and the same
+optic model/batch, one link into each of two switches: the 1.00.04 side kept
+flapping while the upgraded side recorded zero carrier changes, and after
+upgrading both switches both links went silent and PTP announce-timeout events
+stopped. Notes for the upgrade:
+
+- The fix is **not enumerated in the vendor release notes** (only 1.00.06 has a
+  documented bug-fix section at all) — absence of a documented fix is not
+  evidence the firmware is fine.
+- Config **is preserved** across the 1.00.04 → 1.00.06 upgrade (verified;
+  expect ~80–105 s of switch downtime). The previous image remains in the
+  backup slot for rollback via the switch's image-select menu.
+
+**On the NIC attribution:** this flap was earlier attributed to the Intel
+E823-C (`ice`) driver, based on a comparison NIC that later turned out to sit
+behind a switch already running the fixed firmware — a confounded control. An
+`ice`/E823-C contribution at 1 GbE fibre is **neither proven nor excluded**.
+The `ethtool` observation on E823-C (Supported shows `1000baseT` while
+Advertised shows `1000baseX`) is real and worth recording if you hit this, but
+it is not an established cause of flapping:
 ```bash
 ethtool <nic> | grep -E 'Supported link modes|Advertised link modes|Speed'
-# ice/E823-C shows Supported: 1000baseT, Advertised: 1000baseX — the mismatch
 ```
 
 **Fixes, in order:**
-1. **Move the link to a 10 GbE port** (10GBASE-SR/LR). The defect is specific to
-   1 GbE fibre negotiation; at 10 G the links are stable. This is the
-   recommended fix for cluster (storage/heartbeat) traffic.
-2. If 1 GbE fibre is unavoidable, pin the port explicitly and disable autoneg:
+1. **Upgrade the switch firmware** (EKI-8528-4XFL: ≥ 1.00.06) and re-measure
+   `carrier_changes` over 15+ minutes.
+2. **Move the link to a 10 GbE port** (10GBASE-SR/LR). 10 G links have been
+   stable on the same hardware throughout; this remains the recommended
+   configuration for cluster (storage/heartbeat) traffic regardless.
+3. If 1 GbE fibre is unavoidable and the flap persists on fixed firmware, pin
+   the port explicitly and disable autoneg:
    `ethtool -s <nic> speed 1000 duplex full autoneg off` (persist via a
-   NetworkManager `ethtool` setting). Test thoroughly — behavior varies by
-   `ice` version.
-3. Track/raise upstream with Intel — this is a driver/firmware bug, not a
-   cabling or optics issue.
+   NetworkManager `ethtool` setting), and only then pursue NIC driver/firmware
+   avenues with the switch excluded.
 
 Keep cluster-critical traffic (corosync heartbeat, Ceph) on the stable links.
 

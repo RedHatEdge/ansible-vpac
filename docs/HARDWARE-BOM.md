@@ -24,7 +24,9 @@ Minimum five logical networks. Practical layout for identical hardware:
 
 At sites where NICs are constrained, heartbeat and PTP can be VLAN-isolated on a shared NIC **only if** the shared NIC is not a bridge member. The playbook will not allow PTP on a bridge. (Heartbeat over a VLAN on the storage bond is a supported, field-proven layout for 4-NIC nodes — see the networking role's *Heartbeat modes*.)
 
-> **NIC caveat — Intel E823-C (`ice`) at 1 GbE fibre.** The `ice` driver on E810/E823-C NICs flaps 1000BASE-X links continuously (advertises 1000BASE-X while declaring only 1000BASE-T supported; autoneg never settles). Intel X710 (`i40e`) is unaffected. **Run cluster fibre links (storage, heartbeat) at 10 GbE on this hardware**, or pin speed with autoneg off. See TROUBLESHOOTING.md, "Storage / heartbeat links flap." Driver-level Intel bug, worth raising upstream.
+> **Switch caveat — Advantech EKI-8528-4XFL at 1 GbE fibre.** Firmware **1.00.04 flaps 1000BASE-X links** continuously (multiple NIC families affected, idle links included); **firmware ≥ 1.00.06 (r610) fixes it** — the fix is not enumerated in the vendor release notes. Config survives the upgrade (~80–105 s downtime; previous image stays in the backup slot). If 1 G fibre links flap behind these switches, upgrade firmware **before** suspecting NICs. See TROUBLESHOOTING.md, "Storage / heartbeat 1 GbE fibre links flap."
+>
+> **NIC note — Intel E823-C (`ice`) at 1 GbE fibre.** A flap on this NIC was earlier attributed to the `ice` driver; the control behind that attribution was later shown to be confounded by the switch firmware above, so an E823-C-specific defect is neither proven nor excluded. The `ethtool` mismatch (Supported `1000baseT` vs Advertised `1000baseX`) is still observable. Independent of attribution: **run cluster fibre links (storage, heartbeat) at 10 GbE on this hardware** — proven stable throughout.
 
 ## BMC requirements
 
