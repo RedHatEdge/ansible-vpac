@@ -483,12 +483,14 @@ ceph:
   # it stays scoped per-VM.
   libvirt_cephx_user: "client.libvirt"
 
-  # Fixed UUID for the libvirt secret holding the cephx key. MUST be unique
-  # per site AND identical on every cluster node — different UUIDs silently
-  # break live migration (destination has no matching secret). Generate once
-  # with `uuidgen`, commit to inventory, never change. The role refuses to
-  # define a secret with the placeholder all-zeros UUID below.
-  libvirt_secret_uuid: "00000000-0000-0000-0000-000000000000"
+  # UUID for the libvirt secret holding the cephx key. NOT an operator
+  # input: leave null and the roles derive it deterministically from the
+  # cluster FSID — automatically unique per site, identical on every node
+  # and every re-run (different UUIDs across nodes silently break live
+  # migration). Only pin a value here if you must match a secret that
+  # already exists (e.g. a cluster deployed before this default existed);
+  # once VMs reference it, never change it.
+  libvirt_secret_uuid: null
 
 # --------------------------------------------------------------------
 # 10. Pacemaker / Corosync

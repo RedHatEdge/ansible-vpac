@@ -228,7 +228,7 @@
 {%     endif %}
               />
       <auth username='{{ _cephx_user }}'>
-        <secret type='ceph' uuid='{{ ceph.libvirt_secret_uuid }}'/>
+        <secret type='ceph' uuid='{{ _ceph_libvirt_uuid | default(undef("This VM has an RBD disk but the libvirt secret UUID cannot be resolved: ceph.libvirt_secret_uuid is not pinned in the inventory and no cluster FSID was readable from /etc/ceph/ceph.conf on this host. Run stage 60 (ceph) before stage 80, or pin ceph.libvirt_secret_uuid.")) }}'/>
       </auth>
       <source protocol='rbd' name='{{ _rbd_pool }}/{{ _rbd_image }}'>
 {%     for n in vpac_nodes %}

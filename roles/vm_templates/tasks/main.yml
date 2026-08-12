@@ -7,6 +7,31 @@
 # `profile:` field naming one. Catalog fields take precedence over
 # profile defaults — the jinja template uses `_vm.foo | default(_profile.foo)`.
 
+# Resolve the libvirt RBD secret UUID the same way ceph_expand does:
+# an explicit non-placeholder ceph.libvirt_secret_uuid is respected,
+# otherwise derive deterministically from the cluster FSID (read from
+# /etc/ceph/ceph.conf, written to every node by stage 60). Same rule in
+# both roles => the XML always references the secret stage 60 defined.
+# When neither is available, _ceph_libvirt_uuid stays undefined and the
+# template raises a pointed error only if a VM actually uses an RBD disk.
+- name: "Read cluster FSID from /etc/ceph/ceph.conf (if present)"
+  ansible.builtin.command: awk -F'= ' '/^fsid/ {print $2}' /etc/ceph/ceph.conf
+  register: _vmt_fsid
+  changed_when: false
+  failed_when: false
+
+- name: "Resolve libvirt RBD secret UUID (pinned, else derived from FSID)"
+  ansible.builtin.set_fact:
+    _ceph_libvirt_uuid: >-
+      {{ ceph.libvirt_secret_uuid
+         if ((ceph.libvirt_secret_uuid | default('', true) | length > 0)
+             and ceph.libvirt_secret_uuid != '00000000-0000-0000-0000-000000000000')
+         else (((_vmt_fsid.stdout | trim) ~ ':vpac-libvirt-rbd-secret') | to_uuid) }}
+  when: >-
+    ((ceph.libvirt_secret_uuid | default('', true) | length > 0)
+     and ceph.libvirt_secret_uuid != '00000000-0000-0000-0000-000000000000')
+    or ((_vmt_fsid.rc | default(1)) == 0 and (_vmt_fsid.stdout | trim | length > 0))
+
 - name: "Ensure vPAC-managed libvirt XML directory exists"
   ansible.builtin.file:
     path: "{{ vm_templates_xml_dir }}"
