@@ -32,7 +32,7 @@ the stages.
 | `ceph.libvirt_secret_uuid` | never (leave `null`) | — | derived automatically from the cluster FSID; pin only to match a pre-existing secret, then never change |
 | `pacemaker.*` / `stonith.*` | 3+ nodes | BMC IP/user/password per node | iDRAC/IPMI admin; **enable IPMI-over-LAN** on iDRACs (ships disabled) — preflight checks reachability |
 | `rt_tuning.isolated_cpus` etc. | RT hosts | CPU list valid **for that node's topology** | `lscpu`; isolcpus **silently ignores** CPU numbers the machine doesn't have — recompute per hardware model, never copy between models |
-| `vm_catalog` | stage 80 | list of VMs with `target_host` / `allowed_hosts` | hostnames must be `vpac_nodes` hostnames (contract-checked); vendor VM profiles (disk bus / NIC model) per the vm_templates README |
+| `vm_catalog` | **stage 80 only — never for the cluster itself** | list of VMs with `target_host` / `allowed_hosts`; **default `[]`** | Workloads are not a prerequisite: `[]` is the cluster-only path (stage 80 no-ops). When filled: hostnames must be `vpac_nodes` hostnames — preflight *warns*, stage 80 *enforces*. Vendor VM profiles (disk bus / NIC model) per the vm_templates README |
 
 ## ⚠ OSD device names: use `/dev/disk/by-id/`, always
 
@@ -72,7 +72,23 @@ version-bump redeploy): tear down with `cephadm rm-cluster --fsid <fsid>
 ## Running the stages
 
 `site.yml` runs stages `00 → 90` in order; each is also its own playbook under
-`playbooks/NN-*.yml` and its own tag. The working pattern:
+`playbooks/NN-*.yml` and its own tag.
+
+**Two named deployment paths:**
+
+- **Cluster-only (the default):** leave `vm_catalog: []`. Bare `site.yml` runs
+  stages 00–75 to completion — networking, PTP, RT tuning, Ceph, Pacemaker,
+  STONITH — stage 80 is an explicit no-op, and stage 90 validates the cluster.
+  You get a usable, fenced, storage-backed vPAC cluster with no workloads.
+  Building the cluster **never** requires a workload definition.
+- **Cluster + workloads:** the same, plus a filled `vm_catalog`. Workload
+  values are validated where they are consumed: preflight (stage 00) only
+  *warns* about `vm_catalog` gaps; stage 80 *fails* on them, in one pass,
+  before rendering anything. Typical field sequence: deploy cluster-only,
+  then fill `vm_catalog` and run stage 80 + 90 when the workload images are
+  in hand.
+
+The working pattern:
 
 1. `--tags preflight` until the contract check and host checks are green.
 2. Run stages one at a time on first deploy (`playbooks/10-…` → `90-…`),
@@ -83,4 +99,5 @@ version-bump redeploy): tear down with `cephadm rm-cluster --fsid <fsid>
    `op-stonith-fence-test.yml`).
 
 Full step-by-step walkthroughs: `docs/DEPLOYMENT-CONNECTED.md` and
-`docs/DEPLOYMENT-AIRGAPPED.md`.
+`docs/DEPLOYMENT-AIRGAPPED.md`. Field-derived per-stage commands, post-stage
+validation checks, and a site-log template: `docs/DEPLOYMENT-RUNBOOK.md`.

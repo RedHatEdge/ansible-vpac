@@ -7,6 +7,10 @@
 # `profile:` field naming one. Catalog fields take precedence over
 # profile defaults — the jinja template uses `_vm.foo | default(_profile.foo)`.
 
+- name: "Enforce the vm_catalog contract at the stage that consumes it"
+  ansible.builtin.import_tasks: catalog_contract.yml
+  tags: [vm, vm-templates, vm-catalog-contract]
+
 # Resolve the libvirt RBD secret UUID the same way ceph_expand does:
 # an explicit non-placeholder ceph.libvirt_secret_uuid is respected,
 # otherwise derive deterministically from the cluster FSID (read from

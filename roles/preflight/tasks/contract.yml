@@ -9,21 +9,29 @@
 #
 # Reference for every value checked here: docs/OPERATOR-VALUES.md.
 
+# Two severity buckets, because the cluster and its workloads are decoupled
+# BY DESIGN — building the cluster (stages 00-75) must never be gated on
+# workload definitions (vm_catalog, consumed only at stage 80):
+#   _contract_issues   → cluster-forming values; HARD FAIL here at stage 00.
+#   _contract_deferred → workload (vm_catalog) values; WARNING here, and
+#                        hard-enforced by vm_templates at stage 80 where
+#                        they are actually consumed. An absent or empty
+#                        vm_catalog is a first-class path (cluster-only).
 - name: "Contract: gather shared shapes"
   run_once: true
   ansible.builtin.set_fact:
     _contract_issues: []
+    _contract_deferred: []
     _contract_hostnames: "{{ vpac_nodes | default([]) | map(attribute='hostname') | list }}"
 
-# --- placeholder scan -------------------------------------------------
-- name: "Contract: scan operator trees for example placeholder hostnames"
+# --- placeholder scan (cluster-forming trees only) ---------------------
+- name: "Contract: scan cluster-forming trees for example placeholder hostnames"
   run_once: true
   ansible.builtin.set_fact:
     _contract_ph_hits: "{{ (_contract_ph_hits | default([])) + [item.key] }}"
   loop:
     - { key: "vpac_nodes", blob: "{{ vpac_nodes | default([]) | to_json }}" }
     - { key: "ceph", blob: "{{ ceph | default({}) | to_json }}" }
-    - { key: "vm_catalog", blob: "{{ vm_catalog | default([]) | to_json }}" }
     - { key: "stonith", blob: "{{ stonith | default({}) | to_json }}" }
     - { key: "networks", blob: "{{ networks | default({}) | to_json }}" }
   loop_control:
@@ -163,8 +171,20 @@
       or (ceph.libvirt_secret_uuid
           is not regex('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'))
 
-# --- vm_catalog --------------------------------------------------------
-- name: "Contract: vm_catalog target_host values must be cluster hostnames"
+# --- vm_catalog: WORKLOAD values — deferred, never blocks the cluster ---
+# Consumed only at stage 80 (vm_templates hard-enforces the same checks
+# there). Reported here as a warning so the operator knows what is left
+# before workloads can deploy; empty/absent vm_catalog = cluster-only path.
+- name: "Contract (deferred): vm_catalog placeholder scan"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_deferred: >-
+      {{ _contract_deferred + [
+        "vm_catalog still contains example placeholder hostnames ('site1-node-…')"
+      ] }}
+  when: (vm_catalog | default([]) | to_json) is search('site1-node')
+
+- name: "Contract (deferred): vm_catalog target_host values must be cluster hostnames"
   run_once: true
   vars:
     _bad_targets: >-
@@ -172,19 +192,18 @@
          | rejectattr('target_host', 'in', _contract_hostnames)
          | map(attribute='name') | list }}
   ansible.builtin.set_fact:
-    _contract_issues: >-
-      {{ _contract_issues + [
+    _contract_deferred: >-
+      {{ _contract_deferred + [
         "vm_catalog entries with a target_host that is not a vpac_nodes hostname: "
         ~ (_bad_targets | join(', '))
-        ~ " — those VMs would silently never be rendered on any node."
       ] }}
   when: _bad_targets | length > 0
 
-- name: "Contract: vm_catalog allowed_hosts values must be cluster hostnames"
+- name: "Contract (deferred): vm_catalog allowed_hosts values must be cluster hostnames"
   run_once: true
   ansible.builtin.set_fact:
-    _contract_issues: >-
-      {{ _contract_issues + [
+    _contract_deferred: >-
+      {{ _contract_deferred + [
         "vm_catalog entry '" ~ (item.name | default('?')) ~ "' has allowed_hosts not in "
         ~ "vpac_nodes: " ~ ((item.allowed_hosts | difference(_contract_hostnames)) | join(', '))
       ] }}
@@ -192,6 +211,16 @@
   loop_control:
     label: "{{ item.name | default('?') }}"
   when: (item.allowed_hosts | difference(_contract_hostnames)) | length > 0
+
+- name: "Contract (deferred): report workload values still to fill (does NOT block)"
+  run_once: true
+  ansible.builtin.debug:
+    msg: >-
+      WORKLOAD (stage 80) values not ready — the cluster stages 00-75 are NOT
+      blocked by this and will proceed: {{ _contract_deferred }}. Define
+      vm_catalog before running stage 80; vm_templates enforces these checks
+      there. An empty vm_catalog ([]) is the supported cluster-only path.
+  when: _contract_deferred | length > 0
 
 # --- the one-pass report ----------------------------------------------
 - name: "Contract: report every unresolved operator value together"
@@ -222,7 +251,13 @@
   run_once: true
   ansible.builtin.debug:
     msg: >-
-      Inventory contract clean: no placeholders, ceph.bootstrap_node valid,
-      osd_devices stable-path and host-matched, registry auth consistent,
-      vm_catalog hosts valid.
+      Inventory contract clean (cluster-forming values): no placeholders,
+      ceph.bootstrap_node valid, osd_devices stable-path and host-matched,
+      registry auth consistent.
+      {{ 'Workload (vm_catalog) values have deferred warnings above — fix before stage 80.'
+         if _contract_deferred | length > 0
+         else (' vm_catalog: ' ~ (vm_catalog | default([]) | length | string)
+               ~ ' workload(s) defined — validated.'
+               if (vm_catalog | default([]) | length > 0)
+               else ' vm_catalog empty — cluster-only path; stage 80 will be a no-op.') }}
   when: _contract_issues | length == 0

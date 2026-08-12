@@ -1,0 +1,59 @@
+---
+# Hard enforcement of the vm_catalog contract — at the stage that consumes
+# it. Stage-00 preflight reports these same problems as WARNINGS (the
+# cluster stages must never be gated on workload definitions); here at
+# stage 80 they become failures, in one pass, before any XML is rendered.
+# An empty vm_catalog is valid: the stage is then a no-op (cluster-only).
+
+- name: "vm_catalog contract: collect issues (one pass)"
+  run_once: true
+  vars:
+    _vmc_hostnames: "{{ vpac_nodes | default([]) | map(attribute='hostname') | list }}"
+    _vmc_placeholder: "{{ (vm_catalog | default([]) | to_json) is search('site1-node') }}"
+    _vmc_bad_targets: >-
+      {{ vm_catalog | default([]) | selectattr('target_host', 'defined')
+         | rejectattr('target_host', 'in', _vmc_hostnames)
+         | map(attribute='name') | list }}
+    _vmc_no_target: >-
+      {{ vm_catalog | default([]) | rejectattr('target_host', 'defined')
+         | map(attribute='name') | list }}
+    _vmc_bad_allowed: >-
+      {{ vm_catalog | default([]) | selectattr('allowed_hosts', 'defined')
+         | rejectattr('allowed_hosts', 'subset', _vmc_hostnames)
+         | map(attribute='name') | list }}
+  ansible.builtin.set_fact:
+    _vmc_issues: >-
+      {{ ([ "vm_catalog still contains example placeholder hostnames "
+            ~ "('site1-node-…') — replace them with your vpac_nodes hostnames" ]
+          if _vmc_placeholder else [])
+         + ([ "target_host is not a vpac_nodes hostname for: "
+              ~ (_vmc_bad_targets | join(', ')) ]
+            if _vmc_bad_targets | length > 0 else [])
+         + ([ "no target_host defined for: " ~ (_vmc_no_target | join(', '))
+              ~ " — these VMs would never be rendered on any node" ]
+            if _vmc_no_target | length > 0 else [])
+         + ([ "allowed_hosts contains non-cluster hostnames for: "
+              ~ (_vmc_bad_allowed | join(', ')) ]
+            if _vmc_bad_allowed | length > 0 else []) }}
+  when: (vm_catalog | default([])) | length > 0
+
+- name: "vm_catalog contract: report all issues together"
+  run_once: true
+  ansible.builtin.fail:
+    msg: |
+      vm_catalog has {{ _vmc_issues | length }} unresolved issue(s) — fix all, then re-run stage 80:
+      {% for issue in _vmc_issues %}
+      {{ loop.index }}. {{ issue }}
+      {% endfor %}
+      Reference: docs/OPERATOR-VALUES.md (vm_catalog row) and the vm_templates README.
+  when:
+    - (vm_catalog | default([])) | length > 0
+    - (_vmc_issues | default([])) | length > 0
+
+- name: "vm_catalog contract: cluster-only no-op"
+  run_once: true
+  ansible.builtin.debug:
+    msg: >-
+      vm_catalog is empty — cluster-only deployment; stage 80 defines no VMs.
+      Add workloads to vm_catalog and re-run stage 80 (then stage 90) when ready.
+  when: (vm_catalog | default([])) | length == 0

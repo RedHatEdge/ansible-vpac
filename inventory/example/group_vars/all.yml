@@ -583,99 +583,111 @@ stonith:
 # under roles/vm_templates/vars/profiles/. Add new profiles for new
 # relay or workstation types.
 
-vm_catalog:
+# WORKLOADS ARE NOT A PREREQUISITE. The default below is an EMPTY catalog:
+# stages 00-75 build the full cluster (networking, PTP, RT, Ceph, Pacemaker,
+# STONITH) with no workloads defined, stage 80 is a no-op, and stage 90
+# validates the cluster. This cluster-only path is first-class — deploy the
+# cluster first, add workloads later by filling this list and re-running
+# stage 80 (then 90). Preflight only WARNS about vm_catalog gaps; stage 80
+# enforces them where they are consumed.
+vm_catalog: []
 
-  # Example relay VM (ABB SSC600 pattern). RBD-backed via the libvirt cephx
-  # secret defined by ceph_expand; participates in the sanlock lockspace via
-  # lease_offset. NIC attaches to the libvirt virtual network "station-bus"
-  # (rendered by virtualization stage 30 over the station bridge).
-  - name: "ssc600-01"
-    profile: "ssc600"
-    target_host: "site1-node-a"          # null = let Pacemaker choose
-    allowed_hosts: ["site1-node-a", "site1-node-b"]
-    vcpus: 4
-    pinned_cpus: [4, 5, 6, 7]
-    emulator_cpus: [8, 9]
-    memory_gb: 8
-    hugepages: true
-    rt_priority: 50
-    preserve_mac: false
-    lease_offset: 1048576                # 1 MiB-aligned, MUST be unique per cluster
-    nics:
-      - network: "station-bus"           # libvirt virtual network (preferred)
-        model: "virtio"
-    disks:
-      - type: "rbd"
-        pool: "rbd-vms"
-        image: "ssc600-01"
-        bus: "virtio"
-
-  # Example VPR / RTAC VM. Same RBD + sanlock pattern, lower RT priority.
-  - name: "vpr-01"
-    profile: "vpr"
-    target_host: "site1-node-b"
-    allowed_hosts: ["site1-node-a", "site1-node-b"]
-    vcpus: 2
-    pinned_cpus: [10, 11]
-    emulator_cpus: [2, 3]
-    memory_gb: 2
-    hugepages: true
-    rt_priority: 40
-    preserve_mac: true
-    mac_address: "52:54:00:00:00:01"
-    lease_offset: 2097152                # 2 MiB-aligned, unique per cluster
-    nics:
-      - network: "station-bus"
-        model: "virtio"
-    disks:
-      - type: "rbd"
-        pool: "rbd-vms"
-        image: "vpr-01"
-        bus: "virtio"
-
-  # Example Windows engineering VM with passthrough (BIOS, Win10-style).
-  # CephFS file-backed — no sanlock lease (qcow2 on clustered FS uses
-  # flock, not sanlock-managed). NIC on the mgmt libvirt network.
-  - name: "winws-01"
-    profile: "windows_passthrough"
-    target_host: "site1-node-c"
-    allowed_hosts: ["site1-node-c"]
-    vcpus: 8
-    memory_gb: 16
-    hugepages: false                     # Windows does not need 1G pages here
-    nics:
-      - network: "br-mgmt"               # libvirt virtual network over the mgmt bridge
-        model: "virtio"
-    pci_passthrough:
-      - "0000:18:00.0"                   # example NIC for Wireshark
-    disks:
-      - source: "cephfs:/vms/winws-01.qcow2"
-        size_gb: 120
-        bus: "virtio"
-
-  # Example Windows-11 HMI VM (UEFI + SecureBoot + TPM 2.0 + Hyper-V).
-  # RBD-backed for live-migration friendliness; sanlock-protected via
-  # lease_offset. The windows_uefi profile wires the firmware/TPM/hyperv
-  # contract — see roles/vm_templates/vars/profiles/windows_uefi.yml.
-  # Operator must pre-create /vms/nvram on the CephFS mount before first
-  # start so libvirt can template per-VM NVRAM there.
-  - name: "win-hmi-01"
-    profile: "windows_uefi"
-    target_host: "site1-node-c"
-    allowed_hosts: ["site1-node-a", "site1-node-b", "site1-node-c"]
-    vcpus: 4
-    memory_gb: 8
-    hugepages: false
-    lease_offset: 3145728                # 3 MiB-aligned, unique per cluster
-    nics:
-      - network: "br-mgmt"
-        model: "virtio"
-    disks:
-      - type: "rbd"
-        pool: "rbd-vms"
-        image: "win-hmi-01"
-        bus: "virtio"
-
+# Reference workload examples (uncomment into vm_catalog and edit when you
+# are ready to deploy workloads). Four patterns: a protection relay
+# (ABB SSC600), a VPR (NovaTech Orion), a Windows workstation, a Windows HMI.
+#
+#
+#   # Example relay VM (ABB SSC600 pattern). RBD-backed via the libvirt cephx
+#   # secret defined by ceph_expand; participates in the sanlock lockspace via
+#   # lease_offset. NIC attaches to the libvirt virtual network "station-bus"
+#   # (rendered by virtualization stage 30 over the station bridge).
+#   - name: "ssc600-01"
+#     profile: "ssc600"
+#     target_host: "site1-node-a"          # null = let Pacemaker choose
+#     allowed_hosts: ["site1-node-a", "site1-node-b"]
+#     vcpus: 4
+#     pinned_cpus: [4, 5, 6, 7]
+#     emulator_cpus: [8, 9]
+#     memory_gb: 8
+#     hugepages: true
+#     rt_priority: 50
+#     preserve_mac: false
+#     lease_offset: 1048576                # 1 MiB-aligned, MUST be unique per cluster
+#     nics:
+#       - network: "station-bus"           # libvirt virtual network (preferred)
+#         model: "virtio"
+#     disks:
+#       - type: "rbd"
+#         pool: "rbd-vms"
+#         image: "ssc600-01"
+#         bus: "virtio"
+#
+#   # Example VPR / RTAC VM. Same RBD + sanlock pattern, lower RT priority.
+#   - name: "vpr-01"
+#     profile: "vpr"
+#     target_host: "site1-node-b"
+#     allowed_hosts: ["site1-node-a", "site1-node-b"]
+#     vcpus: 2
+#     pinned_cpus: [10, 11]
+#     emulator_cpus: [2, 3]
+#     memory_gb: 2
+#     hugepages: true
+#     rt_priority: 40
+#     preserve_mac: true
+#     mac_address: "52:54:00:00:00:01"
+#     lease_offset: 2097152                # 2 MiB-aligned, unique per cluster
+#     nics:
+#       - network: "station-bus"
+#         model: "virtio"
+#     disks:
+#       - type: "rbd"
+#         pool: "rbd-vms"
+#         image: "vpr-01"
+#         bus: "virtio"
+#
+#   # Example Windows engineering VM with passthrough (BIOS, Win10-style).
+#   # CephFS file-backed — no sanlock lease (qcow2 on clustered FS uses
+#   # flock, not sanlock-managed). NIC on the mgmt libvirt network.
+#   - name: "winws-01"
+#     profile: "windows_passthrough"
+#     target_host: "site1-node-c"
+#     allowed_hosts: ["site1-node-c"]
+#     vcpus: 8
+#     memory_gb: 16
+#     hugepages: false                     # Windows does not need 1G pages here
+#     nics:
+#       - network: "br-mgmt"               # libvirt virtual network over the mgmt bridge
+#         model: "virtio"
+#     pci_passthrough:
+#       - "0000:18:00.0"                   # example NIC for Wireshark
+#     disks:
+#       - source: "cephfs:/vms/winws-01.qcow2"
+#         size_gb: 120
+#         bus: "virtio"
+#
+#   # Example Windows-11 HMI VM (UEFI + SecureBoot + TPM 2.0 + Hyper-V).
+#   # RBD-backed for live-migration friendliness; sanlock-protected via
+#   # lease_offset. The windows_uefi profile wires the firmware/TPM/hyperv
+#   # contract — see roles/vm_templates/vars/profiles/windows_uefi.yml.
+#   # Operator must pre-create /vms/nvram on the CephFS mount before first
+#   # start so libvirt can template per-VM NVRAM there.
+#   - name: "win-hmi-01"
+#     profile: "windows_uefi"
+#     target_host: "site1-node-c"
+#     allowed_hosts: ["site1-node-a", "site1-node-b", "site1-node-c"]
+#     vcpus: 4
+#     memory_gb: 8
+#     hugepages: false
+#     lease_offset: 3145728                # 3 MiB-aligned, unique per cluster
+#     nics:
+#       - network: "br-mgmt"
+#         model: "virtio"
+#     disks:
+#       - type: "rbd"
+#         pool: "rbd-vms"
+#         image: "win-hmi-01"
+#         bus: "virtio"
+#
 # --------------------------------------------------------------------
 # 13. Builder ISO minting (air-gapped path)
 # --------------------------------------------------------------------
