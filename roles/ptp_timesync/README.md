@@ -136,23 +136,40 @@ default for ~70 h. GM-identity-only verification passed while PTP was dead.
 ### PTP fabric requirement (switch-side)
 
 The node config can be flawless and PTP still be dead if the switch fabric
-mishandles the grandmaster's step mode:
+stops delivering the messages the sync exchange needs:
 
-- A **two-step** GM sends a `Sync` followed by a separate `Follow_Up`. **Every
-  switch in the PTP path** must be a P2P transparent clock that correctly
-  forwards/regenerates the two-step `Follow_Up` — **or** run the TC as **one-step**
-  (which folds the timestamp into a self-contained `Sync`, so a dropped `Follow_Up`
-  no longer matters).
-- **Signature of a TC silently dropping `Follow_Up`:** stable GM identity + working
-  Pdelay (`peerMeanPathDelay` non-zero) + the node stuck UNCALIBRATED with a frozen
-  offset. Confirm on the wire:
+- A **two-step** GM sends a `Sync` followed by a separate `Follow_Up` carrying the
+  timestamp. **Every switch in the PTP path** must be a P2P transparent clock that
+  correctly forwards/regenerates the two-step `Follow_Up`. Without the `Follow_Up`
+  the node has Announce, Sync, and healthy Pdelay — and no usable time.
+- **Failure signature observed in the field:** stable GM identity + working Pdelay
+  (`peerMeanPathDelay` non-zero) + the node stuck UNCALIBRATED with a frozen
+  offset. Confirm on the wire and at the port:
   ```bash
-  tcpdump -i <ptp-nic> ether proto 0x88f7   # expect Sync + Announce + Follow_Up;
-                                            # zero Follow_Up = the TC is dropping it
+  # On the node — expect Sync + Announce + Follow_Up at matched rates;
+  # zero Follow_Up = the fabric is not delivering it:
+  tcpdump -i <ptp-nic> ether proto 0x88f7
+
+  # ptp4l port/servo state. timemaster runs ptp4l on its own UDS, so the
+  # -s socket argument is REQUIRED — bare `pmc -u -b 0` silently returns
+  # EMPTY output on these nodes, which reads as dead PTP when it may be fine:
+  S=/var/run/timemaster/ptp4l.0.socket
+  pmc -s "$S" -u -b 0 "GET PORT_DATA_SET"      # portState: want SLAVE
+  pmc -s "$S" -u -b 0 "GET CURRENT_DATA_SET"   # offsetFromMaster: want small AND varying
+  pmc -s "$S" -u -b 0 "GET TIME_STATUS_NP"     # master_offset + gmPresent
   ```
-  The fix is on the **switch**, not the node (set the transparent clocks one-step, or
-  correct their two-step forwarding). The verify gate above surfaces this as a clean
-  stage-40 failure instead of a false green.
+- **Remediation, in order of what is actually established:** the recovery lever on
+  the affected hardware was **re-initializing the transparent clock's PTP engine**
+  (re-issuing its PTP mode configuration). Switching the TC to one-step coincided
+  with the original recovery, but a later controlled revert of the same TC to
+  two-step synchronized cleanly (correctionField analysis confirmed genuine
+  two-step operation on the datapath), so the step-mode *value* is **not** the
+  proven root cause — treat one-step as a workaround that removes the `Follow_Up`
+  dependency, not as the fix. While diagnosing, also verify the grandmaster is
+  GNSS-disciplined and its wall clock is sane: a free-running GM was a confound
+  in the original incident. Either way the failure is in the **fabric/GM**, not
+  the node, and the verify gate above surfaces it as a clean stage-40 failure
+  instead of a false green.
 
 ## cephadm compatibility (pure-PTP hosts)
 

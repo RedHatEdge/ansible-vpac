@@ -60,11 +60,12 @@
     fail_msg: >-
       ptp4l never reached SLAVE within ~{{ ptp_timesync_slave_timeout }}s — the port is
       stuck (LISTENING/UNCALIBRATED). A grandmaster can be PRESENT and its identity
-      perfectly stable while the node is NOT synchronized. The classic cause is a switch
-      in the PTP path dropping the two-step Follow_Up (signature: stable GM identity +
-      working Pdelay + zero received Follow_Up). Fix the transparent-clock fabric
-      (forward/regenerate Follow_Up, or run the TCs one-step) — see the 'PTP fabric
-      requirement' note in this role's README. Last PORT_DATA_SET:
+      perfectly stable while the node is NOT synchronized. A known field cause is the
+      transparent-clock fabric failing to deliver the two-step Follow_Up (signature:
+      stable GM identity + working Pdelay + zero Follow_Up at the node — confirm with
+      tcpdump). Check the fabric and the GM (re-initialize the TC's PTP engine, verify
+      the GM is disciplined) — see the 'PTP fabric requirement' note in this role's
+      README. Last PORT_DATA_SET:
       {{ _ptp_port.stdout }}
     success_msg: "ptp4l port reached SLAVE."
 
@@ -147,8 +148,9 @@
       |offset| exceeded {{ ptp_timesync_max_offset_ns }} ns, or the value is FROZEN
       (identical across every sample) — a frozen offset means ptp4l has a grandmaster
       "present" but is not disciplining the clock. If portState reads SLAVE but the
-      offset is frozen, suspect the switch fabric dropping the two-step Follow_Up
-      (see this role's README 'PTP fabric requirement').
+      offset is frozen, check whether the fabric is delivering the two-step Follow_Up
+      and whether the GM is disciplined (see this role's README 'PTP fabric
+      requirement').
     success_msg: >-
       offsetFromMaster bounded (< {{ ptp_timesync_max_offset_ns }} ns) and live across
       {{ ptp_timesync_gm_samples }} samples: {{ _ptp_offsets }}.
