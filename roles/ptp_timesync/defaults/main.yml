@@ -88,6 +88,20 @@ ptp_timesync_gm_sample_interval: 8
 # NICs report sw-only and you'll want to flip this to warn for testing.
 ptp_timesync_require_hw_timestamping: true
 
+# cephadm compatibility on pure-PTP hosts. cephadm's host checks probe a
+# fixed list of time-sync systemd UNITS for enabled+active — never the
+# clock itself — and chronyd is masked here by design, so without this
+# both `cephadm bootstrap` and `ceph orch host add` abort with
+# "No time synchronization is active" on nodes that are PTP-locked to
+# +/- ns. When true, the role installs a systemd alias
+# /etc/systemd/system/chrony.service -> timemaster.service, which
+# satisfies cephadm's probe truthfully (timemaster supervises the chronyd
+# that disciplines the clock). Upstream cephadm >= reef 18.2.4 / squid
+# recognizes timemaster.service natively; the alias is required for
+# older builds and harmless on newer ones. Only relevant when the ceph
+# stages run; safe to leave on everywhere.
+ptp_timesync_cephadm_time_sync_alias: true
+
 # Packages. linuxptp brings ptp4l, phc2sys, timemaster, pmc; ethtool is
 # used for HW-timestamp probing.
 ptp_timesync_packages:

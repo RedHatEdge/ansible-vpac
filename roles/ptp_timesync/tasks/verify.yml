@@ -20,6 +20,17 @@
   changed_when: false
   failed_when: _ptp_sys_chronyd.stdout.strip() not in ['masked']
 
+# cephadm's host checks (bootstrap prepare_host AND the mgr module's
+# periodic check-host) probe unit names, not the clock. The alias makes a
+# pure-PTP host pass those probes; verify it resolves active so stage 60
+# doesn't discover the gap mid-bootstrap.
+- name: "Confirm chrony.service alias resolves active (cephadm time-sync probe)"
+  ansible.builtin.command: "systemctl is-active chrony.service"
+  register: _ptp_chrony_alias_active
+  changed_when: false
+  failed_when: _ptp_chrony_alias_active.stdout.strip() != 'active'
+  when: ptp_timesync_cephadm_time_sync_alias | bool
+
 - name: "Wait for the timemaster ptp4l socket to appear"
   ansible.builtin.wait_for:
     path: "{{ ptp_timesync_socket_template | replace('<num>', '0') }}"

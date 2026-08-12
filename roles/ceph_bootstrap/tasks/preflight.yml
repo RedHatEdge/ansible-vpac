@@ -15,6 +15,37 @@
       bootstrap will fail. Fix time sync first (re-run host_baseline
       with --tags baseline-chrony) then retry.
 
+# cephadm does NOT trust the clock — it probes a fixed list of systemd
+# unit names for enabled+active, in two layers that both abort the deploy:
+# `cephadm bootstrap` prepare_host, and the mgr module's check-host on
+# `ceph orch host add` (no skip flag; re-runs every host_check_interval).
+# The Leap-status assert above proves the clock is right; this one proves
+# cephadm will BELIEVE it. On pure-PTP hosts (chronyd masked, timemaster
+# owns chrony) the ptp_timesync role satisfies the probe with a
+# chrony.service -> timemaster.service alias. The list mirrors cephadm's
+# check_time_sync as shipped in RHCS 7 (newer builds also accept
+# timemaster.service natively).
+- name: "Probe the systemd units cephadm accepts as time sync"
+  ansible.builtin.command: >-
+    systemctl is-active
+    chrony.service chronyd.service systemd-timesyncd.service
+    ntpd.service ntp.service ntpsec.service openntpd.service
+  register: _ceph_timesync_units
+  changed_when: false
+  failed_when: false
+
+- name: "Assert cephadm's time-sync unit probe will pass"
+  ansible.builtin.assert:
+    that: "'active' in _ceph_timesync_units.stdout_lines"
+    fail_msg: >-
+      No systemd unit that cephadm recognizes as time sync is active on
+      {{ inventory_hostname }} — cephadm would abort with 'No time
+      synchronization is active' even though the clock itself is fine
+      (the Leap-status check above passed). On pure-PTP hosts this means
+      the chrony.service -> timemaster.service alias is missing: re-run
+      stage 40 (ptp_timesync) with ptp_timesync_cephadm_time_sync_alias
+      enabled. On NTP hosts, chronyd should simply be running.
+
 - name: "Find this node's entry in vpac_nodes"
   ansible.builtin.set_fact:
     _ceph_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"

@@ -1,6 +1,34 @@
 ---
 # All orchestrator operations run on the bootstrap node via delegate_to.
 
+# `ceph orch host add` runs the mgr module's check-host against the target
+# node, which probes a fixed list of time-sync unit names and has NO skip
+# flag — and re-runs every host_check_interval for the life of the cluster.
+# Fail here, on the node, with a pointer, instead of letting cephadm abort
+# with 'No time synchronization is active' on a PTP-locked host. Pure-PTP
+# hosts pass via the chrony.service -> timemaster.service alias installed
+# by ptp_timesync. (This task is intentionally NOT delegated.)
+- name: "Probe the systemd units cephadm's check-host accepts as time sync"
+  ansible.builtin.command: >-
+    systemctl is-active
+    chrony.service chronyd.service systemd-timesyncd.service
+    ntpd.service ntp.service ntpsec.service openntpd.service
+  register: _ceph_timesync_units
+  changed_when: false
+  failed_when: false
+
+- name: "Assert cephadm's check-host time-sync probe will pass on this node"
+  ansible.builtin.assert:
+    that: "'active' in _ceph_timesync_units.stdout_lines"
+    fail_msg: >-
+      No systemd unit that cephadm recognizes as time sync is active on
+      {{ inventory_hostname }} — `ceph orch host add` would be rejected by
+      check-host, and the periodic host check would warn forever. On
+      pure-PTP hosts this means the chrony.service -> timemaster.service
+      alias is missing: re-run stage 40 (ptp_timesync) with
+      ptp_timesync_cephadm_time_sync_alias enabled. On NTP hosts, chronyd
+      should simply be running.
+
 - name: "List hosts currently known to the orchestrator"
   ansible.builtin.command: /usr/bin/ceph orch host ls --format json
   register: _ceph_orch_hosts

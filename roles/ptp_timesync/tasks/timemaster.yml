@@ -31,3 +31,50 @@
     state: started
     enabled: true
     daemon_reload: true
+
+# --- cephadm compatibility: alias chrony.service -> timemaster.service ---
+# cephadm decides "time sync is active" by probing a fixed list of systemd
+# unit names (chrony.service, chronyd.service, systemd-timesyncd, ntpd, ...)
+# for enabled+active — it never looks at the clock. With chronyd masked by
+# design, every unit on that list is inactive and BOTH cephadm layers abort:
+# `cephadm bootstrap` prepare_host AND the mgr module's check-host on
+# `ceph orch host add` (which has no skip flag and re-runs periodically,
+# so a workaround at bootstrap time is not enough).
+#
+# Upstream Ceph fixed this by adding timemaster.service to the recognized
+# list (merged for reef 18.2.4 / squid / later). This alias backports that
+# exact semantic to older cephadm builds that predate it: chrony.service is
+# the Debian name for the same chrony service, it does not exist on RHEL
+# (the RPM ships only chronyd.service, which stays masked), and timemaster
+# genuinely supervises the chronyd that disciplines the system clock.
+# `systemctl is-enabled chrony.service` then reports `alias` (rc 0) and
+# `is-active` resolves to timemaster's state — exactly what cephadm's
+# check_unit accepts.
+
+- name: "Resolve timemaster unit file path (alias symlink target)"
+  ansible.builtin.command: "systemctl show -p FragmentPath timemaster.service"
+  register: _ptp_timemaster_fragment
+  changed_when: false
+  when: ptp_timesync_cephadm_time_sync_alias | bool
+
+- name: "Alias chrony.service -> timemaster.service (cephadm time-sync probe)"
+  ansible.builtin.file:
+    src: "{{ _ptp_timemaster_fragment.stdout | replace('FragmentPath=', '') }}"
+    dest: /etc/systemd/system/chrony.service
+    state: link
+    owner: root
+    group: root
+  register: _ptp_chrony_alias
+  when: ptp_timesync_cephadm_time_sync_alias | bool
+
+- name: "Remove chrony.service alias when disabled"
+  ansible.builtin.file:
+    path: /etc/systemd/system/chrony.service
+    state: absent
+  register: _ptp_chrony_alias_removed
+  when: not (ptp_timesync_cephadm_time_sync_alias | bool)
+
+- name: "Reload systemd so the alias is (de)registered"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: (_ptp_chrony_alias is changed) or (_ptp_chrony_alias_removed is changed)

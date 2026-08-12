@@ -72,11 +72,15 @@ The NTP-follower path is simpler: system `chronyd` stays in charge, with a `bloc
    tuning (`lock_all`, `sched_priority 60`, `combinelimit 0`).
 4. **Stop + mask `chronyd.service`** — timemaster owns chrony from here.
 5. **Enable + start `timemaster.service`**.
-6. **Drop `ptp_status.sh` + `ptp_status.service`** — polls `pmc` once a
+6. **Install the `chrony.service` → `timemaster.service` alias** (systemd
+   symlink) so cephadm's time-sync unit probe passes on pure-PTP hosts —
+   see "cephadm compatibility" below. Toggle:
+   `ptp_timesync_cephadm_time_sync_alias`.
+7. **Drop `ptp_status.sh` + `ptp_status.service`** — polls `pmc` once a
    second and writes `PARENT_DATA_SET / PORT_DATA_SET / TIME_STATUS_NP`
    into `/home/libvirt-local/ptp/ptp_status` for virtiofs share into
    relay VMs. Lets in-VM watchdogs read host PTP health without owning a NIC.
-7. **Verify** — `timemaster.service` active, system chronyd masked, ptp4l
+8. **Verify** — `timemaster.service` active, system chronyd masked, ptp4l
    socket present, then 4 samples of `pmc GET PARENT_DATA_SET` 8s apart
    asserting the grandmasterIdentity is constant. Catches BMCA flap when
    multiple grandmasters are reachable on the same domain.
@@ -105,10 +109,39 @@ Almost everything reads from the inventory's `time_sync.*` and
 | `ptp_timesync_procbus_phc_nics` | `[]` (reads `time_sync.ptp.procbus_phc_nics`) | process-bus NICs whose PHC is disciplined from the PTP NIC's PHC (one phc2sys instance each) |
 | `ptp_timesync_gm_samples` | `4` | GM-stability samples |
 | `ptp_timesync_gm_sample_interval` | `8` | seconds between samples (~30s window) |
+| `ptp_timesync_cephadm_time_sync_alias` | `true` | install `chrony.service` → `timemaster.service` alias so cephadm's time-sync probe passes on pure-PTP hosts |
 
 Reads from `group_vars/all.yml`: `time_sync.{mode, ntp_servers, ptp.*}`,
 `rt_chrony.{lock_all, sched_priority, combinelimit}`,
 `networking_defaults.ptp_nic`, `vpac_nodes[*].{hostname, storage_ip}`.
+
+## cephadm compatibility (pure-PTP hosts)
+
+cephadm decides whether time synchronization exists by probing a **fixed
+list of systemd unit names** (`chrony.service`, `chronyd.service`,
+`systemd-timesyncd.service`, `ntpd.service`, …) for enabled+active — it
+never inspects the clock. On a pure-PTP host, chronyd is masked *by
+design*, so every name on that list is inactive and cephadm aborts with
+`No time synchronization is active` on a node that is PTP-locked to ±ns.
+The check fires in **two layers**: `cephadm bootstrap` (`prepare_host`,
+bypassable with `--skip-prepare-host`) and the mgr module's `check-host`
+during `ceph orch host add` (**no bypass exists**, and it re-runs every
+`host_check_interval` for the life of the cluster).
+
+Upstream Ceph resolved this by adding `timemaster.service` to the
+recognized list (first shipped in Reef 18.2.4 and in Squid onward). For
+cephadm builds that predate it, this role installs the same semantic as a
+systemd alias: `/etc/systemd/system/chrony.service` →
+`timemaster.service`. The alias is truthful — `chrony.service` is the
+Debian unit name for the same chrony service, it does not exist on RHEL
+(the RPM ships only `chronyd.service`, which stays masked), and timemaster
+supervises the chronyd that disciplines the system clock. `systemctl
+is-enabled chrony.service` reports `alias` (rc 0) and `is-active` resolves
+to timemaster's state, which is exactly what cephadm's `check_unit`
+accepts. Harmless on cephadm builds that already recognize
+`timemaster.service`. Disable with
+`ptp_timesync_cephadm_time_sync_alias: false` (the alias is then removed
+on the next run).
 
 ## Coordination with other roles
 

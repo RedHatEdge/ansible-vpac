@@ -52,13 +52,32 @@ step_threshold 0.1
 
 timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. With no `[ntp_server …]` section defined, chrony has no NTP servers and PTP is the sole time source.
 
-Disable standalone chronyd and ptp4l (timemaster manages them), then start timemaster:
+Stop and mask standalone chronyd and disable ptp4l (timemaster manages them), then start timemaster. Masking, rather than only disabling, prevents another package or operator from re-enabling the standalone service later — two daemons disciplining the same clock is a known operational hazard:
 
 ```bash
 sudo systemctl disable --now chronyd
+sudo systemctl mask chronyd
 sudo systemctl enable --now timemaster
 systemctl status timemaster --no-pager
 ```
+
+> **Note — Ceph (cephadm) on pure-PTP hosts.** This single-node profile does not
+> deploy Ceph, but if this host is later joined to a cluster: cephadm verifies
+> time synchronization by checking for an active systemd unit from a fixed list
+> (`chrony.service`, `chronyd.service`, `systemd-timesyncd.service`, `ntpd.service`, …),
+> not by inspecting the clock. With chronyd masked, cephadm will refuse the host
+> (`No time synchronization is active`) even when PTP is locked. cephadm releases
+> from Reef 18.2.4 onward recognize `timemaster.service` natively; for earlier
+> builds, install an alias so the probe passes:
+>
+> ```bash
+> sudo ln -s /usr/lib/systemd/system/timemaster.service /etc/systemd/system/chrony.service
+> sudo systemctl daemon-reload
+> systemctl is-active chrony.service   # expect: active
+> ```
+>
+> The alias is accurate — timemaster supervises the chronyd instance that
+> disciplines the system clock, and `chrony.service` is unused on RHEL.
 
 ## Option B — ptp4l + phc2sys directly
 
