@@ -409,6 +409,14 @@ time_sync:
 # Kernel cmdline knobs: isolcpus, hugepage size, nohz_full, rcu_nocbs.
 # isolated_cpus is a string passed to isolcpus= and nohz_full=.
 # Compute this from the RT VM layout — isolate the CPUs the VMs will pin to.
+#
+# ⚠ TOPOLOGY-SPECIFIC — recompute for YOUR CPU model, never copy. The example
+# below assumes 36+ logical CPUs with hyperthread siblings at a +24 offset.
+# isolcpus SILENTLY IGNORES CPU numbers the machine does not have: on a
+# 16-core/no-HT part this exact string isolates only 4-11 while the deploy
+# looks correct. Verify with `lscpu` before, and
+# `cat /sys/devices/system/cpu/isolated` after stage 50 — it must equal what
+# you declared. Guidance + worked example: roles/rt_tuning/README.md.
 rt_tuning:
   isolated_cpus: "4-11,28-35"
   hugepage_size: "1G"                    # 1G | 2M
