@@ -33,8 +33,12 @@ pacemaker_failure_timeout: "600s"
 # "ignore" and re-enable split-brain.
 pacemaker_no_quorum_policy: "stop"
 
-# VirtualDomain operation timeouts (set as resource defaults so vm_deploy
-# doesn't have to repeat them per VM). Values from documented field VMs.
+# VirtualDomain operation timeouts. KEEP IN SYNC with
+# vm_deploy/defaults/main.yml, which owns the per-resource copies —
+# vm_deploy runs in a different play, so it cannot see these role-scoped
+# defaults (field defect: stage 80 died on undefined vars for exactly that
+# reason). This role uses op_timeout for the cluster-wide resource
+# defaults it sets at stage 70. Values from documented field VMs.
 pacemaker_virtualdomain_op_timeout: "120s"
 pacemaker_virtualdomain_monitor_interval: "30s"
 pacemaker_virtualdomain_monitor_timeout: "30s"

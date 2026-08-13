@@ -5,7 +5,17 @@
 
 - name: "validate-ptp"
   vars:
-    _vpt_role: "{{ ptp_timesync_role | default('ntp_follower') }}"
+    # MIRROR of ptp_timesync's role derivation — keep in sync. Do NOT
+    # reference ptp_timesync_role here: it is a role-scoped default from a
+    # different play, so it is ALWAYS undefined at stage 90 — the old
+    # default('ntp_follower') silently routed every pure-PTP host into the
+    # follower branch (asserting chronyd active against a masked unit) and
+    # skipped the PTP-host checks entirely. Found by the cross-play
+    # variable sweep.
+    _vpt_role: >-
+      {{ 'ptp'
+         if ((networking_defaults.ptp_nic | default('')) | length > 0)
+         else 'ntp_follower' }}
   block:
 
     - name: "Skip when PTP is not in the time-sync mix"

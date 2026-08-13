@@ -1,4 +1,15 @@
 ---
+# VirtualDomain operation timings. DEFINED HERE because vm_deploy is the
+# consumer (per-resource op settings at `pcs resource create`) and runs in
+# a DIFFERENT PLAY than pacemaker_base — role defaults are role-scoped, so
+# relying on pacemaker_base's copy left all three undefined at stage 80
+# (latent since the original managed-mode commit; found on the first-ever
+# hardware run). KEEP IN SYNC with pacemaker_base/defaults/main.yml, which
+# carries pacemaker_virtualdomain_op_timeout for the cluster-wide resource
+# defaults it sets at stage 70. Values from documented field VMs.
+pacemaker_virtualdomain_op_timeout: "120s"
+pacemaker_virtualdomain_monitor_interval: "30s"
+pacemaker_virtualdomain_monitor_timeout: "30s"
 # Directory vm_templates wrote per-VM XMLs to. Must match that role's
 # vm_templates_xml_dir. Kept as a separate var for flexibility, but in
 # practice the default matches.
