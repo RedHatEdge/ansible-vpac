@@ -1,0 +1,24 @@
+---
+# Right-size the MON placement to the cluster. cephadm's default mon spec
+# wants count:5, so on this repo's target 3-node shape `ceph orch ls`
+# permanently reads mon 3/5 — health stays OK, but a spec that can never
+# be satisfied reads as "degraded" to an operator and to naive monitoring.
+# Field-observed on a 3-node deployment. Apply count = min(nodes, 5),
+# idempotently (only when the current spec differs).
+
+- name: "Read current mon service spec"
+  ansible.builtin.command: /usr/bin/ceph orch ls mon --format json
+  register: _ceph_mon_spec
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: false
+
+- name: "Right-size mon placement (cephadm default spec wants 5)"
+  ansible.builtin.command: >-
+    /usr/bin/ceph orch apply mon {{ ceph_expand_mon_count }}
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  changed_when: true
+  when: >-
+    ((_ceph_mon_spec.stdout | from_json | first | default({}))
+      .placement.count | default(0)) != (ceph_expand_mon_count | int)

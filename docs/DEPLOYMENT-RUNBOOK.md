@@ -26,6 +26,11 @@ cluster with stage 80 as a no-op. Workloads are never a prerequisite.
   variables the contract references.
 - `ansible.cfg` defaults `inventory = inventory/example` — **always pass
   `-i inventory/<yoursite>` explicitly** so you never run against the template.
+- **Eject BMC virtual media after installing the nodes** (iDRAC: Virtual Media →
+  Disconnect; equivalent on other BMCs). Leftover virtual CD/DVD and floppy
+  devices from the install linger as `sr0`/`sda` block devices, then surface as
+  rejected devices in `ceph orch device ls` and confuse storage audits.
+  Field-observed on two of three nodes after ISO-based installs.
 
 ## Part A — Define YOUR environment
 

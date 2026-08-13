@@ -15,6 +15,10 @@
   ansible.builtin.import_tasks: add_hosts.yml
   tags: [ceph, ceph-expand, ceph-hosts]
 
+- name: "Right-size mon placement to the cluster node count"
+  ansible.builtin.import_tasks: mon_placement.yml
+  tags: [ceph, ceph-expand, ceph-mons]
+
 - name: "Add OSDs from inventory"
   ansible.builtin.import_tasks: add_osds.yml
   tags: [ceph, ceph-expand, ceph-osds]
