@@ -378,7 +378,10 @@
    to /dev/rbd/<first rbd pool>/<sanlock lockspace image>; override
    per-VM via _vm.lease_path when the deployment uses a non-default name. #}
 {% if _vm.lease_offset is defined %}
-{%   set _rbd_pool_name = (ceph.pools | selectattr('type', 'equalto', 'rbd') | list | first | attr('name')) %}
+{#   map(attribute='name') — pool entries are dicts; Jinja's attr() does true
+     attribute access only and cannot read dict keys (same defect class as the
+     fixed ceph_expand libvirt_secret one; this was its last surviving twin). #}
+{%   set _rbd_pool_name = (ceph.pools | selectattr('type', 'equalto', 'rbd') | map(attribute='name') | first) %}
 {%   set _lease_path = _vm.lease_path | default('/dev/rbd/' ~ _rbd_pool_name ~ '/' ~ (ceph.sanlock_lockspace_image | default('sanlock-leases'))) %}
     <lease>
       <lockspace>__LIBVIRT__DISKS__</lockspace>

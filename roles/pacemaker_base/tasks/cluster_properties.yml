@@ -31,12 +31,39 @@
   run_once: true
   changed_when: true
 
-- name: "Disable stonith (handed off to stonith role to flip true)"
+# stonith-enabled=false is a BOOTSTRAP-ONLY setting: the fresh cluster has
+# no fence devices yet, and leaving stonith enabled would block resources
+# until stage 75 arms fencing. But it must NEVER run once fence devices
+# exist — re-running stage 70 on a fenced cluster (idempotency check,
+# adding a node, full site.yml re-run: all normal operator behaviour)
+# would otherwise SILENTLY UNFENCE a live cluster while `pcs status`
+# still shows every fence resource Started. Field-reproduced. Gate on the
+# CIB, same first-run-only shape as `pcs cluster setup`.
+- name: "Check whether fence devices already exist in the CIB"
+  ansible.builtin.command:
+    cmd: pcs stonith config
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _pm_stonith_cfg
+  changed_when: false
+  failed_when: false
+
+- name: "Disable stonith (bootstrap only — stage 75 flips it true and owns it thereafter)"
   ansible.builtin.command:
     cmd: "pcs property set stonith-enabled=false"
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
   changed_when: true
+  when: (_pm_stonith_cfg.stdout | default('') | trim | length) == 0
+
+- name: "Note: fencing already armed — stonith-enabled left untouched"
+  ansible.builtin.debug:
+    msg: >-
+      Fence devices exist in the CIB (stage 75 has run) — skipping the
+      bootstrap stonith-enabled=false. This re-run will not unfence the
+      cluster.
+  run_once: true
+  when: (_pm_stonith_cfg.stdout | default('') | trim | length) > 0
 
 - name: "Set resource defaults (migration-threshold + failure-timeout)"
   ansible.builtin.command:
