@@ -54,6 +54,25 @@
   register: _rt_kinfo
   changed_when: false
 
+# Hugepage args carry VALUES that can legitimately change (the count is
+# computed from the VM catalog). grubby only appends, and the kernel takes
+# the LAST occurrence — so strip any hugepage-family arg whose value no
+# longer matches before applying the current set, or stale values linger
+# on the cmdline forever.
+- name: "Strip stale hugepage args whose value changed"
+  vars:
+    _rt_stale_hp: >-
+      {{ item.stdout | regex_findall('(?:default_hugepagesz|hugepagesz|hugepages)=\S+')
+         | reject('in', _rt_args) | list }}
+  ansible.builtin.command:
+    cmd: "grubby --update-kernel={{ item.item.path }} --remove-args={{ _rt_stale_hp | join(' ') | quote }}"
+  loop: "{{ _rt_kinfo.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: _rt_stale_hp | length > 0
+  changed_when: true
+  notify: "reboot after kernel cmdline change"
+
 - name: "Apply RT cmdline args to RT kernels that lack any of them"
   # Idempotent: only runs when at least one arg is missing from THAT kernel's
   # current args (reject('in') keeps the missing ones). grubby itself skips args

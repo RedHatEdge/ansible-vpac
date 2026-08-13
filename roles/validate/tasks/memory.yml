@@ -24,18 +24,37 @@
                | map('split', '=')
             ) }}
 
+    # MIRROR of rt_tuning/defaults derivation — keep in sync. The old
+    # fallback chain fell through to an explicit-null override (|int -> 0)
+    # and silently skipped this check for the computed-default case.
+    - name: "Compute expected hugepage count"
+      ansible.builtin.set_fact:
+        _val_hp_expected: >-
+          {{ (rt_tuning.nr_hugepages_override | int)
+             if (rt_tuning.nr_hugepages_override is defined
+                 and rt_tuning.nr_hugepages_override is not none
+                 and (rt_tuning.nr_hugepages_override | string | trim | length) > 0)
+             else (((vm_catalog | default([])
+                     | selectattr('hugepages', 'defined') | selectattr('hugepages')
+                     | map(attribute='memory_gb') | map('int') | sum) | int)
+                   if ((rt_tuning.hugepage_size | default('1G')) == '1G')
+                   else (((vm_catalog | default([])
+                           | selectattr('hugepages', 'defined') | selectattr('hugepages')
+                           | map(attribute='memory_gb') | map('int') | sum) | int) * 512)) }}
+      when: rt_tuning is defined
+
     - name: "Assert HugePages_Total matches inventory budget"
       ansible.builtin.assert:
         that:
-          - (_vm_mi['HugePages_Total'] | int) ==
-            (rt_tuning_nr_hugepages | default(rt_tuning.nr_hugepages_override | default(0)) | int)
+          - (_vm_mi['HugePages_Total'] | int) == (_val_hp_expected | int)
         fail_msg: >-
           HugePages_Total = {{ _vm_mi['HugePages_Total'] }}, expected
-          {{ rt_tuning_nr_hugepages | default(rt_tuning.nr_hugepages_override | default(0)) }}
-          (hugepage dual-source-of-truth drift?)
+          {{ _val_hp_expected }} — either the post-stage-50 reboot has not
+          happened, or the hugepage sources drifted
+          (dual-source-of-truth bug class).
       when:
         - rt_tuning is defined
-        - (rt_tuning_nr_hugepages | default(rt_tuning.nr_hugepages_override | default(0)) | int) > 0
+        - (_val_hp_expected | default(0) | int) > 0
 
     - name: "Assert MemAvailable above floor"
       ansible.builtin.assert:

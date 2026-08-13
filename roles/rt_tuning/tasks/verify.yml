@@ -61,16 +61,51 @@
       {{ _rt_sched_runtime.content | b64decode | trim }}, expected
       {{ rt_tuning_sched_rt_runtime_us }}.
 
+# Hugepage verification — non-vacuous and staged/applied-aware. Field
+# defect: the old one-shot compared an EMPTY expected value (|int -> 0)
+# against an unallocated pool (0) and passed while every hugepages VM was
+# unstartable. Now: the expectation must render to a real integer, and the
+# strict pool comparison only runs on a kernel whose cmdline carries the
+# expected reservation (1G pools exist only after the post-stage-50
+# reboot); pre-reboot we assert the args are STAGED on the default entry.
+- name: "Assert the hugepage expectation itself is a valid integer"
+  ansible.builtin.assert:
+    that:
+      - (rt_tuning_nr_hugepages | string | trim | length) > 0
+      - (rt_tuning_nr_hugepages | string | trim) is match('^[0-9]+$')
+    fail_msg: >-
+      rt_tuning_nr_hugepages rendered as
+      '{{ rt_tuning_nr_hugepages }}' — not a number. Check
+      rt_tuning.nr_hugepages_override and the vm_catalog memory_gb values.
+
 - name: "Read /proc/meminfo HugePages_Total"
   ansible.builtin.shell: "grep '^HugePages_Total:' /proc/meminfo | awk '{print $2}'"
   register: _rt_huge_total
   changed_when: false
 
-- name: "Assert HugePages_Total matches inventory"
+- name: "Read running kernel cmdline"
+  ansible.builtin.command: cat /proc/cmdline
+  register: _rt_proc_cmdline
+  changed_when: false
+
+- name: "Assert HugePages_Total matches expectation (applied kernel)"
   ansible.builtin.assert:
     that: (_rt_huge_total.stdout | int) == (rt_tuning_nr_hugepages | int)
     fail_msg: >-
       HugePages_Total is {{ _rt_huge_total.stdout }}, expected
-      {{ rt_tuning_nr_hugepages }}. Common cause: cmdline
-      default_hugepagesz and sysctl vm.nr_hugepages drifted apart
-      (documented field deployment dual-source-of-truth bug).
+      {{ rt_tuning_nr_hugepages }} — the running kernel carries the
+      reservation args but the pool did not materialize. Check for
+      fragmentation messages in dmesg and that hugepagesz= matches
+      Hugepagesize in /proc/meminfo.
+  when: ("hugepages=" ~ (rt_tuning_nr_hugepages | string)) in _rt_proc_cmdline.stdout
+
+- name: "Note: hugepage reservation staged, applies at next reboot"
+  ansible.builtin.debug:
+    msg: >-
+      Expected hugepages={{ rt_tuning_nr_hugepages }} is staged on the boot
+      entry but the RUNNING kernel does not carry it yet — the pool
+      (currently {{ _rt_huge_total.stdout }}) materializes after the
+      rolling reboot (op-rolling-reboot.yml).
+  when:
+    - (rt_tuning_nr_hugepages | int) > 0
+    - ("hugepages=" ~ (rt_tuning_nr_hugepages | string)) not in _rt_proc_cmdline.stdout

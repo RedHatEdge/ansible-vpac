@@ -15,19 +15,47 @@ rt_tuning_packages:
   - python3-dnf-plugin-versionlock
   - intel-cmt-cat            # pqos for cache work; also installed by virtualization
 
-# Effective hugepage count. Override per-site via inventory's
-# rt_tuning.nr_hugepages_override. The same value feeds BOTH the kernel
-# cmdline (default_hugepagesz=...) AND the /etc/sysctl.d/vpac-rt.conf
-# vm.nr_hugepages line — single source of truth, so the two can never
-# fight each other (the documented dual-source-of-truth bug that locked
-# 114 GiB of unused hugepages on a documented field deployment).
-rt_tuning_nr_hugepages: "{{ rt_tuning.nr_hugepages_override | default(10) }}"
+# Effective hugepage count — COMPUTED from the VM catalog unless pinned.
+# CANONICAL DERIVATION (mirrored, with sync comments, in
+# preflight/tasks/hugepages.yml and validate/tasks/memory.yml — change all
+# three together): sum of memory_gb over vm_catalog entries with
+# hugepages: true, as 1G pages (×512 for 2M pages);
+# rt_tuning.nr_hugepages_override pins an explicit count instead.
+# Field defects this encodes:
+#   - `default(10)` did NOT catch the inventory's documented explicit
+#     null, so the value rendered EMPTY: sysctl errored, and the verify
+#     compared empty|int==0 against an unallocated pool == vacuous pass.
+#     Every hugepages:true VM was unstartable. default(N, true) semantics
+#     via the explicit is-none test below.
+#   - an empty catalog now correctly computes 0 (cluster-only path
+#     reserves nothing), instead of a silent 10×1GiB default burn.
+# The same value feeds BOTH the kernel cmdline (hugepagesz=/hugepages=)
+# AND /etc/sysctl.d/vpac-rt.conf vm.nr_hugepages — single source of truth
+# (the dual-source bug locked 114 GiB on a documented field deployment).
+rt_tuning_hugepages_vm_gb: >-
+  {{ vm_catalog | default([])
+     | selectattr('hugepages', 'defined') | selectattr('hugepages')
+     | map(attribute='memory_gb') | map('int') | sum }}
+rt_tuning_nr_hugepages: >-
+  {{ (rt_tuning.nr_hugepages_override | int)
+     if (rt_tuning.nr_hugepages_override is defined
+         and rt_tuning.nr_hugepages_override is not none
+         and (rt_tuning.nr_hugepages_override | string | trim | length) > 0)
+     else ((rt_tuning_hugepages_vm_gb | int)
+           if ((rt_tuning.hugepage_size | default('1G')) == '1G')
+           else ((rt_tuning_hugepages_vm_gb | int) * 512)) }}
 
 # RT cmdline additions, beyond what cpu-partitioning emits via tuned.
 # Operator can extend or trim; do NOT add selinux=0 — host_baseline
 # rejects that (breaks Ceph OSD containers per documented incident).
+# hugepagesz= + hugepages= are REQUIRED for 1 GiB pages: they reserve the
+# pool at boot. default_hugepagesz= alone reserves NOTHING, and 1 GiB
+# pages cannot be reliably allocated at runtime via sysctl (field
+# defect: no node ever had a pool despite green runs).
 rt_tuning_cmdline_args:
   - "default_hugepagesz={{ rt_tuning.hugepage_size | default('1G') }}"
+  - "hugepagesz={{ rt_tuning.hugepage_size | default('1G') }}"
+  - "hugepages={{ rt_tuning_nr_hugepages }}"
   - "idle=poll"
   - "intel.max_cstate=0"
   - "intel_idle.max_cstate=0"

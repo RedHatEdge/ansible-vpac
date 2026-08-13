@@ -427,9 +427,15 @@ time_sync:
 rt_tuning:
   isolated_cpus: "4-11,28-35"
   hugepage_size: "1G"                    # 1G | 2M
-  # nr_hugepages is computed by the virtualization role from the VM catalog
-  # unless overridden here. If set, must satisfy:
+  # nr_hugepages is COMPUTED by rt_tuning from the VM catalog: the sum of
+  # memory_gb over vm_catalog entries with hugepages: true, as 1G pages
+  # (×512 for 2M pages). Empty catalog = 0 pages reserved (cluster-only
+  # path wastes nothing). Leave null for the computed value; set a number
+  # only to pin an explicit count. Either way preflight validates:
   #   nr_hugepages * hugepage_size_bytes <= 0.9 * node_ram_bytes
+  # NOTE: 1G pages are reserved via the kernel cmdline (hugepagesz= +
+  # hugepages=), so a changed count takes effect at the next rolling
+  # reboot — same staged/applied model as the rest of stage 50.
   nr_hugepages_override: null
   cpu_governor: "performance"
   sched_rt_runtime_us: -1                # -1 disables throttling for RT tasks

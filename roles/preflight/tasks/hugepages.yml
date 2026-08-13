@@ -3,7 +3,7 @@
 # A documented field bug had nr_hugepages=3072 with default_hugepagesz=1GB —
 # which asked for 3 TiB on a 128 GiB node.
 #
-# This file is only imported when rt_tuning.nr_hugepages_override is set;
+# Imported when an override is set OR the catalog demands hugepages;
 # the orchestrator gates on that.
 
 - name: "Compute hugepage size in bytes"
@@ -19,9 +19,24 @@
     that: _preflight_hp_size_bytes | int > 0
     fail_msg: "rt_tuning.hugepage_size must be '1G' or '2M' (got: {{ rt_tuning.hugepage_size }})"
 
+- name: "Compute effective hugepage count (MIRROR of rt_tuning/defaults derivation — keep in sync)"
+  ansible.builtin.set_fact:
+    _preflight_hp_count: >-
+      {{ (rt_tuning.nr_hugepages_override | int)
+         if (rt_tuning.nr_hugepages_override is defined
+             and rt_tuning.nr_hugepages_override is not none
+             and (rt_tuning.nr_hugepages_override | string | trim | length) > 0)
+         else (((vm_catalog | default([])
+                 | selectattr('hugepages', 'defined') | selectattr('hugepages')
+                 | map(attribute='memory_gb') | map('int') | sum) | int)
+               if ((rt_tuning.hugepage_size | default('1G')) == '1G')
+               else (((vm_catalog | default([])
+                       | selectattr('hugepages', 'defined') | selectattr('hugepages')
+                       | map(attribute='memory_gb') | map('int') | sum) | int) * 512)) }}
+
 - name: "Compute total hugepage allocation vs node RAM"
   ansible.builtin.set_fact:
-    _preflight_hp_total_bytes: "{{ rt_tuning.nr_hugepages_override | int * (_preflight_hp_size_bytes | int) }}"
+    _preflight_hp_total_bytes: "{{ _preflight_hp_count | int * (_preflight_hp_size_bytes | int) }}"
     _preflight_ram_bytes: "{{ ansible_facts['memtotal_mb'] | int * 1024 * 1024 }}"
 
 - name: "Assert hugepages would not exceed safe RAM fraction"
@@ -31,7 +46,7 @@
       Declared hugepages would consume {{ (_preflight_hp_total_bytes | int) // (1024**3) }} GiB
       on a node with {{ (_preflight_ram_bytes | int) // (1024**3) }} GiB RAM (max allowed:
       {{ ((_preflight_ram_bytes | int * preflight_max_hugepage_ram_fraction) | int) // (1024**3) }} GiB).
-      Reduce rt_tuning.nr_hugepages_override or verify rt_tuning.hugepage_size matches intent.
+      Reduce the hugepages VM budget (or rt_tuning.nr_hugepages_override) or verify rt_tuning.hugepage_size matches intent.
     success_msg: >-
-      Hugepages {{ rt_tuning.nr_hugepages_override }} × {{ rt_tuning.hugepage_size }} =
+      Hugepages {{ _preflight_hp_count }} × {{ rt_tuning.hugepage_size }} =
       {{ (_preflight_hp_total_bytes | int) // (1024**3) }} GiB on a {{ (_preflight_ram_bytes | int) // (1024**3) }} GiB node — OK.
