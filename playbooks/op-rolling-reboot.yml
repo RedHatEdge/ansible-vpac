@@ -1,0 +1,150 @@
+---
+# Operational playbook — SAFE rolling reboot of cluster nodes, one at a time.
+#
+# WHY THIS EXISTS: stage 50 stages the RT kernel/cmdline but deliberately does
+# not reboot (rt_tuning_auto_reboot defaults false — substations reboot in
+# controlled windows, and three nodes rebooting together loses mon quorum).
+# The reboot is the operator's move, and doing it naively on a running Ceph
+# cluster is dangerous. This playbook encodes the safe procedure, including
+# two traps that caught an experienced operator on real hardware:
+#
+#   TRAP 1 — ping is not readiness. A node answers ping seconds into boot,
+#   long before it is usable — and the RT kernel's FIRST boot performs an
+#   extra warm reset, so a ping-gated script moves on while the node is
+#   about to go down again. Readiness here = the reboot module's SSH +
+#   boot-time verification, then (on RT hosts) the RT kernel actually
+#   running, then PTP re-locked. Never ping.
+#
+#   TRAP 2 — never query cluster health THROUGH the node being rebooted.
+#   Every Ceph gate below runs on a surviving node.
+#
+# Handles every deployment phase: pre-Ceph (plain rolling), post-Ceph
+# (noout/norebalance + up-OSD gate via a surviving node), post-Pacemaker
+# (standby → reboot → unstandby; never `pcs cluster stop`).
+#
+# Expectations per node: ~5 minutes; RT first boot warm-resets once (looks
+# like a second reboot — normal); PTP may show FAULTY/LISTENING for up to a
+# minute after boot and self-recovers to SLAVE (the gate waits for it).
+#
+# Usage:
+#   ansible-playbook -i inventory/<site> playbooks/op-rolling-reboot.yml \
+#     -e i_want_a_rolling_reboot=yes
+# Optional: --limit <node> to reboot a subset (flags still handled).
+
+- name: "Guards + cluster-wide pre-flags"
+  hosts: "{{ groups['vpac_cluster'] | first }}"
+  gather_facts: false
+  tasks:
+    - name: "Assert explicit confirmation"
+      ansible.builtin.assert:
+        that: (i_want_a_rolling_reboot | default('')) == 'yes'
+        fail_msg: >-
+          This playbook reboots every targeted cluster node (one at a time,
+          with health gates). Re-run with -e i_want_a_rolling_reboot=yes.
+
+    - name: "Detect whether Ceph is deployed"
+      ansible.builtin.stat:
+        path: /etc/ceph/ceph.conf
+      register: _rr_ceph_conf
+
+    - name: "Publish ceph-present fact for the rolling play"
+      ansible.builtin.set_fact:
+        _rr_ceph_present: "{{ _rr_ceph_conf.stat.exists }}"
+
+    - name: "Tell Ceph to expect node bounces (noout + norebalance)"
+      ansible.builtin.command: "/usr/bin/ceph osd set {{ item }}"
+      loop: [noout, norebalance]
+      changed_when: true
+      when: _rr_ceph_present
+
+- name: "Rolling reboot — one node at a time, gated"
+  hosts: vpac_cluster
+  serial: 1
+  gather_facts: false
+  vars:
+    _rr_watch_node: >-
+      {{ (groups['vpac_cluster'] | difference([inventory_hostname])) | first }}
+    _rr_ceph: >-
+      {{ hostvars[groups['vpac_cluster'] | first]._rr_ceph_present | default(false) }}
+    _rr_is_rt_host: "{{ inventory_hostname in (groups['rt_hosts'] | default([])) }}"
+    _rr_is_ptp_host: >-
+      {{ (time_sync.mode | default('ntp')) in ['ptp', 'ptp_with_ntp']
+         and (networking_defaults.ptp_nic | default('')) | length > 0 }}
+  tasks:
+    - name: "Check whether Pacemaker is active on this node"
+      ansible.builtin.command: systemctl is-active pacemaker
+      register: _rr_pcmk
+      changed_when: false
+      failed_when: false
+
+    - name: "Standby this node in Pacemaker (resources migrate off; NOT cluster stop)"
+      ansible.builtin.command: "pcs node standby {{ inventory_hostname }}"
+      changed_when: true
+      when: (_rr_pcmk.stdout | trim) == 'active'
+
+    - name: "Reboot (SSH + boot-time verification — ping is NOT readiness)"
+      ansible.builtin.reboot:
+        msg: "vpac rolling reboot"
+        reboot_timeout: 900
+        post_reboot_delay: 30
+        test_command: uptime
+
+    - name: "Assert the RT kernel is actually running (RT hosts)"
+      ansible.builtin.command: uname -r
+      register: _rr_kernel
+      changed_when: false
+      failed_when: "'rt' not in _rr_kernel.stdout"
+      when: _rr_is_rt_host
+
+    - name: "Wait for PTP to re-lock (FAULTY/LISTENING right after boot is normal)"
+      ansible.builtin.command: >-
+        pmc -s /var/run/timemaster/ptp4l.0.socket -b 0 -u "GET PORT_DATA_SET"
+      register: _rr_ptp
+      changed_when: false
+      failed_when: false
+      until: _rr_ptp.stdout is regex('portState\s+SLAVE')
+      retries: 30
+      delay: 10
+      when: _rr_is_ptp_host
+
+    - name: "Wait for all OSDs up — queried via a SURVIVING node, never this one"
+      ansible.builtin.command: /usr/bin/ceph osd stat --format json
+      register: _rr_osd
+      changed_when: false
+      delegate_to: "{{ _rr_watch_node }}"
+      until: >-
+        (_rr_osd.stdout | from_json).num_up_osds is defined and
+        (_rr_osd.stdout | from_json).num_up_osds == (_rr_osd.stdout | from_json).num_osds
+      retries: 60
+      delay: 10
+      when: _rr_ceph | bool
+
+    - name: "Unstandby this node in Pacemaker"
+      ansible.builtin.command: "pcs node unstandby {{ inventory_hostname }}"
+      changed_when: true
+      when: (_rr_pcmk.stdout | trim) == 'active'
+
+- name: "Clear flags + final health"
+  hosts: "{{ groups['vpac_cluster'] | first }}"
+  gather_facts: false
+  tasks:
+    - name: "Unset noout + norebalance"
+      ansible.builtin.command: "/usr/bin/ceph osd unset {{ item }}"
+      loop: [noout, norebalance]
+      changed_when: true
+      when: _rr_ceph_present | default(false)
+
+    - name: "Wait for final HEALTH_OK"
+      ansible.builtin.command: /usr/bin/ceph health
+      register: _rr_health
+      changed_when: false
+      until: "'HEALTH_OK' in _rr_health.stdout"
+      retries: 60
+      delay: 10
+      when: _rr_ceph_present | default(false)
+
+    - name: "Done"
+      ansible.builtin.debug:
+        msg: >-
+          Rolling reboot complete.
+          {{ 'Ceph back to HEALTH_OK.' if (_rr_ceph_present | default(false)) else 'No Ceph deployed yet — plain rolling reboot.' }}

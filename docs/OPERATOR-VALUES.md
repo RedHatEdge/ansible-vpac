@@ -124,7 +124,12 @@ The working pattern:
 2. Run stages one at a time on first deploy (`playbooks/10-…` → `90-…`),
    checking the verify tasks at each stage tail; every stage is idempotent
    and safe to re-run **except** the stage-60 wipe caveat above.
-3. Destructive-by-design steps: stage-60 OSD wipe (guarded, above) and
+3. **Stage 50 stages, the reboot applies:** the RT kernel and tuning take
+   effect only after each node reboots, and the role deliberately never
+   reboots for you. Use `op-rolling-reboot.yml` (one node at a time, Ceph
+   and PTP aware) — see the runbook's stage-50 callout. Don't judge stage
+   50 by `/sys` checks before the reboot; they read empty by design.
+4. Destructive-by-design steps: stage-60 OSD wipe (guarded, above) and
    stage-75 STONITH fence testing (drain the target first — see
    `op-stonith-fence-test.yml`).
 

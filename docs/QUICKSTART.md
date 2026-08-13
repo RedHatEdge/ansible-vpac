@@ -157,7 +157,10 @@ are reachable and sane.
 From here follow [`DEPLOYMENT-RUNBOOK.md`](DEPLOYMENT-RUNBOOK.md) Part B: the
 stage ladder (baseline → networking → virtualization → PTP → RT → storage →
 cluster → fencing → validate), one command per stage, with what to check after
-each. Path-specific detail: [`DEPLOYMENT-CONNECTED.md`](DEPLOYMENT-CONNECTED.md)
+each. One heads-up so it doesn't surprise you there: the RT stage (50)
+**stages** its changes and nothing takes effect until each node reboots — the
+runbook ships a safe one-node-at-a-time reboot playbook for exactly that; the
+servers are never rebooted behind your back. Path-specific detail: [`DEPLOYMENT-CONNECTED.md`](DEPLOYMENT-CONNECTED.md)
 or [`DEPLOYMENT-AIRGAPPED.md`](DEPLOYMENT-AIRGAPPED.md).
 
 If anything fails with a message that does not tell you what to do next,

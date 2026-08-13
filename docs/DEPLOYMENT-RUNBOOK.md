@@ -112,7 +112,7 @@ ansible-playbook -i inventory/<yoursite> playbooks/<NN>-<name>.yml
 | 20 | `networking` | `20-networking.yml` | nmstate bonds/bridges/VLANs incl. heartbeat | `nmstatectl show`, heartbeat mesh ping |
 | 30 | `virt` | `30-virtualization.yml` | KVM/libvirt, tuned, qemu hook | `virsh list`, `systemctl status libvirtd` |
 | 40 | `ptp` | `40-ptp.yml` | timemaster (ptp4l+phc2sys+chrony), masks system chronyd, cephadm time-sync alias | **portState SLAVE + bounded, live offset** (see gotcha below) |
-| 50 | `rt` | `50-rt-tuning.yml` | kernel-rt, isolcpus, RT cmdline (RT kernels only), tuned | `cat /sys/devices/system/cpu/isolated`, cyclictest |
+| 50 | `rt` | `50-rt-tuning.yml` | **stages** kernel-rt, isolcpus, RT cmdline (RT kernels only), tuned — **takes effect only after the rolling reboot below** | staged: `grubby --default-kernel` shows the rt kernel. After the reboot: `cat /sys/devices/system/cpu/isolated` equals your declared list, cyclictest |
 | 60 | `ceph` | `60-ceph.yml` | cephadm bootstrap → hosts → OSDs → CephFS/RBD → monitoring | `ceph -s` HEALTH_OK, `ceph osd tree`. **Destructive on osd_devices** (guarded — see OPERATOR-VALUES.md re-run section) |
 | 70 | `pacemaker` | `70-pacemaker.yml` | corosync/pacemaker on the heartbeat ring | `pcs status` |
 | 75 | `stonith` | `75-stonith.yml` | fencing (fence_ipmilan / fence_virsh) | `pcs stonith`, then `op-stonith-fence-test.yml` on a **drained** node |
@@ -124,8 +124,35 @@ Air-gapped only, before all of the above: mint the builder ISO
 cluster ISOs (`00b-mint-cluster-isos.yml`), install the nodes from them, then
 run `site.yml` against the local mirror/registry.
 
-Ops playbooks: `op-pacemaker-recover.yml`, `op-stonith-fence-test.yml`,
-`op-vm-undefine.yml`.
+Ops playbooks: `op-rolling-reboot.yml`, `op-pacemaker-recover.yml`,
+`op-stonith-fence-test.yml`, `op-vm-undefine.yml`.
+
+> **Stage 50 requires a reboot, and the reboot is YOUR move — here is the
+> safe way.** The role deliberately does not reboot
+> (`rt_tuning_auto_reboot` defaults false): substations reboot in controlled
+> windows, and three nodes rebooting together loses Ceph mon quorum. Nothing
+> RT takes effect — `/sys/devices/system/cpu/isolated` stays EMPTY — until
+> each node reboots. Use the shipped playbook, which encodes the whole
+> procedure:
+>
+> ```bash
+> ansible-playbook -i inventory/<yoursite> playbooks/op-rolling-reboot.yml \
+>     -e i_want_a_rolling_reboot=yes
+> ```
+>
+> One node at a time; Ceph (if deployed) is told to expect the bounce
+> (`noout`/`norebalance`, set before and cleared after); readiness is
+> verified by SSH + boot-time + the RT kernel actually running + PTP
+> re-locked; Ceph health is polled **via a surviving node**. What to expect:
+> **~5 minutes per node**; the RT kernel's **first boot performs an extra
+> warm reset** (looks like a second reboot — normal); PTP may show
+> FAULTY/LISTENING for up to a minute after boot and self-recovers to SLAVE.
+>
+> If you script this yourself instead, two field-proven traps: **ping is not
+> readiness** (a node answers ping seconds into boot, right before the warm
+> reset takes it down again — gate on SSH + boot time + `uname -r`), and
+> **never query Ceph health through the node you are rebooting** — always
+> ask a surviving node.
 
 > **Stage-40 gotcha (hardware-observed):** a node can show a *stable
 > grandmaster identity* and healthy Pdelay yet never synchronize — stuck
