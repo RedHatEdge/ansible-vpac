@@ -1,5 +1,9 @@
 # Operator values — what to fill in, how to obtain it, what can hurt you
 
+> First time here? [`QUICKSTART.md`](QUICKSTART.md) is the ordered on-ramp
+> (tools, SSH keys, copying the inventory, the vault, first preflight); this
+> page is the reference you fill values from at its step 3.
+
 Every value the playbooks need lives in `inventory/example/group_vars/all.yml`
 (the contract) plus per-node `host_vars/`. This page is the fill-out companion:
 what each operator-supplied value is for, when it is required, and where it

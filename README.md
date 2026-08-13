@@ -25,6 +25,12 @@ Both are first-class. Pick the one that matches your environment; the playbooks 
 
 Which path the playbooks use is controlled by one inventory variable: `deployment_mode: airgapped | connected`.
 
+**New to Ansible?** This project is built for protection and substation
+engineers, not automation specialists — start at
+[`docs/QUICKSTART.md`](docs/QUICKSTART.md), which assumes nothing and takes
+you from "three servers and a laptop" to a verified-clean site configuration,
+including the SSH key setup every other guide presumes.
+
 Step-by-step for each:
 - [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md)
 - [`docs/DEPLOYMENT-CONNECTED.md`](docs/DEPLOYMENT-CONNECTED.md)

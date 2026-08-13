@@ -14,10 +14,18 @@ cluster with stage 80 as a no-op. Workloads are never a prerequisite.
 
 ## 0. Prerequisites (control node)
 
+**First deployment, or new to Ansible? Start with
+[`QUICKSTART.md`](QUICKSTART.md)** — it walks the whole chain below from zero
+(installing Ansible, creating and distributing the SSH key, passwordless sudo,
+copying and renaming the inventory, the vault) with nothing assumed.
+
 - Ansible core ≥ 2.15, `git`, and the repo's collections:
-  `ansible-galaxy collection install -r collections/requirements.yml -p collections`
+  `ansible-galaxy collection install -r requirements.yml` (plus
+  `pip install --user -r requirements.txt`)
 - SSH key access to every node as an admin user with passwordless `sudo`
-  (`ansible.cfg` sets `become=True`).
+  (`ansible.cfg` sets `become=True`). Setup + the no-prompt test:
+  QUICKSTART.md step 2. The key path is set once in `hosts.yml`
+  (`ansible_ssh_private_key_file`).
 - RHEL 9.7 installed on the nodes (connected mode); for the air-gapped path
   the builder/ISO workflow installs them — see `docs/DEPLOYMENT-AIRGAPPED.md`.
 - Connected mode: RHSM activation key + org, and `registry.redhat.io` pull
