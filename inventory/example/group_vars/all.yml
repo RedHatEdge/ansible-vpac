@@ -88,6 +88,13 @@ sources:
 # RHSM credentials for the builder (01-build-builder.yml) and the cluster
 # nodes (site.yml, when sources.repo_source is rhsm). Use vault.yml for
 # the secrets — never commit plaintext.
+#
+# EVERY secret the playbooks consume (all eight vault_* names, with
+# formats and where to obtain each) is enumerated in vault.yml.example
+# next to this file — copy it into an encrypted vault:
+#   ansible-vault create inventory/<yoursite>/group_vars/vault.yml
+# Preflight verifies each secret REQUIRED for your deployment shape
+# resolves non-empty, reporting names only.
 rhsm_activation_key: "{{ vault_rhsm_activation_key | default('') }}"
 rhsm_org_id: "{{ vault_rhsm_org_id | default('') }}"
 rhsm_server_url: "subscription.rhsm.redhat.com"
@@ -177,7 +184,7 @@ vpac_nodes:
     bmc_ip: "10.0.100.11"                # iDRAC/IPMI for STONITH
     bmc_type: "idrac9"                   # idrac9 | idrac8 | supermicro_ipmi | generic_ipmilan
     bmc_user: "admin"
-    bmc_password: "{{ vault_bmc_password_node_a }}"  # use ansible-vault
+    bmc_password: "{{ vault_bmc_password_node_a | default('') }}"  # vault.yml (preflight checks non-empty)
   - hostname: "site1-node-b"
     mgmt_ip: "10.0.0.12"
     storage_ip: "10.0.10.12"
@@ -186,7 +193,7 @@ vpac_nodes:
     bmc_ip: "10.0.100.12"
     bmc_type: "idrac9"
     bmc_user: "admin"
-    bmc_password: "{{ vault_bmc_password_node_b }}"
+    bmc_password: "{{ vault_bmc_password_node_b | default('') }}"
   - hostname: "site1-node-c"
     mgmt_ip: "10.0.0.13"
     storage_ip: "10.0.10.13"
@@ -195,7 +202,7 @@ vpac_nodes:
     bmc_ip: "10.0.100.13"
     bmc_type: "supermicro_ipmi"
     bmc_user: "admin"
-    bmc_password: "{{ vault_bmc_password_node_c }}"
+    bmc_password: "{{ vault_bmc_password_node_c | default('') }}"
 
 # --------------------------------------------------------------------
 # 6. Networking
@@ -532,7 +539,7 @@ pacemaker:
   # hacluster user password (for pcs auth). Use vault — never commit
   # plaintext. The role hashes via password_hash with a stable salt
   # derived from cluster_name so re-runs are idempotent.
-  hacluster_password: "{{ vault_hacluster_password }}"
+  hacluster_password: "{{ vault_hacluster_password | default('') }}"
 
 # The corosync ring binds to a NETWORK from the `networks` dict (e.g.
 # "heartbeat"). The role uses each node's heartbeat_ip from vpac_nodes

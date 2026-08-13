@@ -171,6 +171,77 @@
       or (ceph.libvirt_secret_uuid
           is not regex('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'))
 
+# --- secrets: every required vault_ value must resolve non-empty --------
+# Operators discover missing secrets late otherwise: RHSM fails at stage
+# 10, hacluster at 70, BMC passwords at 75 — after a full Ceph build. The
+# checks run on the RESOLVED consuming variables (guarded with default(''),
+# since two of them have no default and would raise undefined instead of
+# failing usefully), are scoped to what this deployment shape actually
+# needs, and report NAMES only — never values. Full enumeration with
+# formats: inventory/example/group_vars/vault.yml.example.
+- name: "Contract: RHSM activation key + org must be set for rhsm/satellite sources"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues
+         + ([ "rhsm_activation_key is empty — set vault_rhsm_activation_key in your "
+              ~ "vault.yml (see vault.yml.example); required because sources.repo_source is '"
+              ~ (sources.repo_source | default('')) ~ "'" ]
+            if (rhsm_activation_key | default('', true) | length) == 0 else [])
+         + ([ "rhsm_org_id is empty — set vault_rhsm_org_id in your vault.yml" ]
+            if (rhsm_org_id | default('', true) | length) == 0 else []) }}
+  when: (sources.repo_source | default('')) in ['rhsm', 'satellite']
+
+- name: "Contract: hacluster password must be set on 3+ node clusters"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "pacemaker.hacluster_password resolves empty — set vault_hacluster_password "
+        ~ "in your vault.yml (consumed at stage 70, `pcs host auth`)"
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - (pacemaker.hacluster_password | default('', true) | length) == 0
+
+- name: "Contract: every node needs a BMC password when STONITH uses fence_ipmilan"
+  run_once: true
+  vars:
+    _bmc_missing: >-
+      {{ vpac_nodes | default([])
+         | selectattr('bmc_password', 'undefined') | map(attribute='hostname') | list
+         + (vpac_nodes | default([])
+            | selectattr('bmc_password', 'defined')
+            | rejectattr('bmc_password', 'match', '.')
+            | map(attribute='hostname') | list) }}
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "bmc_password resolves empty for node(s): " ~ (_bmc_missing | join(', '))
+        ~ " — set the vault_bmc_password_* values in your vault.yml (consumed at "
+        ~ "stage 75 STONITH, i.e. only AFTER a full Ceph build without this check)"
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - (stonith.enabled | default(true)) | bool
+    - (stonith.fence_agent | default('fence_ipmilan')) == 'fence_ipmilan'
+    - _bmc_missing | length > 0
+
+- name: "Contract (deferred): registry service account for the air-gapped builder"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_deferred: >-
+      {{ _contract_deferred + [
+        "vault_redhat_registry_username/password resolve empty — the air-gapped "
+        ~ "builder workflow (01-build-builder.yml) needs the terms-based registry "
+        ~ "service account to mirror images; not required by site.yml itself"
+      ] }}
+  when:
+    - (deployment_mode | default('')) == 'airgapped'
+    - >-
+      (redhat_registry_username | default('', true) | length) == 0
+      or (redhat_registry_password | default('', true) | length) == 0
+
 # --- vm_catalog: WORKLOAD values — deferred, never blocks the cluster ---
 # Consumed only at stage 80 (vm_templates hard-enforces the same checks
 # there). Reported here as a warning so the operator knows what is left
@@ -251,7 +322,7 @@
   run_once: true
   ansible.builtin.debug:
     msg: >-
-      Inventory contract clean (cluster-forming values): no placeholders,
+      Inventory contract clean (cluster-forming values + required secrets): no placeholders,
       ceph.bootstrap_node valid, osd_devices stable-path and host-matched,
       registry auth consistent.
       {{ 'Workload (vm_catalog) values have deferred warnings above — fix before stage 80.'

@@ -1,0 +1,53 @@
+---
+# ====================================================================
+# vPAC cluster — SECRETS (template for your encrypted vault.yml)
+# ====================================================================
+#
+# This file enumerates EVERY secret the playbooks consume, so you never
+# have to grep the inventory to discover what you owe. Create the real
+# thing encrypted, next to this file:
+#
+#   ansible-vault create inventory/<yoursite>/group_vars/vault.yml
+#
+# then paste in the variables below with real values, and run plays with
+# `--ask-vault-pass` or `--vault-password-file <path>`.
+#
+# NEVER commit an unencrypted vault.yml. This .example file is inert:
+# Ansible does not load *.example files, and every value here is a
+# placeholder.
+#
+# `site.yml --tags preflight` verifies that each secret REQUIRED for your
+# deployment shape resolves non-empty, and reports the NAMES of anything
+# missing (never the values).
+
+# --- Red Hat subscription (required when sources.repo_source is rhsm or
+#     satellite) -------------------------------------------------------
+# From console.redhat.com → Inventory → System Configuration →
+# Activation keys (or your Satellite org's activation keys). The org ID
+# is shown on the same page.
+vault_rhsm_activation_key: "REPLACE-activation-key-name"
+vault_rhsm_org_id: "REPLACE-org-id"
+
+# --- registry.redhat.io service account (required for the air-gapped
+#     builder workflow, which mirrors images; connected clusters instead
+#     use ceph.registry_credentials_file on the bootstrap node) ---------
+# Create a TERMS-BASED registry service account at
+#   https://access.redhat.com/terms-based-registry/
+# Username shape is "<org-id>|<token-name>". A console.redhat.com IAM
+# service account will NOT work against registry.redhat.io.
+vault_redhat_registry_username: "REPLACE-12345678|token-name"
+vault_redhat_registry_password: "REPLACE-long-token"
+
+# --- BMC / IPMI credentials, one per node (required when STONITH uses
+#     fence_ipmilan — i.e. every production 3-node cluster) ------------
+# The dedicated STONITH user you created on each iDRAC / IPMI BMC
+# (matching vpac_nodes[*].bmc_user). Remember IPMI-over-LAN must be
+# enabled on iDRACs — it ships disabled.
+vault_bmc_password_node_a: "REPLACE"
+vault_bmc_password_node_b: "REPLACE"
+vault_bmc_password_node_c: "REPLACE"
+
+# --- Pacemaker hacluster password (required on every 3+ node cluster) --
+# Site-generated; the playbooks set it on every node and use it once for
+# `pcs host auth`. Any strong random string; you rarely type it again.
+vault_hacluster_password: "REPLACE-strong-random"

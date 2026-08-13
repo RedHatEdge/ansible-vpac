@@ -34,6 +34,32 @@ the stages.
 | `rt_tuning.isolated_cpus` etc. | RT hosts | CPU list valid **for that node's topology** | `lscpu`; isolcpus **silently ignores** CPU numbers the machine doesn't have — recompute per hardware model, never copy between models |
 | `vm_catalog` | **stage 80 only — never for the cluster itself** | list of VMs with `target_host` / `allowed_hosts`; **default `[]`** | Workloads are not a prerequisite: `[]` is the cluster-only path (stage 80 no-ops). When filled: hostnames must be `vpac_nodes` hostnames — preflight *warns*, stage 80 *enforces*. Vendor VM profiles (disk bus / NIC model) per the vm_templates README |
 
+## Secrets — everything you owe the vault, in one place
+
+All secrets live in an encrypted vault file, never in the inventory:
+
+```bash
+ansible-vault create inventory/<yoursite>/group_vars/vault.yml
+# then run plays with --ask-vault-pass or --vault-password-file
+```
+
+`inventory/example/group_vars/vault.yml.example` enumerates **every** `vault_*`
+name with format and where to obtain it — copy from it, never grep for what you
+owe. Preflight verifies each secret **required for your deployment shape**
+resolves non-empty and reports the *names* of anything missing (never values).
+
+| Vault variable | Required when | What it is / where from |
+|---|---|---|
+| `vault_rhsm_activation_key` | `repo_source: rhsm` or `satellite` | activation key name — console.redhat.com (or Satellite org) → Activation keys |
+| `vault_rhsm_org_id` | same | org ID, shown on the same page |
+| `vault_redhat_registry_username` / `_password` | air-gapped builder workflow | **terms-based** registry service account (access.redhat.com/terms-based-registry); username shape `<org-id>\|<token>`; IAM service accounts do NOT work |
+| `vault_bmc_password_node_a` / `_b` / `_c` | STONITH with `fence_ipmilan` (every production 3-node) | the dedicated STONITH user's password on each BMC; consumed at stage 75 — without the preflight check you'd only find out after a full Ceph build |
+| `vault_hacluster_password` | every 3+ node cluster | site-generated strong random; set on all nodes, used once by `pcs host auth` (stage 70) |
+
+Tasks that carry these credentials run with `no_log`; when one fails, the play
+re-raises a redacted, actionable message (which value to check, which log on the
+node) instead of a censored dead end.
+
 ## ⚠ OSD device names: use `/dev/disk/by-id/`, always
 
 `ceph.osd_devices` entries are **wiped and turned into OSDs**. Kernel names
