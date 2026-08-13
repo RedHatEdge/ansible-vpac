@@ -27,31 +27,54 @@
       secrets), or set builder_rhsm_skip_register: true if the builder
       is already registered.
 
+# no_log on both registration variants carries credentials; the rescues
+# keep a failure from being a censored dead end.
 - name: "Register with RHSM via activation key"
-  community.general.redhat_subscription:
-    state: present
-    activationkey: "{{ rhsm_activation_key }}"
-    org_id: "{{ rhsm_org_id }}"
-    server_hostname: "{{ rhsm_server_url | default(omit) }}"
   when:
     - not (builder_rhsm_skip_register | bool)
     - rhsm_activation_key | default('', true) | length > 0
     - rhsm_org_id | default('', true) | length > 0
-  no_log: true
+  block:
+    - name: "Register with RHSM via activation key"
+      community.general.redhat_subscription:
+        state: present
+        activationkey: "{{ rhsm_activation_key }}"
+        org_id: "{{ rhsm_org_id }}"
+        server_hostname: "{{ rhsm_server_url | default(omit) }}"
+      no_log: true
+  rescue:
+    - name: "Explain the hidden registration failure"
+      ansible.builtin.fail:
+        msg: >-
+          RHSM registration of the builder failed (module output is hidden —
+          the call carries the activation key). Check `subscription-manager
+          status`, /var/log/rhsm/rhsm.log, that rhsm_activation_key +
+          rhsm_org_id are set and valid at console.redhat.com, and outbound
+          reachability to the subscription server.
 
 - name: "Register with RHSM via username/password"
-  community.general.redhat_subscription:
-    state: present
-    username: "{{ rhsm_username }}"
-    password: "{{ rhsm_password }}"
-    server_hostname: "{{ rhsm_server_url | default(omit) }}"
-    auto_attach: true
   when:
     - not (builder_rhsm_skip_register | bool)
     - (rhsm_activation_key | default('', true) | length == 0)
     - rhsm_username | default('', true) | length > 0
     - rhsm_password | default('', true) | length > 0
-  no_log: true
+  block:
+    - name: "Register with RHSM via username/password"
+      community.general.redhat_subscription:
+        state: present
+        username: "{{ rhsm_username }}"
+        password: "{{ rhsm_password }}"
+        server_hostname: "{{ rhsm_server_url | default(omit) }}"
+        auto_attach: true
+      no_log: true
+  rescue:
+    - name: "Explain the hidden registration failure"
+      ansible.builtin.fail:
+        msg: >-
+          RHSM registration of the builder failed (module output is hidden —
+          the call carries account credentials). Check `subscription-manager
+          status`, /var/log/rhsm/rhsm.log, the rhsm_username/rhsm_password
+          vault values, and outbound reachability to the subscription server.
 
 - name: "Enable required RHSM repos"
   community.general.rhsm_repository:

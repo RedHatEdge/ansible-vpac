@@ -1,13 +1,31 @@
 ---
+# no_log is required here (the call carries the activation key), which
+# also censors the module's error output on failure. The rescue re-raises
+# with an actionable, secret-free message so a registration failure is
+# never a censored dead end.
 - name: "Register with Red Hat Subscription Manager"
-  community.general.redhat_subscription:
-    state: present
-    activationkey: "{{ rhsm_activation_key }}"
-    org_id: "{{ rhsm_org_id }}"
-    server_hostname: "{{ rhsm_server_url }}"
-    pool: "{{ rhsm_pool | default(omit, true) }}"
-    force_register: false
-  no_log: true
+  block:
+    - name: "Register with Red Hat Subscription Manager"
+      community.general.redhat_subscription:
+        state: present
+        activationkey: "{{ rhsm_activation_key }}"
+        org_id: "{{ rhsm_org_id }}"
+        server_hostname: "{{ rhsm_server_url }}"
+        pool: "{{ rhsm_pool | default(omit, true) }}"
+        force_register: false
+      no_log: true
+  rescue:
+    - name: "Explain the hidden registration failure"
+      ansible.builtin.fail:
+        msg: >-
+          RHSM registration failed on {{ inventory_hostname }} (module output
+          is hidden because the call carries the activation key). Check, in
+          order: `subscription-manager status` and /var/log/rhsm/rhsm.log on
+          the node; that rhsm_activation_key + rhsm_org_id are set (vault) and
+          the key exists under that org at console.redhat.com; network path to
+          {{ rhsm_server_url }}; and on non-SCA accounts that rhsm_pool covers
+          RHEL+HA+RS+NFV+Ceph. To see the raw module error, re-run this stage
+          with the task's no_log temporarily removed on a non-production copy.
 
 - name: "Enable required repos"
   community.general.rhsm_repository:

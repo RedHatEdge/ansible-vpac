@@ -6,14 +6,29 @@
     disable_gpg_check: true
   when: sources.satellite_url | length > 0
 
+# no_log carries the activation key; the rescue keeps a failure from
+# being a censored dead end.
 - name: "Register with Satellite"
-  community.general.redhat_subscription:
-    state: present
-    activationkey: "{{ rhsm_activation_key }}"
-    org_id: "{{ rhsm_org_id }}"
-    server_hostname: "{{ sources.satellite_url | urlsplit('hostname') }}"
-    force_register: false
-  no_log: true
+  block:
+    - name: "Register with Satellite"
+      community.general.redhat_subscription:
+        state: present
+        activationkey: "{{ rhsm_activation_key }}"
+        org_id: "{{ rhsm_org_id }}"
+        server_hostname: "{{ sources.satellite_url | urlsplit('hostname') }}"
+        force_register: false
+      no_log: true
+  rescue:
+    - name: "Explain the hidden registration failure"
+      ansible.builtin.fail:
+        msg: >-
+          Satellite registration failed on {{ inventory_hostname }} (module
+          output is hidden because the call carries the activation key).
+          Check: the katello CA rpm installed from
+          {{ sources.satellite_url }}/pub; that the activation key exists in
+          THIS Satellite org and its content view includes the rhsm_repos
+          list; /var/log/rhsm/rhsm.log on the node; and network path to
+          {{ sources.satellite_url | urlsplit('hostname') }}.
 
 - name: "Enable required repos via Satellite"
   community.general.rhsm_repository:

@@ -20,13 +20,27 @@
   register: _baseline_rhcd
   failed_when: false
 
+# no_log carries the activation key; the rescue keeps a failure from
+# being a censored dead end.
 - name: "Connect host to Red Hat Insights"
-  ansible.builtin.command:
-    cmd: >-
-      rhc connect
-      --activation-key={{ rhsm_activation_key }}
-      --organization={{ rhsm_org_id }}
-  register: _baseline_rhc
-  changed_when: true
-  no_log: true
   when: (_baseline_rhcd.status.ActiveState | default('inactive')) != 'active'
+  block:
+    - name: "Connect host to Red Hat Insights"
+      ansible.builtin.command:
+        cmd: >-
+          rhc connect
+          --activation-key={{ rhsm_activation_key }}
+          --organization={{ rhsm_org_id }}
+      register: _baseline_rhc
+      changed_when: true
+      no_log: true
+  rescue:
+    - name: "Explain the hidden Insights enrolment failure"
+      ansible.builtin.fail:
+        msg: >-
+          Insights enrolment (rhc connect) failed on {{ inventory_hostname }}
+          (output hidden — the command carries the activation key). Check
+          `journalctl -u rhcd` and `rhc status` on the node, that the host is
+          RHSM-registered first, and that the activation key is valid at
+          console.redhat.com. Insights is optional: set
+          host_baseline_enable_insights=false to skip it entirely.
