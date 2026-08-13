@@ -151,9 +151,17 @@ on the next run).
 - **networking (stage 20)** brings up the PTP NIC and runs `ptp_isolation`
   at its tail. This role re-runs those checks before arming ptp4l.
 - **rt_tuning (stage 50)** owns the kernel-rt + RT cmdline. Its
-  `rt_chrony` blockinfile on `/etc/chrony.conf` is harmless on PTP hosts
-  (timemaster reads `/etc/timemaster.conf` directly, not chrony.conf), and
-  effective on NTP-follower hosts that keep system chronyd.
+  `rt_chrony` chrony.conf work is **skipped entirely on timemaster hosts**
+  (this role already renders lock_all/sched_priority/combinelimit into
+  timemaster.conf from the same `rt_chrony.*` keys, and system chronyd is
+  masked — field-found: the old "harmless" blockinfile fired a chronyd
+  restart handler that cannot run against a masked unit). It remains
+  effective on NTP-mode and NTP-follower hosts that keep system chronyd.
+- **Repo rule this role creates:** system chronyd is MASKED on timemaster
+  hosts from stage 40 onward. Any component that writes `/etc/chrony.conf`,
+  starts chronyd, or notifies a chronyd restart must first handle this case
+  (skip on the inventory condition, or detect `systemctl is-enabled chronyd`
+  == masked). Read-only `chronyc` commands are safe in both regimes.
 - **vm_templates (stage 80)** can reference `ptp_timesync_status_dir`
   in a virtiofs filesystem block when a VM needs to read host PTP status.
 

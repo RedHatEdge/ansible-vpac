@@ -2,38 +2,57 @@
 # Basic chrony sync — the foundation Ceph (and Pacemaker, and every other
 # distributed thing here) depends on. Runs against ntp_servers from
 # inventory. Stage 40 (ptp_timesync) may later replace these with PTP.
+#
+# REPO RULE — any component touching chrony must handle the pure-PTP case:
+# after stage 40 has run on a timemaster host, system chronyd is MASKED and
+# timemaster supervises its own chronyd. A stage-10 RE-RUN on such a host
+# must not template /etc/chrony.conf (dead config there), start the masked
+# unit, or fire the restart handler. Detection is runtime, not inventory:
+# the FIRST stage-10 run on the same pure-PTP inventory happens BEFORE
+# stage 40, when bootstrap chrony is still exactly what we want.
 
-- name: "Write chrony.conf"
-  ansible.builtin.template:
-    src: chrony.conf.j2
-    dest: /etc/chrony.conf
-    owner: root
-    group: root
-    mode: "0644"
-  notify: "restart chronyd"
-
-- name: "Enable + start chronyd"
-  ansible.builtin.systemd_service:
-    name: chronyd
-    state: started
-    enabled: true
-
-- name: "Apply any pending chrony config change before waitsync"
-  ansible.builtin.meta: flush_handlers
-
-- name: "Wait for chrony to synchronize"
-  # chronyc waitsync <max-tries> <max-correction-sec> <max-skew-ppm> <interval-sec>
-  # Poll interval is 10s; total wait is (sync_timeout_s / 10) tries.
-  ansible.builtin.command: >-
-    /usr/bin/chronyc waitsync
-    {{ (time_sync.sync_timeout_s | int) // 10 }}
-    {{ (time_sync.max_offset_ms | int) / 1000.0 }}
-    0.0
-    10
+- name: "Check whether chronyd is masked (timemaster owns time sync)"
+  ansible.builtin.command: systemctl is-enabled chronyd
+  register: _chrony_unit_state
   changed_when: false
-  register: _chrony_waitsync
+  failed_when: false
+
+- name: "Bootstrap chrony (skipped once timemaster owns the clock)"
+  when: (_chrony_unit_state.stdout | trim) != 'masked'
+  block:
+    - name: "Write chrony.conf"
+      ansible.builtin.template:
+        src: chrony.conf.j2
+        dest: /etc/chrony.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: "restart chronyd"
+
+    - name: "Enable + start chronyd"
+      ansible.builtin.systemd_service:
+        name: chronyd
+        state: started
+        enabled: true
+
+    - name: "Apply any pending chrony config change before waitsync"
+      ansible.builtin.meta: flush_handlers
+
+    - name: "Wait for chrony to synchronize"
+      # chronyc waitsync <max-tries> <max-correction-sec> <max-skew-ppm> <interval-sec>
+      # Poll interval is 10s; total wait is (sync_timeout_s / 10) tries.
+      ansible.builtin.command: >-
+        /usr/bin/chronyc waitsync
+        {{ (time_sync.sync_timeout_s | int) // 10 }}
+        {{ (time_sync.max_offset_ms | int) / 1000.0 }}
+        0.0
+        10
+      changed_when: false
+      register: _chrony_waitsync
 
 - name: "Report chrony tracking state"
+  # Works in both regimes: chronyc talks to whichever chronyd is running —
+  # the system unit, or the one timemaster supervises.
   ansible.builtin.command: /usr/bin/chronyc tracking
   changed_when: false
   register: _chrony_tracking
@@ -41,3 +60,10 @@
 - name: "Show chrony tracking summary"
   ansible.builtin.debug:
     msg: "{{ _chrony_tracking.stdout_lines | select('match', '^(Reference ID|Stratum|System time|Leap status)') | list }}"
+
+- name: "Note the timemaster handoff (re-run on a converged PTP host)"
+  ansible.builtin.debug:
+    msg: >-
+      chronyd is masked — stage 40 (timemaster) owns time sync on this host;
+      bootstrap chrony configuration intentionally skipped.
+  when: (_chrony_unit_state.stdout | trim) == 'masked'

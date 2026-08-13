@@ -27,9 +27,23 @@
   ansible.builtin.import_tasks: irq_affinity.yml
   tags: [rt, rt-irq]
 
-- name: "RT chrony overrides (every rt_hosts member)"
+# REPO RULE — any component touching chrony must handle the pure-PTP case:
+# stage 40 MASKS system chronyd on timemaster hosts (PTP mode + a dedicated
+# PTP NIC) and timemaster supervises its own embedded chronyd. On those
+# hosts /etc/chrony.conf is dead config, chronyd cannot be restarted (unit
+# masked), and restarting it directly would fight the supervisor even if it
+# could be. The rt_chrony values (lock_all/sched_priority/combinelimit) are
+# already rendered into timemaster.conf by ptp_timesync from the same
+# rt_chrony.* inventory keys — so on timemaster hosts this import is
+# redundant BY DESIGN and is skipped. It remains effective on NTP-mode
+# hosts and NTP-follower hosts (no PTP NIC), which keep system chronyd.
+- name: "RT chrony overrides (hosts where system chronyd is in charge)"
   ansible.builtin.import_tasks: rt_chrony.yml
-  when: rt_tuning_is_relay_host | bool
+  when:
+    - rt_tuning_is_relay_host | bool
+    - >-
+      not ((time_sync.mode | default('ntp')) in ['ptp', 'ptp_with_ntp']
+           and (networking_defaults.ptp_nic | default('')) | length > 0)
   tags: [rt, rt-chrony]
 
 - name: "cpufreq governor"
