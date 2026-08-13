@@ -88,6 +88,17 @@
         - not (validate_warn_only | bool)
       ignore_errors: "{{ validate_warn_only | bool }}"
 
+    # The vendor relay status feed (ABB-shipped ptp_status.sh) discovers the
+    # active ptp4l instance via `chronyc -c sources` — verified from a
+    # licensed ABB-built host. If chronyd stops answering, the relay's PTP
+    # health file silently goes stale. Assert the dependency here.
+    - name: "chronyc -c sources answers (relay ptp_status dependency)"
+      ansible.builtin.command: chronyc -c sources
+      changed_when: false
+      register: _vpt_sources
+      failed_when: >-
+        _vpt_sources.rc != 0 or (_vpt_sources.stdout | trim | length) == 0
+
     - name: "chronyc tracking"
       ansible.builtin.command: chronyc tracking
       changed_when: false

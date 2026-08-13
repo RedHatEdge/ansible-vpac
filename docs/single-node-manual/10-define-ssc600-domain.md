@@ -205,12 +205,12 @@ Save as `~/ssc600-01.xml`:
     </rng>
 
     <!-- virtiofs PTP-status share. The vendor's ptp_status service (step 09)
-         writes the relay's status file into /var/lib/libvirt/images/ptp; the
+         writes the relay's status file into /home/libvirt-local/ptp; the
          guest mounts it via the 'ptp' tag and reads host time status.
          Requires the <access mode='shared'/> set in memoryBacking above. -->
     <filesystem type='mount' accessmode='passthrough'>
       <driver type='virtiofs'/>
-      <source dir='/var/lib/libvirt/images/ptp'/>
+      <source dir='/home/libvirt-local/ptp'/>
       <target dir='ptp'/>
     </filesystem>
 

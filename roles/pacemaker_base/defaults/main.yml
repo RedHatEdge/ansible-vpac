@@ -38,3 +38,8 @@ pacemaker_no_quorum_policy: "stop"
 pacemaker_virtualdomain_op_timeout: "120s"
 pacemaker_virtualdomain_monitor_interval: "30s"
 pacemaker_virtualdomain_monitor_timeout: "30s"
+
+# How long verify waits for corosync membership + quorum to converge after
+# cluster start before declaring a node OFFLINE for real. Field-measured
+# formation on 3 nodes: ~21s; default leaves generous headroom.
+pacemaker_verify_settle_timeout_s: 120

@@ -19,11 +19,16 @@
   register: _vm_loc
   changed_when: false
 
+# pinned: true collapses placement to target_host ONLY: prefers becomes
+# INFINITY and every other node gets an explicit avoids -INFINITY,
+# regardless of allowed_hosts. For protection relays (SSC600 pattern) the
+# resource must fail WITH its node — redundancy is a second pinned
+# instance elsewhere, never migration/failover of this one.
 - name: "Add 'prefers target_host' location constraint"
   ansible.builtin.command:
     cmd: >-
       pcs constraint location {{ _vm.name }} prefers
-      {{ _vm.target_host }}={{ _vm.location_score | default(100) }}
+      {{ _vm.target_host }}={{ 'INFINITY' if (_vm.pinned | default(false)) else (_vm.location_score | default(100)) }}
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
   when:
@@ -32,18 +37,19 @@
     - (_vm.target_host + ' (score:') not in _vm_loc.stdout
   changed_when: true
 
-- name: "Add 'avoids' constraints for nodes outside allowed_hosts"
+- name: "Add 'avoids' constraints for nodes outside allowed_hosts (all others when pinned)"
   ansible.builtin.command:
     cmd: "pcs constraint location {{ _vm.name }} avoids {{ item }}=INFINITY"
   loop: >-
     {{ vpac_nodes
        | map(attribute='hostname')
-       | reject('in', _vm.allowed_hosts | default([]))
+       | reject('in', ([_vm.target_host] if (_vm.pinned | default(false))
+                       else (_vm.allowed_hosts | default([]))))
        | list }}
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
   when:
-    - (_vm.allowed_hosts | default([])) | length > 0
+    - ((_vm.pinned | default(false)) or ((_vm.allowed_hosts | default([])) | length > 0))
     - ('avoids ' + item) not in _vm_loc.stdout
     - (item + ' (score:-INFINITY)') not in _vm_loc.stdout
   changed_when: true

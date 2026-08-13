@@ -19,7 +19,14 @@
 
 - name: "Compute allow-migrate (false for PCI-passthrough VMs)"
   ansible.builtin.set_fact:
-    _vm_allow_migrate: "{{ ((_vm.pci_passthrough | default([])) | length) == 0 }}"
+    # Explicit catalog allow_migrate wins; otherwise migratable unless the
+    # VM has PCI passthrough (which cannot live-migrate). Protection relays
+    # (profile ssc600) must set allow_migrate: false explicitly — the
+    # stage-80 catalog contract enforces it.
+    _vm_allow_migrate: >-
+      {{ _vm.allow_migrate
+         if (_vm.allow_migrate is defined)
+         else (((_vm.pci_passthrough | default([])) | length) == 0) }}
   run_once: true
 
 - name: "Build pcs resource create argv for {{ _vm.name }}"

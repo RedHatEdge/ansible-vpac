@@ -616,10 +616,18 @@ vm_catalog: []
 #   # secret defined by ceph_expand; participates in the sanlock lockspace via
 #   # lease_offset. NIC attaches to the libvirt virtual network "station-bus"
 #   # (rendered by virtualization stage 30 over the station bridge).
+#   # SSC600s NEVER migrate (vendor + architecture requirement: process-bus
+#   # NIC binding, CPU pinning and FIFO scheduling do not survive live
+#   # migration). Model them as ONE PINNED INSTANCE PER NODE: pinned: true
+#   # locks the resource to target_host (-INFINITY elsewhere) and
+#   # allow_migrate: false is mandatory — stage 80 REFUSES a floating or
+#   # migratable ssc600 entry. Redundancy comes from a second pinned
+#   # instance on another node, not from moving this one.
 #   - name: "ssc600-01"
 #     profile: "ssc600"
-#     target_host: "site1-node-a"          # null = let Pacemaker choose
-#     allowed_hosts: ["site1-node-a", "site1-node-b"]
+#     target_host: "site1-node-a"
+#     pinned: true                          # runs on target_host ONLY
+#     allow_migrate: false                  # mandatory for profile ssc600
 #     vcpus: 4
 #     pinned_cpus: [4, 5, 6, 7]
 #     emulator_cpus: [8, 9]

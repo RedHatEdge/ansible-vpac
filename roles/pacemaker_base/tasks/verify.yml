@@ -1,15 +1,34 @@
 ---
-- name: "pcs status (post-setup sanity)"
+# Corosync membership takes tens of seconds to converge after
+# `pcs cluster start --all` — a one-shot assert here fires while the stack
+# reports "Stack: unknown / Current DC: NONE" and every greenfield first
+# run fails, then the identical second run passes (field-reproduced with
+# timestamps: assert fired ~6s in, membership settled at ~21s). Poll until
+# quorum forms and every node is online, THEN assert for message quality.
+- name: "Wait for cluster membership to settle (poll pcs status)"
   ansible.builtin.command:
     cmd: pcs status
   register: _pm_status
   changed_when: false
+  failed_when: false
+  until:
+    - "'OFFLINE' not in _pm_status.stdout"
+    - "'partition with quorum' in _pm_status.stdout"
+  retries: "{{ (pacemaker_verify_settle_timeout_s | default(120) | int) // 5 }}"
+  delay: 5
 
-- name: "Assert no node is OFFLINE"
+- name: "Assert the cluster settled: quorum formed, no node OFFLINE"
   ansible.builtin.assert:
-    that: "'OFFLINE' not in _pm_status.stdout"
+    that:
+      - "'OFFLINE' not in _pm_status.stdout"
+      - "'partition with quorum' in _pm_status.stdout"
     fail_msg: >-
-      pcs status reports an OFFLINE node. Output:
+      The cluster did not converge within
+      ~{{ pacemaker_verify_settle_timeout_s | default(120) }}s of starting —
+      a node is OFFLINE or quorum never formed. Check corosync on the
+      heartbeat network (`corosync-cfgtool -s` on each node — links must be
+      on the heartbeat addresses), pcsd on every node, and firewalld. Last
+      pcs status:
       {{ _pm_status.stdout }}
 
 - name: "Assert no pending fencing actions"

@@ -21,6 +21,26 @@
       {{ vm_catalog | default([]) | selectattr('allowed_hosts', 'defined')
          | rejectattr('allowed_hosts', 'subset', _vmc_hostnames)
          | map(attribute='name') | list }}
+    # Protection relays never migrate (vendor + architecture requirement:
+    # process-bus NIC binding, CPU pinning and FIFO scheduling do not
+    # survive live migration). One pinned instance per node is the model.
+    _vmc_floating_relays: >-
+      {{ vm_catalog | default([])
+         | selectattr('profile', 'defined')
+         | selectattr('profile', 'equalto', 'ssc600')
+         | rejectattr('allow_migrate', 'defined')
+         | map(attribute='name') | list
+         + (vm_catalog | default([])
+            | selectattr('profile', 'defined')
+            | selectattr('profile', 'equalto', 'ssc600')
+            | selectattr('allow_migrate', 'defined')
+            | selectattr('allow_migrate', 'equalto', true)
+            | map(attribute='name') | list)
+         + (vm_catalog | default([])
+            | selectattr('profile', 'defined')
+            | selectattr('profile', 'equalto', 'ssc600')
+            | rejectattr('pinned', 'defined')
+            | map(attribute='name') | list) }}
   ansible.builtin.set_fact:
     _vmc_issues: >-
       {{ ([ "vm_catalog still contains example placeholder hostnames "
@@ -34,7 +54,14 @@
             if _vmc_no_target | length > 0 else [])
          + ([ "allowed_hosts contains non-cluster hostnames for: "
               ~ (_vmc_bad_allowed | join(', ')) ]
-            if _vmc_bad_allowed | length > 0 else []) }}
+            if _vmc_bad_allowed | length > 0 else [])
+         + ([ "profile 'ssc600' entries must be pinned and non-migratable — set "
+              ~ "pinned: true AND allow_migrate: false on: "
+              ~ (_vmc_floating_relays | unique | join(', '))
+              ~ ". Protection relays never move between nodes (process-bus NIC "
+              ~ "binding, CPU pinning and FIFO scheduling do not survive live "
+              ~ "migration); deploy one pinned instance per node instead." ]
+            if (_vmc_floating_relays | unique | length) > 0 else []) }}
   when: (vm_catalog | default([])) | length > 0
 
 - name: "vm_catalog contract: report all issues together"

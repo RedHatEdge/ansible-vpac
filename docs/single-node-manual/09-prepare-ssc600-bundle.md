@@ -52,20 +52,20 @@ sudo cp *.sh /usr/sbin/
 sudo cp *.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
-# The service writes into /var/lib/libvirt/images/ptp/ by default; the
+# The service writes into /home/libvirt-local/ptp/ by default; the
 # PTP_STATUS_FOLDER environment setting in the unit overrides it. Create the
 # default location and start the service:
-sudo mkdir -p /var/lib/libvirt/images/ptp
+sudo mkdir -p /home/libvirt-local/ptp
 sudo systemctl enable --now ptp_status.service
 systemctl status ptp_status.service --no-pager
 
 # Confirm the status file appears and refreshes:
-cat /var/lib/libvirt/images/ptp/ptp_status
+cat /home/libvirt-local/ptp/ptp_status
 ```
 
 > The shipped script reads ptp4l's state over its UNIX socket. If SELinux denials appear for that access (`ausearch -m AVC -ts recent`), build a local policy module from the actual denials (`audit2allow -M`) — do **not** switch SELinux to permissive or disabled on a protection host.
 
-The virtiofs `<source dir>` in the domain XML (step 10) must point at the same directory this service writes to. This guide uses the vendor default, `/var/lib/libvirt/images/ptp`.
+The virtiofs `<source dir>` in the domain XML (step 10) must point at the same directory this service writes to. This guide uses the vendor default, `/home/libvirt-local/ptp` — verified from the `PTP_STATUS_FOLDER` environment setting on a licensed ABB-built host (an earlier revision of this guide cited `/var/lib/libvirt/images/ptp`, which does not exist on real vendor hosts). The unit file's `PTP_STATUS_FOLDER` value is authoritative: whatever it says, the virtiofs `<source dir>` must match it.
 
 ## The host real-time setup script (cache + IRQ affinity)
 

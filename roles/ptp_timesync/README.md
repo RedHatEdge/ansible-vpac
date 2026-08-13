@@ -162,6 +162,13 @@ on the next run).
   starts chronyd, or notifies a chronyd restart must first handle this case
   (skip on the inventory condition, or detect `systemctl is-enabled chronyd`
   == masked). Read-only `chronyc` commands are safe in both regimes.
+- **Corollary — the timemaster-supervised chronyd must stay queryable:**
+  vendor relay status tooling (the ABB-shipped `ptp_status.sh`) discovers
+  the active ptp4l instance by parsing `chronyc -c sources` and builds the
+  pmc socket path from it. Verified from a licensed ABB-built host. Any
+  future change that stops chronyd entirely (rather than handing it to
+  timemaster) silently kills the relay's PTP health feed. Stage 90
+  validates `chronyc -c sources` answers on PTP hosts for this reason.
 - **vm_templates (stage 80)** can reference `ptp_timesync_status_dir`
   in a virtiofs filesystem block when a VM needs to read host PTP status.
 

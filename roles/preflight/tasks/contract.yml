@@ -179,18 +179,61 @@
 # failing usefully), are scoped to what this deployment shape actually
 # needs, and report NAMES only — never values. Full enumeration with
 # formats: inventory/example/group_vars/vault.yml.example.
-- name: "Contract: RHSM activation key + org must be set for rhsm/satellite sources"
+
+# RHSM credentials are required only if some targeted host still NEEDS
+# registering. Field regression this fixes: preflight runs for every stage
+# (tags: always, by design), and demanding vault RHSM creds to re-verify
+# hosts that are already registered blocked stages that never touch
+# subscription-manager. Runtime state decides, per host.
+- name: "Contract: probe RHSM registration state (per host)"
+  ansible.builtin.command: subscription-manager identity
+  register: _contract_rhsm_id
+  changed_when: false
+  failed_when: false
+  when: (sources.repo_source | default('')) in ['rhsm', 'satellite']
+
+- name: "Contract: RHSM credentials must be set when unregistered hosts need them"
   run_once: true
+  vars:
+    _contract_unregistered: >-
+      {{ ansible_play_hosts
+         | map('extract', hostvars)
+         | selectattr('_contract_rhsm_id', 'defined')
+         | selectattr('_contract_rhsm_id.rc', 'defined')
+         | rejectattr('_contract_rhsm_id.rc', 'equalto', 0)
+         | map(attribute='inventory_hostname') | list }}
   ansible.builtin.set_fact:
     _contract_issues: >-
       {{ _contract_issues
-         + ([ "rhsm_activation_key is empty — set vault_rhsm_activation_key in your "
-              ~ "vault.yml (see vault.yml.example); required because sources.repo_source is '"
+         + ([ "rhsm_activation_key is empty and these hosts are NOT yet registered: "
+              ~ (_contract_unregistered | join(', '))
+              ~ " — set vault_rhsm_activation_key in your vault.yml (see "
+              ~ "vault.yml.example); required because sources.repo_source is '"
               ~ (sources.repo_source | default('')) ~ "'" ]
             if (rhsm_activation_key | default('', true) | length) == 0 else [])
-         + ([ "rhsm_org_id is empty — set vault_rhsm_org_id in your vault.yml" ]
+         + ([ "rhsm_org_id is empty and these hosts are NOT yet registered: "
+              ~ (_contract_unregistered | join(', '))
+              ~ " — set vault_rhsm_org_id in your vault.yml" ]
             if (rhsm_org_id | default('', true) | length) == 0 else []) }}
-  when: (sources.repo_source | default('')) in ['rhsm', 'satellite']
+  when:
+    - (sources.repo_source | default('')) in ['rhsm', 'satellite']
+    - _contract_unregistered | length > 0
+
+- name: "Contract: note already-registered hosts (creds not required for re-runs)"
+  run_once: true
+  ansible.builtin.debug:
+    msg: >-
+      All targeted hosts already report a subscription-manager identity —
+      registration will be a no-op and vault RHSM credentials are not
+      required for this run.
+  when:
+    - (sources.repo_source | default('')) in ['rhsm', 'satellite']
+    - (rhsm_activation_key | default('', true) | length) == 0
+    - >-
+      (ansible_play_hosts | map('extract', hostvars)
+       | selectattr('_contract_rhsm_id', 'defined')
+       | selectattr('_contract_rhsm_id.rc', 'defined')
+       | rejectattr('_contract_rhsm_id.rc', 'equalto', 0) | list) | length == 0
 
 - name: "Contract: hacluster password must be set on 3+ node clusters"
   run_once: true

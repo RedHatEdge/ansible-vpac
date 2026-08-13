@@ -5,6 +5,12 @@
 # and need deterministic latency. Memory locked, no memballoon, no watchdog,
 # no HPET, CPU host-passthrough, 1 GiB hugepages.
 #
+# PLACEMENT: relays on this profile NEVER migrate between nodes (process-bus
+# NIC binding, CPU pinning and FIFO scheduling do not survive live
+# migration). Catalog entries MUST set `pinned: true` and
+# `allow_migrate: false` — the stage-80 catalog contract refuses a floating
+# or migratable ssc600 entry. Redundancy = one pinned instance per node.
+#
 # Each value here is a DEFAULT — a catalog entry can override any field.
 
 # libvirt <os> hints
