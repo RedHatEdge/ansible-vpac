@@ -299,14 +299,32 @@ def validate(f):
     return errs
 
 PAGE_HEAD = """<!doctype html><html><head><meta charset="utf-8"><title>vPAC site form</title><style>
-body{font:15px/1.5 sans-serif;max-width:900px;margin:2em auto;padding:0 1em;color:#222}
-fieldset{margin:1.2em 0;border:1px solid #bbb;border-radius:6px;padding:1em}
-legend{font-weight:700} label{display:block;margin:.5em 0 .1em} input,select,textarea{width:100%;
-max-width:480px;padding:.35em;font:inherit} .hint{color:#555;font-size:.85em;margin:.1em 0 .4em}
+/* PatternFly-derived tokens (inline; no CDN — offline/air-gap safe). */
+:root{--rh-red:#EE0000;--rh-red-dark:#B1380B;--bg:#FFFFFF;--surface:#F2F2F2;
+--text:#151515;--muted:#6A6E73;--border:#D2D2D2;--ok-bg:#F3FAF2;--ok-bd:#3E8635;
+--err-bg:#FAEAE8;--err-bd:#C9190B}
+@media (prefers-color-scheme: dark){:root{--bg:#151515;--surface:#212427;
+--text:#F0F0F0;--muted:#B8BBBE;--border:#444548;--ok-bg:#1e2b1c;--err-bg:#3b1f1b}}
+body{font:15px/1.5 "RedHatText","Red Hat Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+max-width:920px;margin:2em auto;padding:0 1em;color:var(--text);background:var(--bg)}
+h1,h4,legend{font-family:"RedHatDisplay","Red Hat Display",system-ui,sans-serif}
+h1{border-bottom:3px solid var(--rh-red);padding-bottom:.3em}
+fieldset{margin:1.2em 0;border:1px solid var(--border);border-radius:3px;
+padding:1em 1.2em;background:var(--surface)}
+legend{font-weight:700;padding:0 .5em;background:var(--bg);border:1px solid var(--border);border-radius:3px}
+label{display:block;margin:.6em 0 .15em;font-weight:500}
+input,select,textarea{width:100%;max-width:480px;padding:.4em .5em;font:inherit;
+color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:3px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--rh-red);outline-offset:0}
+.hint{color:var(--muted);font-size:.85em;margin:.15em 0 .45em}
 .node{display:inline-block;vertical-align:top;width:31%;margin-right:1%}
-.err{background:#fee;border:1px solid #c00;padding:1em;border-radius:6px}
-.ok{background:#efe;border:1px solid #090;padding:1em;border-radius:6px}
-code{background:#f4f4f4;padding:0 .3em} button{font:inherit;padding:.6em 2em;margin-top:1em}</style></head><body>
+.err{background:var(--err-bg);border:1px solid var(--err-bd);padding:1em;border-radius:3px}
+.ok{background:var(--ok-bg);border:1px solid var(--ok-bd);padding:1em;border-radius:3px}
+code{background:var(--surface);border:1px solid var(--border);padding:0 .3em;border-radius:2px}
+button{font:inherit;font-weight:600;padding:.55em 1.6em;margin-top:.8em;cursor:pointer;
+color:#fff;background:var(--rh-red);border:none;border-radius:3px}
+button:hover{background:var(--rh-red-dark)} button:disabled{opacity:.55;cursor:wait}
+</style></head><body>
 <div id="errbanner" style="display:none;background:#fee;border:2px solid #c00;padding:.8em;border-radius:6px;position:sticky;top:0;z-index:9"></div>
 <h1>vPAC cluster — site form</h1>
 <p>Fill this out top to bottom; it writes your whole site inventory, including the
@@ -448,7 +466,7 @@ const ips=[1,2,3].map(i=>document.querySelector(`[name=n${i}_mgmt]`).value).filt
 document.getElementById('copyid').innerHTML='<b>Now copy it to each node (each asks for the admin password once):</b><br>'+
  ips.map(ip=>`<code>ssh-copy-id -i ${j.path}.pub ${u}@${ip}</code>`).join('<br>');}}
 function reuseKey(p){document.getElementById('sshkey').value=p;
-document.getElementById('keymsg').textContent='reusing '+p+' — make sure it was ssh-copy-id\'d to THESE nodes';}
+document.getElementById('keymsg').textContent='reusing '+p+' — make sure this key was already copied (ssh-copy-id) to THESE nodes';}
 async function testSsh(){const el=document.getElementById('sshtest');el.textContent='testing…';
 const j=await jfetch('/testssh',fd());
 el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">${x.ok?'OK — key + passwordless sudo work':'FAILED — '+x.err}</b>`).join('<br>');}
@@ -528,9 +546,40 @@ class H(http.server.BaseHTTPRequestHandler):
         if not ok: return self._send(form_page(errors=[msg]), 400)
         self._send(success_page(f, files))
 
+# CONVENTION (finding V): never put prose containing apostrophes inside
+# JS string literals — a rendered SyntaxError voids the ENTIRE script
+# block and every button dies silently. Keep prose apostrophe-free or in
+# HTML. The gate below enforces it.
+def js_gate():
+    page = form_page()
+    m = re.search(r"<script>(.*?)</script>", page, re.S)
+    assert m, "js_gate: no script block found"
+    js = m.group(1)
+    node = shutil.which("node") or shutil.which("deno")
+    if node:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+            tf.write(js); jf = tf.name
+        try:
+            r = subprocess.run([node, "--check", jf], capture_output=True, text=True)
+        finally:
+            os.unlink(jf)
+        if r.returncode != 0:
+            sys.exit("JS GATE FAIL (%s --check):\n%s" % (node, r.stderr))
+        return "js gate: parsed by " + node
+    bad = []
+    for i, line in enumerate(js.splitlines(), 1):
+        stripped = re.sub(r"`[^`]*`", "", line)
+        stripped = re.sub(r'"[^"]*"', "", stripped)
+        if stripped.replace("\\'", "").count("'") % 2:
+            bad.append("script line %d: odd unescaped single-quote count: %s" % (i, line.strip()[:90]))
+    if bad:
+        sys.exit("JS GATE FAIL (no JS engine; apostrophe lint):\n" + "\n".join(bad))
+    return "js gate: apostrophe lint clean (no JS engine on this machine)"
+
 def selfcheck():
     text = contract_text()
     assert_coverage(text)
+    print(js_gate())
     dummy_nodes = [dict(host="h%d" % i, mgmt="1.1.1.%d" % i, storage="2.2.2.%d" % i, station="3.3.3.%d" % i,
                         hb="4.4.4.%d" % i, bmc="5.5.5.%d" % i, bmc_type="idrac9", bmc_user="admin",
                         bmc_pw="x", nics=["eno1"], disks=["/dev/disk/by-id/x%d" % i], letter=L)
