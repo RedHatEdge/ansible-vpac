@@ -298,7 +298,7 @@ def validate(f):
         errs.append("air-gapped mode needs builder hostname, IP and mirror URL")
     return errs
 
-PAGE_HEAD = """<!doctype html><html><head><meta charset="utf-8"><title>vPAC site form</title><style>
+PAGE_HEAD = """<!doctype html><html><head><meta charset="utf-8"><title>vPAC Cluster Builder</title><style>
 /* PatternFly-derived tokens (inline; no CDN — offline/air-gap safe). */
 :root{--rh-red:#EE0000;--rh-red-dark:#B1380B;--bg:#FFFFFF;--surface:#F2F2F2;
 --text:#151515;--muted:#6A6E73;--border:#D2D2D2;--ok-bg:#F3FAF2;--ok-bd:#3E8635;
@@ -325,8 +325,13 @@ button{font:inherit;font-weight:600;padding:.55em 1.6em;margin-top:.8em;cursor:p
 color:#fff;background:var(--rh-red);border:none;border-radius:3px}
 button:hover{background:var(--rh-red-dark)} button:disabled{opacity:.55;cursor:wait}
 </style></head><body>
-<div id="errbanner" style="display:none;background:#fee;border:2px solid #c00;padding:.8em;border-radius:6px;position:sticky;top:0;z-index:9"></div>
-<h1>vPAC cluster — site form</h1>
+<div id="errbanner" style="display:none;background:var(--err-bg);border:2px solid var(--err-bd);padding:.8em;border-radius:3px;position:sticky;top:0;z-index:9"></div>
+<div style="display:flex;align-items:center;gap:1em;border-bottom:3px solid var(--rh-red);padding-bottom:.5em;margin-bottom:.5em">
+<!-- LOGO SLOT: paste the OFFICIAL Red Hat logo SVG here (brand portal),
+     unmodified, as inline SVG or data: URI. Deliberately not redrawn from
+     memory - the mark must be the official asset, never an approximation. -->
+<span id="rh-logo-slot" style="min-width:40px"></span>
+<h1 style="border:none;margin:0;padding:0">vPAC Cluster Builder</h1></div>
 <p>Fill this out top to bottom; it writes your whole site inventory, including the
 encrypted vault. Nothing is written until you press the button at the end, and if
 anything is wrong it refuses and tells you why. Every "how do I find this?" hint
