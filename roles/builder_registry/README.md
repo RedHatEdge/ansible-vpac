@@ -26,7 +26,7 @@ After this role finishes, the builder is fully ready to serve an air-gapped clus
 | `redhat_registry_url` | `registry.redhat.io` | source registry for the mirror copy |
 | `redhat_registry_username` | *(required, vault)* | service account token user |
 | `redhat_registry_password` | *(required, vault)* | service account token value |
-| `builder_registry_images` | `["rhceph/rhceph-7-rhel9:latest"]` | images to mirror (extend as needed) |
+| `builder_registry_images` | `["rhceph/rhceph-9-rhel9:latest"]` | images to mirror (extend as needed) |
 
 ## Getting a Red Hat registry service account token
 

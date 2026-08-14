@@ -11,7 +11,7 @@ The builder has internet access for a short window (typically one evening — wh
 - local RPM mirror (`/var/www/html/mirror`, served over HTTP on port 80)
 - local container registry (`registry:2` in podman, listening on port 5000 — plain HTTP)
 
-with everything the cluster will need: RHEL 9 BaseOS + AppStream + HA + NFV (`kernel-rt`) + **CodeReady Builder** (for `libvirt-daemon-plugin-sanlock`), the RHCS 7 tools repo, the RHCS 7 container image, and the monitoring images (Prometheus, Alertmanager, Grafana, node-exporter) pulled from `registry.redhat.io`.
+with everything the cluster will need: RHEL 9 BaseOS + AppStream + HA + NFV (`kernel-rt`) + **CodeReady Builder** (for `libvirt-daemon-plugin-sanlock`), the RHCS 9 tools repo, the RHCS 9 container image, and the monitoring images (Prometheus, Alertmanager, Grafana, node-exporter) pulled from `registry.redhat.io`.
 
 After that playbook finishes, the builder is disconnected from the internet (physically unplug, move to the air-gap VLAN, whatever the site requires). For the rest of its life the builder serves the cluster only — port 80 for RPMs, port 5000 plain-HTTP for containers (cluster nodes set `sources.container_registry_insecure: true` to accept the unencrypted registry).
 
@@ -99,10 +99,10 @@ sources:
   ansible_collections_local_path: "/opt/ansible-collections.tar.gz"
 
 # rhsm_repos already lists baseos + appstream + HA + resilient-storage + NFV +
-# rhceph-7-tools. Add more here only if you need site-specific repos.
+# rhceph-9-tools. Add more here only if you need site-specific repos.
 
 ceph:
-  release: "7"
+  release: "9"
   # registry_credentials_file stays null — the local registry is anonymous-read.
   # bootstrap_node, osd_devices, network CIDRs, etc. filled in below.
 ```
@@ -173,7 +173,15 @@ What happens:
 
 1. `builder_rhsm` — registers the builder with RHSM, enables the six repos listed in `rhsm_repos`.
 2. `builder_mirror` — installs httpd + reposync, reposyncs all enabled repos to `/var/www/html/mirror`, rebuilds repodata to match on-disk packages, opens HTTP in firewalld, and HEAD-probes each repo's `repomd.xml` to confirm it's served.
-3. `builder_registry` — installs podman + skopeo, runs `registry:2` on port 5000 with persistent storage, and `skopeo copy`s the RHCS 7 + monitoring stack images from `registry.redhat.io` into it.
+3. `builder_registry` — installs podman + skopeo, runs `registry:2` on port 5000 with persistent storage, and `skopeo copy`s the RHCS 9 + monitoring stack images from `registry.redhat.io` into it.
+
+> **Single-registry caveat (RHCS 9):** everything this repo deploys comes from
+> `registry.redhat.io`, so one mirror pass with one credential covers it. But
+> RHCS 9's cephadm also carries defaults for optional daemons this repo does
+> NOT deploy (NVMe-oF, Samba) that live on `cp.icr.io` (IBM Cloud registry)
+> with separate entitlement. If you ever extend the stack with those services
+> on an air-gapped site, they need their own mirror source and credentials —
+> the one-registry assumption stops at the default service set.
 
 At the end, the playbook prints both URLs. Record them — they should match what you set in step 3.
 

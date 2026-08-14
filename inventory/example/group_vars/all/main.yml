@@ -67,7 +67,7 @@ sources:
   # Container registry for Red Hat Ceph Storage (and any other pulled
   # images). registry.redhat.io for connected deployments; a local
   # registry hostname for air-gapped. The builder_registry role mirrors
-  # RHCS images under the same path ("rhceph/rhceph-7-rhel9:latest"), so
+  # RHCS images under the same path ("rhceph/rhceph-9-rhel9:latest"), so
   # flipping this variable is the only change required between modes.
   container_registry: "registry.redhat.io"   # e.g. site1-builder:5000
 
@@ -106,7 +106,7 @@ rhsm_server_url: "subscription.rhsm.redhat.com"
 #
 # If your account is NOT on SCA (legacy attach-a-pool model), set
 # rhsm_pool to the pool ID covering RHEL + HA + Resilient Storage + NFV
-# + Ceph Storage 7. host_baseline (repo_rhsm.yml) and builder_rhsm both
+# + Ceph Storage 9. host_baseline (repo_rhsm.yml) and builder_rhsm both
 # pass it to community.general.redhat_subscription as the pool to attach.
 # To check which model your account uses, log in to console.redhat.com
 # → Subscriptions → "Simple Content Access" status banner.
@@ -128,14 +128,14 @@ host_baseline_enable_insights: false
 #   highavailability         — pcs, pacemaker, corosync, fence-agents
 #   resilient-storage        — gfs2 + companion bits
 #   nfv                      — kernel-rt, tuned-profiles-nfv, realtime
-#   rhceph-7-tools           — cephadm, ceph-common (Red Hat Ceph Storage 7)
+#   rhceph-9-tools           — cephadm, ceph-common (Red Hat Ceph Storage 9)
 rhsm_repos:
   - rhel-9-for-x86_64-baseos-rpms
   - rhel-9-for-x86_64-appstream-rpms
   - rhel-9-for-x86_64-highavailability-rpms
   - rhel-9-for-x86_64-resilient-storage-rpms
   - rhel-9-for-x86_64-nfv-rpms
-  - rhceph-7-tools-for-rhel-9-x86_64-rpms
+  - rhceph-9-tools-for-rhel-9-x86_64-rpms
 
 # Red Hat container registry credentials. Required for builder_registry
 # to skopeo-copy RHCS + monitoring images from registry.redhat.io. Create
@@ -161,13 +161,21 @@ redhat_registry_password: "{{ vault_redhat_registry_password | default('') }}"
 # Paths are relative to the registry host — the role prepends
 # sources.container_registry when pulling.
 # Versions: bump when RHCS releases new compatible tags. The defaults
-# below track the images shipped with RHCS 7.1.
+# below track the images cephadm 20.2 (RHCS 9) ships as its defaults.
+# Notes:
+#   - "rhel10" in an image NAME (grafana) is just the container's base
+#     image — it runs fine on RHEL 9 hosts. Do not "fix" it to rhel9.
+#   - RHCS 9's cephadm also carries defaults for optional daemons this
+#     repo does not deploy (nvmeof, samba, loki, haproxy, ...), some of
+#     which live on cp.icr.io (IBM Cloud registry), NOT registry.redhat.io.
+#     Irrelevant here, but if you extend the stack, the single-registry
+#     assumption of the air-gapped mirror no longer holds for those.
 container_images:
-  ceph:           "rhceph/rhceph-7-rhel9:latest"
+  ceph:           "rhceph/rhceph-9-rhel9:latest"
   prometheus:     "openshift4/ose-prometheus:v4.15"
   alertmanager:   "openshift4/ose-prometheus-alertmanager:v4.15"
   node_exporter: "openshift4/ose-prometheus-node-exporter:v4.15"
-  grafana:        "rhceph/grafana-rhel9:latest"
+  grafana:        "rhceph/grafana-rhel10:v9.1"
 
 # --------------------------------------------------------------------
 # 5. Node topology
@@ -472,7 +480,7 @@ ceph:
   fsid: null
   public_network: "10.0.10.0/24"         # must match networks.storage.cidr
   cluster_network: "10.0.10.0/24"        # typically same subnet as public
-  release: "7"                           # RHCS major version (7, 6, …)
+  release: "9"                           # RHCS major version (9, 8, 7, …)
   container_image: null                  # null → derived from sources.container_registry + release
   # Path on the BOOTSTRAP NODE; JSON for cephadm --registry-json. Required
   # whenever the registry needs auth — always for registry.redhat.io. Use a
