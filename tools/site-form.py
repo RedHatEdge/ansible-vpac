@@ -55,6 +55,10 @@ COVERED = {"1": "step 1 Site", "2": "step 2 Mode", "3": "step 2 Mode (sources)",
 EXCLUDED = {"12": "vm_catalog — cluster-only default; the form writes []",
             "13": "builder ISO minting — air-gapped guide, hand-configured for now"}
 
+SITE_RX = re.compile(r"^[a-z0-9][a-z0-9_-]{1,30}$")
+def valid_site(name):
+    return bool(SITE_RX.match(name or ""))
+
 def contract_text():
     if not os.path.exists(EXAMPLE):
         sys.exit("FATAL: run from an ansible-vpac checkout (missing %s)" % EXAMPLE)
@@ -262,7 +266,7 @@ def parse(qs):
 
 def validate(f):
     errs = []
-    if not re.match(r"^[a-z0-9][a-z0-9_-]{1,30}$", f["site_name"] or ""):
+    if not valid_site(f["site_name"]):
         errs.append("site name: lowercase letters/digits/dash, becomes the directory name")
     hosts = [n["host"] for n in f["nodes"]]
     if len(set(hosts)) != 3 or "" in hosts: errs.append("three distinct node hostnames are required")
@@ -418,13 +422,22 @@ if(m)document.getElementById('cpucount').value=m[1];});
 function fd(){const o=new URLSearchParams();['site_name','ssh_user'].forEach(k=>o.set(k,document.querySelector(`[name=${k}]`).value));
 [1,2,3].forEach(i=>o.set('ip'+i,document.querySelector(`[name=n${i}_mgmt]`).value));
 o.set('key',document.getElementById('sshkey').value);return o;}
-async function makeKey(){const r=await fetch('/makekey',{method:'POST',body:fd()});const j=await r.json();
-document.getElementById('keymsg').textContent=j.msg;
+async function makeKey(forceNew){const o=fd();if(forceNew)o.set('force_new','1');
+const r=await fetch('/makekey',{method:'POST',body:o});const j=await r.json();
+if(j.exists){document.getElementById('keymsg').innerHTML=
+ `A key named <code>${j.exists}</code> already exists (created ${j.created}). `+
+ `<button type="button" onclick="reuseKey('${j.exists}')">REUSE it</button> — right if this is the same `+
+ `cluster and you already copied it to the nodes — or `+
+ `<button type="button" onclick="makeKey(true)">CREATE A NEW ONE (${j.next.split('/').pop()})</button>`;
+ return;}
+document.getElementById('keymsg').textContent=j.msg||'';
 if(j.path){document.getElementById('sshkey').value=j.path;
 const u=document.querySelector('[name=ssh_user]').value||'admin';
 const ips=[1,2,3].map(i=>document.querySelector(`[name=n${i}_mgmt]`).value).filter(x=>x);
 document.getElementById('copyid').innerHTML='<b>Now copy it to each node (each asks for the admin password once):</b><br>'+
  ips.map(ip=>`<code>ssh-copy-id -i ${j.path}.pub ${u}@${ip}</code>`).join('<br>');}}
+function reuseKey(p){document.getElementById('sshkey').value=p;
+document.getElementById('keymsg').textContent='reusing '+p+' — make sure it was ssh-copy-id\'d to THESE nodes';}
 async function testSsh(){const el=document.getElementById('sshtest');el.textContent='testing…';
 const r=await fetch('/testssh',{method:'POST',body:fd()});const j=await r.json();
 el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">${x.ok?'OK — key + passwordless sudo work':'FAILED — '+x.err}</b>`).join('<br>');}
@@ -462,10 +475,22 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
         if self.path == "/makekey":
-            d = urllib.parse.parse_qs(body); site = d.get("site_name", ["site"])[0].strip() or "site"
+            d = urllib.parse.parse_qs(body); site = d.get("site_name", [""])[0].strip()
+            if not valid_site(site):
+                return self._json(dict(path="", msg="fix the site name first (lowercase letters/"
+                                       "digits/dash) — the key is named after it"))
             path = os.path.expanduser("~/.ssh/vpac-%s" % site)
-            if os.path.exists(path):
-                return self._json(dict(path=path, msg="key already exists — reusing it"))
+            if os.path.exists(path) and not d.get("force_new"):
+                import datetime
+                created = datetime.date.fromtimestamp(os.path.getmtime(path)).isoformat()
+                n = 2
+                while os.path.exists("%s-%d" % (path, n)): n += 1
+                return self._json(dict(path="", exists=path, created=created,
+                                       next="%s-%d" % (path, n)))
+            if d.get("force_new"):
+                n = 2
+                while os.path.exists("%s-%d" % (path, n)): n += 1
+                path = "%s-%d" % (path, n)
             r = subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q",
                                 "-C", "vpac-%s" % site, "-f", path], capture_output=True, text=True)
             if r.returncode != 0:
