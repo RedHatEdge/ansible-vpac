@@ -437,6 +437,11 @@ rt_tuning:
   # hugepages=), so a changed count takes effect at the next rolling
   # reboot — same staged/applied model as the rest of stage 50.
   nr_hugepages_override: null
+  # Managed-IRQ pinning: interfaces whose kernel-managed IRQs must be kept
+  # OFF the isolated RT cores (the process-bus and other RT-path NICs).
+  # A VM start re-spreads managed IRQs across all CPUs without this
+  # (field-diagnosed 3.5 ms latency spike). Empty list = installed no-op.
+  pin_irq_interfaces: []                 # e.g. ["ens2f0", "ens2f1"]
   cpu_governor: "performance"
   sched_rt_runtime_us: -1                # -1 disables throttling for RT tasks
 
@@ -532,6 +537,12 @@ ceph:
   # already exists (e.g. a cluster deployed before this default existed);
   # once VMs reference it, never change it.
   libvirt_secret_uuid: null
+
+  # RBD image backing the sanlock lockspace (created by ceph_expand in the
+  # first rbd pool; VM lease paths resolve against it). One name, used by
+  # both stage 60 (creation) and stage 80 (lease paths) — change it only
+  # before first deploy, never after.
+  sanlock_lockspace_image: "sanlock-leases"
 
 # --------------------------------------------------------------------
 # 10. Pacemaker / Corosync
@@ -798,9 +809,16 @@ validate:
   # and the summary records "skipped (no +rt kernel)".
   cyclictest_skip_on_non_rt: true
 
+  # Cyclictest runtime knobs (defaults fit the reference platform)
+  cyclictest_interval_us: 200            # measurement interval per loop
+  cyclictest_priority: 90                # RT priority cyclictest runs at
+
   # PTP / chrony
   ptp_max_offset_ns: 1000                # warn threshold (ns)
+  ptp_hard_fail_offset_ns: 100000        # HARD fail above this (dead servo)
+  ptp_require_hw_timestamping: true      # false only for sw-timestamp labs
   chrony_max_offset_ms: 1                # ms
+  chrony_require_full_reach: true        # require reach 377 (relax mid-bring-up)
 
   # Ceph
   ceph_require_health_ok: true
@@ -814,7 +832,15 @@ validate:
   journal_max_disk_gb: 4                 # silent killer above this
 
   # Network
-  storage_nic_min_mbps: 10000            # 0 disables the assertion
+  storage_nic_min_mbps: 10000
+  ceph_clock_skew_max_s: 0.05            # mon clock skew ceiling (seconds)
+
+  # Storage latency/utilization ceilings (iostat sampling)
+  iostat_await_max_ms: 10
+  iostat_util_max_pct: 90
+
+  # Require stonith-enabled=true at validate time (false only pre-stage-75)
+  pacemaker_require_stonith: true            # 0 disables the assertion
 
   # Summary report — defaults to ~/vpac-validate-reports/ on the
   # controller (no sudo needed). Set to /var/log + summary_become: true

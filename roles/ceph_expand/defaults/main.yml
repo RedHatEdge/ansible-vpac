@@ -44,5 +44,9 @@ ceph_expand_force_wipe_ceph_devices: false
 # RBD pool declared in ceph.pools[]. 1 GiB is enough for hundreds of VMs;
 # the structure is mostly slot metadata, not data. Name change is not
 # supported across re-runs — pick once, never rename.
-ceph_expand_sanlock_lockspace_name: "sanlock-leases"
+# Single source of truth is the contract's ceph.sanlock_lockspace_image —
+# stage-80 lease paths read the same key, so overriding only this role
+# default would silently split the two. Kept as a role var for tag-scoped
+# overrides in labs.
+ceph_expand_sanlock_lockspace_name: "{{ ceph.sanlock_lockspace_image | default('sanlock-leases') }}"
 ceph_expand_sanlock_lockspace_size_mb: 1024

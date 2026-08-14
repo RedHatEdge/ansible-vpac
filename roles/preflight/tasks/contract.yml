@@ -22,6 +22,7 @@
   ansible.builtin.set_fact:
     _contract_issues: []
     _contract_deferred: []
+    _contract_hygiene: []
     _contract_hostnames: "{{ vpac_nodes | default([]) | map(attribute='hostname') | list }}"
 
 # --- placeholder scan (cluster-forming trees only) ---------------------
@@ -81,8 +82,8 @@
   vars:
     _ph_hosts: "{{ groups['all'] | select('search', 'site1-') | list }}"
   ansible.builtin.set_fact:
-    _contract_deferred: >-
-      {{ _contract_deferred + [
+    _contract_hygiene: >-
+      {{ _contract_hygiene + [
         "inventory hosts still carry example placeholder names: "
         ~ (_ph_hosts | join(', '))
         ~ " — rename them, or delete the builder group entirely on connected "
@@ -388,6 +389,14 @@
   loop_control:
     label: "{{ item.name | default('?') }}"
   when: (item.allowed_hosts | difference(_contract_hostnames)) | length > 0
+
+- name: "Contract (hygiene): inventory tidiness notes (does NOT block, unrelated to workloads)"
+  run_once: true
+  ansible.builtin.debug:
+    msg: >-
+      INVENTORY HYGIENE (non-blocking, nothing to do with workloads):
+      {{ _contract_hygiene }}
+  when: (_contract_hygiene | default([])) | length > 0
 
 - name: "Contract (deferred): report workload values still to fill (does NOT block)"
   run_once: true
