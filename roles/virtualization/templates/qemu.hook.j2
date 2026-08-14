@@ -43,24 +43,58 @@ done
 # RT IRQ interface list (the unit gates on its conf file).
 systemctl restart vpac-pin-irqs.service 2>/dev/null || true
 
-# Find the qemu PID for this domain.
-qemu_pid=$(pgrep -f "guest=${VM_NAME}," | head -1)
-[[ -n "$qemu_pid" ]] || exit 0
+# Wait for the qemu PID and its vhost threads instead of probing once:
+# vhost kernel threads spawn when the NICs activate, which races the
+# "started" event. The vendor's own hook waits ~10s for each — verified
+# from a licensed vendor-built host — and without the wait this hook
+# silently pinned nothing on slow starts. Divergence from the vendor
+# hook, on purpose: theirs exits 1 on timeout (libvirt then kills the
+# domain); ours logs loudly to the journal and lets the VM run unpinned —
+# a running-but-unpinned relay beats a killed one, and stage 90 catches
+# the pinning gap.
+qemu_pid=""
+for _ in $(seq 1 10); do
+    qemu_pid=$(pgrep -f "guest=${VM_NAME}," | head -1)
+    [[ -n "$qemu_pid" ]] && break
+    sleep 1
+done
+if [[ -z "$qemu_pid" ]]; then
+    logger -t vpac-qemu-hook "WARNING: ${VM_NAME}: no qemu process within 10s — vhost/kvm-pit threads NOT pinned"
+    exit 0
+fi
 
-# Read the emulator pin (CPU mask) for this VM via virsh.
+# Read the emulator pin (CPU set) for this VM via virsh.
 emulator_cpus=$(virsh emulatorpin "$VM_NAME" 2>/dev/null | awk '/^[[:space:]]*\*:/ {print $2}')
-[[ -n "$emulator_cpus" ]] || exit 0
+if [[ -z "$emulator_cpus" ]]; then
+    logger -t vpac-qemu-hook "WARNING: ${VM_NAME}: no emulatorpin readable — vhost/kvm-pit threads NOT pinned"
+    exit 0
+fi
+
+vhost_tids=""
+for _ in $(seq 1 10); do
+    vhost_tids=$(pgrep -P 2 -f "vhost-${qemu_pid}")
+    [[ -n "$vhost_tids" ]] && break
+    sleep 1
+done
+if [[ -z "$vhost_tids" ]]; then
+    logger -t vpac-qemu-hook "WARNING: ${VM_NAME}: no vhost-${qemu_pid} threads within 10s — check virtio NIC config"
+fi
 
 # Pin all vhost-${qemu_pid} kernel threads to the emulator core set + chrt FIFO.
-for tid in $(pgrep -P 2 -f "vhost-${qemu_pid}"); do
+pinned=0
+for tid in $vhost_tids; do
     taskset -pc "$emulator_cpus" "$tid" >/dev/null 2>&1 || true
     chrt -fp "$VHOST_PRIO" "$tid"        >/dev/null 2>&1 || true
+    pinned=$((pinned+1))
 done
 
 # Same for kvm-pit/${qemu_pid} threads.
 for tid in $(pgrep -P 2 -f "kvm-pit/${qemu_pid}"); do
     taskset -pc "$emulator_cpus" "$tid" >/dev/null 2>&1 || true
     chrt -fp "$KVM_PIT_PRIO" "$tid"     >/dev/null 2>&1 || true
+    pinned=$((pinned+1))
 done
+
+logger -t vpac-qemu-hook "${VM_NAME}: pinned ${pinned} vhost/kvm-pit thread(s) to cpus ${emulator_cpus} (qemu ${qemu_pid})"
 
 exit 0

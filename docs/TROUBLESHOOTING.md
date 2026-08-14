@@ -27,6 +27,29 @@ ethtool -S <bridge>
 
 If RX drops are high (tens of thousands+) and you see a VM restart/thrash loop in `journalctl -u libvirtd`, the root cause is corosync sharing a bridge with VM management traffic. Long-term fix: move corosync to a dedicated heartbeat NIC (the `heartbeat_nic` variable). This is the `ARCHITECTURE.md` correct topology and the playbooks enforce it on new deployments.
 
+**Third check: is the heartbeat link's PHYSICAL layer dirty?** Field-diagnosed
+cause with a deceptive signature: repeated corosync membership churn (dozens of
+membership changes per hour, thousands of KNET link events, TOTEM retransmits),
+`pacemaker-controld` crashes, and CIB operations landing minutes late (which
+surfaces as `pcs resource create` timeouts on an apparently healthy cluster) —
+while `ip -s link` on the HOSTS shows **clean counters**. The corruption shows
+only on the **switch side**: check the switch port for CRC errors, fragments,
+runts/undersize. Frames are being damaged host→switch, so the host never sees
+its own bad transmissions.
+
+Classic trigger: a media-rate mismatch on the heartbeat path — e.g. a 10G
+copper SFP module in a NIC whose driver locks the cage at 10GBASE-CR, cabled
+into a 1G switch port, so the module rate-adapts every frame. Note two traps
+while diagnosing: some NIC drivers refuse `ethtool -s speed` on locked SFP
+cages entirely, and 1000BASE-T switch ports may offer no fixed-speed option
+at all (1000BASE-T mandates autonegotiation) — neither knob can fix a
+transcoding module.
+
+**The fix is physical**: matched-rate media end to end (native 1G modules
+into 1G ports, or 10G end to end). Corosync token tuning or a second knet
+ring are *mitigations*, not fixes — especially when storage shares the same
+physical link, because Ceph is eating the same corruption corosync is.
+
 **Recovery from an active split-brain:**
 
 1. Identify which partition has quorum: `pcs status` shows `partition with quorum` vs `partition WITHOUT quorum`
