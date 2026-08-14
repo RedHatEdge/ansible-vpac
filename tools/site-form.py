@@ -359,11 +359,13 @@ identity, and it can be handed to a colleague.</div>
 <button type="button" onclick="testSsh()">Test connectivity to all three nodes</button>
 <div id="sshtest" class="hint"></div></fieldset>
 <fieldset><legend>2. Mode</legend>
-<label>Deployment mode</label><select name="mode"><option>connected</option><option>airgapped</option></select>
+<label>Deployment mode</label><select name="mode" id="modesel"><option>connected</option><option>airgapped</option></select>
+<div id="agfields">
 <label>Air-gapped only — builder hostname</label><input name="builder_host">
 <label>Air-gapped only — builder mgmt IP</label><input name="builder_ip">
 <label>Air-gapped only — mirror URL</label><input name="mirror_url" placeholder="http://builder.example:80/mirror">
-<label>Air-gapped only — local registry host:port</label><input name="registry" placeholder="builder.example:5000"></fieldset>
+<label>Air-gapped only — local registry host:port</label><input name="registry" placeholder="builder.example:5000">
+</div><div class="hint" id="modenote"></div></fieldset>
 <fieldset><legend>3. Nodes</legend>%s
 <label>Which node bootstraps Ceph?</label><select name="bootstrap" id="bootstrap"></select>
 <div class="hint">the form derives BOTH the variable and the inventory group from this — they can never disagree</div></fieldset>
@@ -378,7 +380,9 @@ identity, and it can be handed to a colleague.</div>
 <label>Dedicated PTP NIC name (same on all nodes)</label><input name="ptp_nic" placeholder="eno4">
 <div class="hint">must be its own NIC — never bridged, bonded or shared. Check hardware timestamping: <code>ethtool -T &lt;nic&gt;</code></div></fieldset>
 <fieldset><legend>5b. Real-time</legend>
-<label>Total logical CPUs per node (from lscpu "CPU(s):")</label><input name="cpu_count" placeholder="16">
+<label>Paste the output of <code>lscpu</code> from one node (auto-fills the count)</label>
+<textarea rows="3" id="lscpu" placeholder="paste here — only the CPU(s): line is read"></textarea>
+<label>Total logical CPUs per node</label><input name="cpu_count" id="cpucount" placeholder="16">
 <label>Isolated CPUs for VMs</label><input name="isolated_cpus" placeholder="4-11">
 <div class="hint">on a node: <code>lscpu</code>. The form refuses CPU numbers your machine doesn't have — isolcpus would silently ignore them.</div>
 <label>Hugepage size</label><select name="hugepage_size"><option>1G</option><option>2M</option></select></fieldset>
@@ -405,6 +409,12 @@ const b=document.getElementById('bootstrap');
 function syncBoot(){const hs=[1,2,3].map(i=>document.querySelector(`[name=n${i}_host]`).value.trim()).filter(x=>x);
 b.innerHTML=hs.map(h=>`<option>${h}</option>`).join('');}
 [1,2,3].forEach(i=>document.querySelector(`[name=n${i}_host]`).addEventListener('input',syncBoot));syncBoot();
+function toggleMode(){const ag=document.getElementById('modesel').value==='airgapped';
+document.getElementById('agfields').style.display=ag?'':'none';
+document.getElementById('modenote').textContent=ag?'':'Connected mode: no builder exists — the builder questions are hidden because they do not apply.';}
+document.getElementById('modesel').addEventListener('change',toggleMode);toggleMode();
+document.getElementById('lscpu').addEventListener('input',e=>{const m=e.target.value.match(/^CPU\\(s\\):\\s*(\\d+)/m);
+if(m)document.getElementById('cpucount').value=m[1];});
 function fd(){const o=new URLSearchParams();['site_name','ssh_user'].forEach(k=>o.set(k,document.querySelector(`[name=${k}]`).value));
 [1,2,3].forEach(i=>o.set('ip'+i,document.querySelector(`[name=n${i}_mgmt]`).value));
 o.set('key',document.getElementById('sshkey').value);return o;}
@@ -422,7 +432,11 @@ el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">$
     return h
 
 def success_page(f, files):
-    return PAGE_HEAD + """<div class="ok"><h2>Site inventory written</h2><p>Files created:</p><ul>%s</ul>
+    note = ""
+    if f["mode"] == "connected" and any((f["builder_host"], f["builder_ip"], f["mirror_url"], f["registry"])):
+        note = ('<p><b>Note:</b> builder/mirror values were entered but this is a CONNECTED '
+                'site — they do not apply and were intentionally NOT written.</p>')
+    return PAGE_HEAD + note + """<div class="ok"><h2>Site inventory written</h2><p>Files created:</p><ul>%s</ul>
 <h3>Your next command (from the repo root):</h3>
 <pre>ansible-playbook -i inventory/%s site.yml --tags preflight --ask-vault-pass</pre>
 <p>It will either print a numbered list of everything still to fix (fix all, re-run), or:</p>
