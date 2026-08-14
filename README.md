@@ -4,6 +4,42 @@ Ansible for deploying a Red Hat Edge **Virtual Protection Architecture Cluster (
 
 The architecture pattern this implements aligns with the [vPAC Alliance](https://vpacalliance.com/) software-defined substation vision and is documented at [github.com/RedHatEdge/virtual-protection](https://github.com/RedHatEdge/virtual-protection).
 
+## Start here
+
+**If you are here to deploy a cluster, you need exactly two things — a guide and a form. Everything else on this page is reference material.**
+
+**1. Read [`docs/QUICKSTART.md`](docs/QUICKSTART.md), top to bottom.** It assumes **zero Ansible experience** and starts at "three servers and a laptop" — where to download RHEL, which subscriptions to ask for by name, SSH keys, all of it. It is written for protection and substation engineers, not automation specialists, and it tells you exactly when to do step 2.
+
+**2. Describe your site with the built-in form — you never hand-edit YAML.** From your clone of this repo:
+
+```bash
+python3 tools/site-form.py
+```
+
+Then open **<http://127.0.0.1:8765>** in your browser. It is a local web page (nothing to install, nothing leaves your machine, works offline) that asks plain questions — where is this site, what are the node addresses, which disks for storage — and every question comes with the exact command to run to find the answer. It can create and test the SSH key for you. When you press the button at the end, it writes your **complete site configuration, including the encrypted password vault**, into `inventory/<your-site>/`, and refuses with a plain-language list of problems if anything is wrong. That configuration is the single input everything else reads.
+
+After that, deployment is three commands, and QUICKSTART walks you through each:
+
+```bash
+ansible-playbook -i inventory/<your-site> site.yml --tags preflight --ask-vault-pass   # check everything
+ansible-playbook -i inventory/<your-site> site.yml --ask-vault-pass                    # deploy everything
+ansible-playbook -i inventory/<your-site> site.yml --tags validate --ask-vault-pass    # prove it works
+```
+
+### Where to go for anything else
+
+| I want to… | Read |
+|---|---|
+| Deploy my first cluster (never used Ansible) | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) |
+| Understand what gets deployed and why | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Decide between connected and air-gapped | [`docs/DEPLOYMENT-GUIDE.md`](docs/DEPLOYMENT-GUIDE.md) — a one-minute picker |
+| Deploy at a site with **no internet** (most substations) | [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md) |
+| Deploy at a **connected** lab or site | [`docs/DEPLOYMENT-CONNECTED.md`](docs/DEPLOYMENT-CONNECTED.md) |
+| Look up any single value the form or inventory asks for | [`docs/OPERATOR-VALUES.md`](docs/OPERATOR-VALUES.md) |
+| Run the deployment one stage at a time | [`docs/DEPLOYMENT-RUNBOOK.md`](docs/DEPLOYMENT-RUNBOOK.md) |
+| Build a single node by hand, no Ansible at all | [`docs/single-node-manual/`](docs/single-node-manual/README.md) |
+| Operate the cluster day-2 / fix a problem | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) · [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) |
+
 ## What this deploys
 
 A RHEL 9 cluster (3 nodes by default; single-node variant on the roadmap) with:
@@ -21,17 +57,9 @@ Both are first-class. Pick the one that matches your environment; the playbooks 
 | Path | When to use | How |
 |---|---|---|
 | **Air-gapped** | Utility POCs, substations, any site without outbound internet | `00-mint-builder-iso.yml` → `01-build-builder.yml` → `00b-mint-cluster-isos.yml` → `site.yml`. Four playbooks run from your workstation, four boot-from-ISO events at the target hardware. Produces a builder that serves a local RPM mirror + container registry with Red Hat Ceph Storage images mirrored, plus per-node installer ISOs for the cluster. `site.yml` pulls everything from the builder — cluster nodes never reach outbound internet. |
-| **Connected** | Lab, greenfield, any site with outbound internet | Install stock RHEL 9.7 on the nodes yourself (USB, PXE, Satellite, whatever). `site.yml` pulls from RHSM and `registry.redhat.io`. No builder host required. |
+| **Connected** | Lab, greenfield, any site with outbound internet | Install stock RHEL 9 (9.6 or newer; field-validated on 9.7 and 9.8) on the nodes yourself (USB, PXE, Satellite, whatever). `site.yml` pulls from RHSM and `registry.redhat.io`. No builder host required. |
 
-Which path the playbooks use is controlled by one inventory variable: `deployment_mode: airgapped | connected`.
-
-**Fastest fill-out path:** `python3 tools/site-form.py` — a local form that
-writes your whole site inventory (encrypted vault included) so you never
-hand-edit YAML. **New to Ansible?** This project is built for protection and substation
-engineers, not automation specialists — start at
-[`docs/QUICKSTART.md`](docs/QUICKSTART.md), which assumes nothing and takes
-you from "three servers and a laptop" to a verified-clean site configuration,
-including the SSH key setup every other guide presumes.
+Which path the playbooks use is controlled by one question in the site form (the inventory variable `deployment_mode: airgapped | connected`) — the form then only asks the questions that apply to your path.
 
 Step-by-step for each:
 - [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md)
@@ -78,13 +106,12 @@ cd ansible-vpac
 ansible-galaxy collection install -r requirements.yml
 pip install --user -r requirements.txt
 
-# 2. Copy the example inventory and fill it in
-cp -r inventory/example inventory/mysite
-$EDITOR inventory/mysite/hosts.yml               # your 3 cluster node IPs
-$EDITOR inventory/mysite/group_vars/all/main.yml      # set deployment_mode: connected, RHSM key, topology
-ansible-vault create inventory/mysite/group_vars/all/vault.yml  # RHSM key, BMC passwords, hacluster pw
+# 2. Describe your site with the form — it writes the whole inventory,
+#    encrypted vault included. (Hand-editing a copy of inventory/example/
+#    is the fallback; docs/OPERATOR-VALUES.md documents every value.)
+python3 tools/site-form.py        # answer the questions at http://127.0.0.1:8765
 
-# 3. Install stock RHEL 9.7 on your 3 cluster nodes by any method you like.
+# 3. Install stock RHEL 9 (9.6+) on your 3 cluster nodes by any method you like.
 
 # 4. Preflight, deploy, validate.
 ansible-playbook -i inventory/mysite site.yml --tags preflight --ask-vault-pass
@@ -97,22 +124,21 @@ Full walk-through: [`docs/DEPLOYMENT-CONNECTED.md`](docs/DEPLOYMENT-CONNECTED.md
 ## Quick start — air-gapped path
 
 ```bash
-# 1. Clone and install collection deps + fill in inventory (same as above,
-#    but set deployment_mode: airgapped, fill in builder + cluster nodes,
-#    and add redhat_registry creds to vault.yml)
+# 1. Clone, install controller dependencies, and describe your site with
+#    the form (same as the connected path — answer "air-gapped" to the
+#    deployment-mode question and the form asks for the builder host,
+#    mirror, and registry details that only exist on this path).
 git clone https://github.com/RedHatEdge/ansible-vpac.git
 cd ansible-vpac
 ansible-galaxy collection install -r requirements.yml
 pip install --user -r requirements.txt
-cp -r inventory/example inventory/mysite
-$EDITOR inventory/mysite/hosts.yml inventory/mysite/group_vars/all/main.yml
-ansible-vault create inventory/mysite/group_vars/all/vault.yml
+python3 tools/site-form.py        # answer the questions at http://127.0.0.1:8765
 
 # 2. Mint the builder installer ISO (runs on your workstation via a
 #    podman/docker tooling container — works on Bazzite, Fedora, RHEL,
 #    macOS, Windows with Docker Desktop).
 ansible-playbook -i inventory/mysite playbooks/00-mint-builder-iso.yml \
-    -e builder_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+    -e builder_iso_input=/path/to/rhel-9-x86_64-dvd.iso
 
 # 3. Boot the builder from that ISO (USB flash, BMC virtual media, whatever
 #    fits your hardware). Unattended install; SSH-reachable when done.
@@ -127,7 +153,7 @@ ansible-playbook -i inventory/mysite playbooks/01-build-builder.yml --ask-vault-
 # 5. Mint one installer ISO per cluster node (each with its static IP +
 #    hostname baked in; OSD disks protected from the installer).
 ansible-playbook -i inventory/mysite playbooks/00b-mint-cluster-isos.yml \
-    -e cluster_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+    -e cluster_iso_input=/path/to/rhel-9-x86_64-dvd.iso
 
 # 6. Boot each cluster node from its respective ISO (all 3 in parallel).
 #    Unattended install; SSH-reachable when done.
@@ -178,11 +204,14 @@ ansible-vpac/
 ├── requirements.txt                      # controller-side pip deps (passlib)
 ├── site.yml                              # 11-stage cluster deploy (connected + airgapped)
 ├── inventory/
-│   └── example/                          # copy to inventory/<your-site>/ and edit
+│   └── example/                          # the site contract — the form writes your
+│       │                                 #   inventory/<your-site>/ copy of this
 │       ├── hosts.yml                     # cluster nodes + builder host
 │       ├── group_vars/
-│       │   └── all.yml                   # site contract: sources, topology, networks, Ceph, VM catalog
-│       └── host_vars/
+│       │   └── all/
+│       │       ├── main.yml              # every operator value: sources, topology, networks, Ceph, VM catalog
+│       │       └── vault.yml.example     # secrets template — real vault.yml is ansible-vault encrypted
+│       └── host_vars/                    # per-node overrides — only needed when nodes differ
 │           ├── site1-node-a.yml
 │           ├── site1-node-b.yml
 │           └── site1-node-c.yml
@@ -226,17 +255,23 @@ ansible-vpac/
 │   ├── vm_deploy/
 │   └── validate/
 ├── tools/
+│   ├── site-form.py                      # THE local web form (Start here, step 2):
+│   │                                     #   python3 tools/site-form.py → 127.0.0.1:8765,
+│   │                                     #   writes inventory/<your-site>/ incl. vault
 │   └── iso-builder/                      # Containerfile + entrypoint for the shared
 │                                         #   ISO-minting tooling container (Fedora + lorax
 │                                         #   + xorriso). Built locally on the SA's
 │                                         #   workstation; no pre-built image published.
 ├── build/                                # (ignored) minted ISOs land here by default
 └── docs/
+    ├── QUICKSTART.md                     # START HERE — zero-Ansible on-ramp
     ├── single-node-manual/               # by-hand single-node deploy (ABB SSC600SW), no Ansible
     ├── ARCHITECTURE.md
     ├── DEPLOYMENT-GUIDE.md
     ├── DEPLOYMENT-CONNECTED.md
     ├── DEPLOYMENT-AIRGAPPED.md
+    ├── DEPLOYMENT-RUNBOOK.md
+    ├── OPERATOR-VALUES.md
     ├── IMAGE-BUILDER.md
     ├── OPERATIONS.md
     ├── TROUBLESHOOTING.md
@@ -245,6 +280,9 @@ ansible-vpac/
 
 ## Documentation
 
+- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — **start here** — zero to your first clean preflight, assuming no Ansible knowledge; covers getting RHEL, subscriptions, SSH keys, and the site form
+- **[docs/OPERATOR-VALUES.md](docs/OPERATOR-VALUES.md)** — every value the form or inventory asks for: what it is, what format, where to find it
+- **[docs/DEPLOYMENT-RUNBOOK.md](docs/DEPLOYMENT-RUNBOOK.md)** — running `site.yml` one stage at a time, with what to expect at each
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — what the cluster looks like, network layout, role of each component
 - **[docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md)** — one-minute picker for choosing between connected and air-gapped
 - **[docs/DEPLOYMENT-CONNECTED.md](docs/DEPLOYMENT-CONNECTED.md)** — step-by-step for internet-connected deployments
