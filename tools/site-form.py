@@ -301,12 +301,13 @@ def validate(f):
 PAGE_HEAD = """<!doctype html><html><head><meta charset="utf-8"><title>vPAC site form</title><style>
 body{font:15px/1.5 sans-serif;max-width:900px;margin:2em auto;padding:0 1em;color:#222}
 fieldset{margin:1.2em 0;border:1px solid #bbb;border-radius:6px;padding:1em}
-legend{font-weight:700} label{display:block;margin:.5em 0 .1em} input,select,textarea{width:100%%;
+legend{font-weight:700} label{display:block;margin:.5em 0 .1em} input,select,textarea{width:100%;
 max-width:480px;padding:.35em;font:inherit} .hint{color:#555;font-size:.85em;margin:.1em 0 .4em}
-.node{display:inline-block;vertical-align:top;width:31%%;margin-right:1%%}
+.node{display:inline-block;vertical-align:top;width:31%;margin-right:1%}
 .err{background:#fee;border:1px solid #c00;padding:1em;border-radius:6px}
 .ok{background:#efe;border:1px solid #090;padding:1em;border-radius:6px}
 code{background:#f4f4f4;padding:0 .3em} button{font:inherit;padding:.6em 2em;margin-top:1em}</style></head><body>
+<div id="errbanner" style="display:none;background:#fee;border:2px solid #c00;padding:.8em;border-radius:6px;position:sticky;top:0;z-index:9"></div>
 <h1>vPAC cluster — site form</h1>
 <p>Fill this out top to bottom; it writes your whole site inventory, including the
 encrypted vault. Nothing is written until you press the button at the end, and if
@@ -355,12 +356,12 @@ def form_page(errors=None, notice=None):
 <div class="hint"><b>Recommended: a NEW dedicated key</b> — not your personal one. It has no
 passphrase (unattended automation breaks on one), it can be rotated without touching anyone's
 identity, and it can be handed to a colleague.</div>
-<button type="button" onclick="makeKey()">Create a dedicated key for this site</button>
+<button type="button" onclick="guard(this,'keymsg',()=>makeKey())">Create a dedicated key for this site</button>
 <span id="keymsg" class="hint"></span>
 <label>Key path (filled by the button, or point at an existing key)</label>
 <input name="ssh_key" id="sshkey" value="">
 <div id="copyid" class="hint"></div>
-<button type="button" onclick="testSsh()">Test connectivity to all three nodes</button>
+<button type="button" onclick="guard(this,'sshtest',()=>testSsh())">Test connectivity to all three nodes</button>
 <div id="sshtest" class="hint"></div></fieldset>
 <fieldset><legend>2. Mode</legend>
 <label>Deployment mode</label><select name="mode" id="modesel"><option>connected</option><option>airgapped</option></select>
@@ -407,6 +408,16 @@ identity, and it can be handed to a colleague.</div>
 <div class="hint">On success you get the exact next command to run. On any problem NOTHING is written.</div>
 </form>
 <script>
+function showErr(m){const b=document.getElementById('errbanner');b.style.display='block';
+b.textContent='The form hit a problem in this browser: '+m+' — nothing was changed on disk. Report this exact text.';}
+window.onerror=function(m,src,l){showErr(m+' (line '+l+')');};
+window.addEventListener('unhandledrejection',e=>showErr(e.reason&&e.reason.message||e.reason));
+async function guard(btn,statusId,fn){const el=document.getElementById(statusId);
+let t;if(btn){btn.disabled=true;t=btn.textContent;btn.textContent='working…';}
+try{await fn();}catch(e){if(el)el.textContent='FAILED: '+(e.message||e);showErr(e.message||e);}
+finally{if(btn){btn.disabled=false;btn.textContent=t;}}}
+async function jfetch(url,body){const r=await fetch(url,{method:'POST',body});
+if(!r.ok)throw new Error(url+' returned HTTP '+r.status);return r.json();}
 try{const mytz=Intl.DateTimeFormat().resolvedOptions().timeZone;
 const t=document.getElementById('tzsel');if(t&&[...t.options].some(o=>o.value===mytz))t.value=mytz;}catch(e){}
 const b=document.getElementById('bootstrap');
@@ -423,12 +434,12 @@ function fd(){const o=new URLSearchParams();['site_name','ssh_user'].forEach(k=>
 [1,2,3].forEach(i=>o.set('ip'+i,document.querySelector(`[name=n${i}_mgmt]`).value));
 o.set('key',document.getElementById('sshkey').value);return o;}
 async function makeKey(forceNew){const o=fd();if(forceNew)o.set('force_new','1');
-const r=await fetch('/makekey',{method:'POST',body:o});const j=await r.json();
+const j=await jfetch('/makekey',o);
 if(j.exists){document.getElementById('keymsg').innerHTML=
  `A key named <code>${j.exists}</code> already exists (created ${j.created}). `+
  `<button type="button" onclick="reuseKey('${j.exists}')">REUSE it</button> — right if this is the same `+
  `cluster and you already copied it to the nodes — or `+
- `<button type="button" onclick="makeKey(true)">CREATE A NEW ONE (${j.next.split('/').pop()})</button>`;
+ `<button type="button" onclick="guard(this,'keymsg',()=>makeKey(true))">CREATE A NEW ONE (${j.next.split('/').pop()})</button>`;
  return;}
 document.getElementById('keymsg').textContent=j.msg||'';
 if(j.path){document.getElementById('sshkey').value=j.path;
@@ -439,7 +450,7 @@ document.getElementById('copyid').innerHTML='<b>Now copy it to each node (each a
 function reuseKey(p){document.getElementById('sshkey').value=p;
 document.getElementById('keymsg').textContent='reusing '+p+' — make sure it was ssh-copy-id\'d to THESE nodes';}
 async function testSsh(){const el=document.getElementById('sshtest');el.textContent='testing…';
-const r=await fetch('/testssh',{method:'POST',body:fd()});const j=await r.json();
+const j=await jfetch('/testssh',fd());
 el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">${x.ok?'OK — key + passwordless sudo work':'FAILED — '+x.err}</b>`).join('<br>');}
 </script></body></html>""" % (node_block, nets)).replace("%TZSEL%", tz_select_html())
     return h
