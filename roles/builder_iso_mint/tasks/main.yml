@@ -63,7 +63,7 @@
     fail_msg: >-
       builder_iso_ssh_pubkey_path ({{ _iso_pubkey_resolved }}) not found.
       Generate one with `ssh-keygen -t ed25519` or point at an existing
-      pubkey file in group_vars/all.yml.
+      pubkey file in group_vars/all/main.yml.
 
 - name: "Read SSH pubkey"
   ansible.builtin.slurp:

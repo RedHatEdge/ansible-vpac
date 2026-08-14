@@ -6,7 +6,7 @@
 #
 # Intended flow:
 #   1. SA downloads the RHEL 9 DVD ISO from access.redhat.com
-#   2. SA fills in inventory/<site>/group_vars/all.yml (builder host + networks)
+#   2. SA fills in inventory/<site>/group_vars/all/main.yml (builder host + networks)
 #   3. ansible-playbook -i inventory/<site> playbooks/00-mint-builder-iso.yml
 #      → produces build/vpac-builder-installer.iso
 #   4. SA boots the builder hardware/VM from that ISO — unattended install

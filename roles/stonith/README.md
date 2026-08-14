@@ -24,7 +24,7 @@ Single-node deployments (`len(vpac_nodes) < 3`) skip entirely. Operator-disabled
 |---|---|---|
 | `stonith_dry_run_actual_probe` | `false` | run `fence_<agent> -o status` against each device |
 
-Reads from `group_vars/all.yml`:
+Reads from `group_vars/all/main.yml`:
 
 - `stonith.enabled` (default true) — operator off-switch
 - `stonith.fence_agent` — `fence_ipmilan` or `fence_virsh`

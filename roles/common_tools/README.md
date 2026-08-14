@@ -33,7 +33,7 @@ After this role runs on a host, `https://<host>:9090` answers with a Cockpit log
 
 ### Site extensions
 
-Append to `common_tools_extra_packages` in inventory `group_vars/all.yml` to pull in customer-specific tools without editing the default list.
+Append to `common_tools_extra_packages` in inventory `group_vars/all/main.yml` to pull in customer-specific tools without editing the default list.
 
 ## Variables
 

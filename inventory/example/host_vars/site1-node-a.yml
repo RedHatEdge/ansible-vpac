@@ -1,6 +1,6 @@
 ---
 # Per-node overrides. Use this file when Node A differs from the defaults
-# in group_vars/all.yml (different NIC names, different OSD devices, etc.).
+# in group_vars/all/main.yml (different NIC names, different OSD devices, etc.).
 #
 # Typical overrides:
 #

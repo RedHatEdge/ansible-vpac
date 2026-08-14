@@ -104,7 +104,7 @@
       Local container registry is up at:
         {{ ansible_default_ipv4.address }}:{{ builder_registry_port }}
 
-      Set in your cluster inventory group_vars/all.yml:
+      Set in your cluster inventory group_vars/all/main.yml:
         sources:
           container_registry: "{{ ansible_default_ipv4.address }}:{{ builder_registry_port }}"
           container_registry_insecure: true

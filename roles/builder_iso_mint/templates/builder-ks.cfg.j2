@@ -1,6 +1,6 @@
 {#
   Builder-host kickstart, rendered from inventory at ISO-mint time.
-  Substituted values come from group_vars/all.yml + the builder's own
+  Substituted values come from group_vars/all/main.yml + the builder's own
   host_vars. The SSH public key is read from the file at
   builder_iso_ssh_pubkey_path.
 
@@ -9,7 +9,7 @@
     _bh.ansible_host                  — static IP for the builder
     _bh.ansible_user                  — admin user to create
     builder_host                      — inventory_hostname of the builder
-    site_domain / site_timezone       — from group_vars/all.yml
+    site_domain / site_timezone       — from group_vars/all/main.yml
     networks.mgmt.{gateway,cidr}      — for netmask + gateway
     site_dns_servers                  — list, joined with commas
     builder_iso_os_disk               — disk to install to (sda / vda / nvme0n1)

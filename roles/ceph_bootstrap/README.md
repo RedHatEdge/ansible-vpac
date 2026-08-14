@@ -20,7 +20,7 @@ Stage 60 (first half). Runs on the `ceph_bootstrap_node` group (a single-host gr
 | `ceph_bootstrap_mon_health_timeout_s` | `120` | max wait for MON health |
 | `ceph_bootstrap_cmd_timeout_s` | `600` | max wait for `cephadm bootstrap` itself |
 
-Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (including `registry_credentials_file`), `sources.container_registry`, `sources.container_registry_insecure`, `container_images.*`.
+Reads from `group_vars/all/main.yml`: `vpac_nodes`, `ceph.*` (including `registry_credentials_file`), `sources.container_registry`, `sources.container_registry_insecure`, `container_images.*`.
 
 ## Dependencies
 

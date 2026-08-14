@@ -24,7 +24,7 @@ ad-hoc post-incident — every check is tag-addressable.
 ## Variables
 
 All thresholds live under the `validate.*` block in inventory
-`group_vars/all.yml` (section 14 of the example contract). Every key has
+`group_vars/all/main.yml` (section 14 of the example contract). Every key has
 a default in `roles/validate/defaults/main.yml`; only override what your
 site needs.
 

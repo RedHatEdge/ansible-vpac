@@ -2,7 +2,7 @@
 # Stage 40 — PTP time sync (timemaster + ptp4l).
 #
 # Most knobs come from the inventory's `time_sync.{mode, ntp_servers, ptp.*}`
-# block (see inventory/example/group_vars/all.yml section 7). The defaults
+# block (see inventory/example/group_vars/all/main.yml section 7). The defaults
 # below cover the rest, and only need overriding for unusual sites.
 
 # Where this host fits in the topology. Auto-derived: if the host has a

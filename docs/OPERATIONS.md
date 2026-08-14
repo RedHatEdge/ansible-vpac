@@ -60,7 +60,7 @@ Set `rt_tuning_auto_reboot: true` in inventory if you want the role to handle th
 `ceph_expand` provisions the lockspace image and templates `/etc/libvirt/qemu-sanlock.conf` on every node, but leaves `virtualization_lock_manager: "none"` in `/etc/libvirt/qemu.conf` so single-node labs stay working. Flip after `ceph_expand` reports HEALTH_OK:
 
 ```bash
-# In inventory/<site>/group_vars/all.yml:
+# In inventory/<site>/group_vars/all/main.yml:
 #   virtualization_lock_manager: "sanlock"
 
 ansible-playbook -i inventory/<site> site.yml --tags virt-qemu-conf
@@ -162,7 +162,7 @@ ceph orch daemon add osd <hostname>:<device-path>
 
 1. Rack + cable the new node on all five networks
 2. Add to `inventory/<site>/hosts.yml` under `vpac_cluster`, `ceph_nodes`, `pacemaker_cluster`
-3. Add its entry to `vpac_nodes` in `group_vars/all.yml`
+3. Add its entry to `vpac_nodes` in `group_vars/all/main.yml`
 4. Run preflight against the new node only: `ansible-playbook -i inventory/<site> site.yml --tags preflight --limit new-node`
 5. Run full deploy limited to the new node: `ansible-playbook -i inventory/<site> site.yml --limit new-node`
 6. Validate cluster-wide: `ansible-playbook -i inventory/<site> site.yml --tags validate`

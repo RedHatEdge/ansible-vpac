@@ -32,7 +32,7 @@ Single-node deployments (`len(vpac_nodes) < 3`) skip this role entirely — VMs 
 | `pacemaker_virtualdomain_monitor_interval` | `"30s"` | informational; set per-resource by vm_deploy |
 | `pacemaker_virtualdomain_monitor_timeout` | `"30s"` | informational; set per-resource by vm_deploy |
 
-Reads from `group_vars/all.yml`: `pacemaker.cluster_name`, `pacemaker.hacluster_password`, `vpac_nodes` (uses `hostname` and `heartbeat_ip`), `networks.heartbeat`, `networks.mgmt`.
+Reads from `group_vars/all/main.yml`: `pacemaker.cluster_name`, `pacemaker.hacluster_password`, `vpac_nodes` (uses `hostname` and `heartbeat_ip`), `networks.heartbeat`, `networks.mgmt`.
 
 ## Operator helpers (installed under `/usr/local/sbin/`)
 

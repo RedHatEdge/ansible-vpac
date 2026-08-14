@@ -4,7 +4,7 @@
 > (tools, SSH keys, copying the inventory, the vault, first preflight); this
 > page is the reference you fill values from at its step 3.
 
-Every value the playbooks need lives in `inventory/example/group_vars/all.yml`
+Every value the playbooks need lives in `inventory/example/group_vars/all/main.yml`
 (the contract) plus per-node `host_vars/`. This page is the fill-out companion:
 what each operator-supplied value is for, when it is required, and where it
 comes from. The inline comments in the contract remain the authoritative
@@ -27,7 +27,7 @@ the stages.
 | `rhsm_activation_key`, `rhsm_org_id` | connected / satellite | strings | your RHSM or Satellite admin; keep credentials OUT of the inventory file (vault or extra-vars file) |
 | `ceph.registry_credentials_file` | any registry that needs auth — **always for `registry.redhat.io`** | path on the **bootstrap node** to `{"url":…,"username":…,"password":…}` | **Terms-based registry service account** from access.redhat.com/terms-based-registry. A console.redhat.com **IAM service account will NOT authenticate** — it fails only at pull time. Pre-verify: `podman login registry.redhat.io` with those creds. |
 | `vpac_nodes` | always | list of `{hostname, mgmt_ip, storage_ip, …, bmc_ip}` | site network plan. Hostnames here are the reference every other section must match — the contract check enforces it |
-| per-node NIC names (`host_vars/`) | always | `ens1f0`, … | `ip -br link` + `ethtool -i` on each node; see the networking role README's mapping guide |
+| per-node NIC names (`host_vars/`) | **only when nodes differ** — a homogeneous cluster leaves host_vars empty and `networking_defaults` (group scope) covers all nodes | `ens1f0`, … | `ip -br link` + `ethtool -i` on each node; see the networking role README's mapping guide |
 | `networks.*` (CIDRs, VLANs) | always | CIDR / VLAN ids | site network plan; heartbeat must be its own network (VLAN on the storage bond is supported — networking README "Heartbeat modes") |
 | `time_sync.*` | always | `mode: ptp` for substations | PTP NIC must be dedicated (no bridge/bond/macvtap); grandmaster details from the site's timing engineer |
 | `ceph.bootstrap_node` | 3+ nodes | ONE `vpac_nodes` hostname | **not a label** — every orchestrator command is delegated to this host |
@@ -36,6 +36,7 @@ the stages.
 | `ceph.libvirt_secret_uuid` | never (leave `null`) | — | derived automatically from the cluster FSID; pin only to match a pre-existing secret, then never change |
 | `pacemaker.*` / `stonith.*` | 3+ nodes | BMC IP/user/password per node | iDRAC/IPMI admin; **enable IPMI-over-LAN** on iDRACs (ships disabled) — preflight checks reachability |
 | `rt_tuning.isolated_cpus` etc. | RT hosts | CPU list valid **for that node's topology** | `lscpu`; isolcpus **silently ignores** CPU numbers the machine doesn't have — recompute per hardware model, never copy between models |
+| `validate.*` thresholds | **before stage 90** — set from your ACTUAL hardware | `storage_nic_min_mbps` (e.g. `1000` on a 1 Gb storage network — the shipped `10000` fails stage 90 on any 1 Gb site even though 1 Gb is an acknowledged legitimate compromise), `cyclictest_max_latency_us` per your platform | your site's link speeds + measured RT latency; a threshold nobody told you about is a stage-90 surprise, so set these when you fill the file, not when validate fails |
 | `vm_catalog` | **stage 80 only — never for the cluster itself** | list of VMs with `target_host` / `allowed_hosts`; **default `[]`** | Workloads are not a prerequisite: `[]` is the cluster-only path (stage 80 no-ops). When filled: hostnames must be `vpac_nodes` hostnames — preflight *warns*, stage 80 *enforces*. Vendor VM profiles (disk bus / NIC model) per the vm_templates README |
 
 ## Secrets — everything you owe the vault, in one place
@@ -43,11 +44,11 @@ the stages.
 All secrets live in an encrypted vault file, never in the inventory:
 
 ```bash
-ansible-vault create inventory/<yoursite>/group_vars/vault.yml
+ansible-vault create inventory/<yoursite>/group_vars/all/vault.yml
 # then run plays with --ask-vault-pass or --vault-password-file
 ```
 
-`inventory/example/group_vars/vault.yml.example` enumerates **every** `vault_*`
+`inventory/example/group_vars/all/vault.yml.example` enumerates **every** `vault_*`
 name with format and where to obtain it — copy from it, never grep for what you
 owe. Preflight verifies each secret **required for your deployment shape**
 resolves non-empty and reports the *names* of anything missing (never values).

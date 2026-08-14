@@ -34,7 +34,7 @@ Stage 10. Brings each cluster node to a known, minimal state before any networki
 | `host_baseline_skip_repo` | `false` | true = skip RHSM/Satellite/mirror setup (lab DVD installs) |
 | `host_baseline_enable_insights` | `false` | true = `rhc connect` to console.redhat.com (RHSM path only) |
 
-Reads from `group_vars/all.yml`: `deployment_mode`, `sources.*`, `rhsm_*`, `vpac_nodes`, `site_domain`, `site_timezone`.
+Reads from `group_vars/all/main.yml`: `deployment_mode`, `sources.*`, `rhsm_*`, `vpac_nodes`, `site_domain`, `site_timezone`.
 
 ## Subscription model — Simple Content Access (SCA)
 
@@ -42,7 +42,7 @@ This role assumes your Red Hat account has **Simple Content Access** enabled. SC
 
 Check by logging into `console.redhat.com` → **Subscriptions** — there is a banner indicating whether SCA is on for your account.
 
-If you are on a **legacy non-SCA account**, set `rhsm_pool` (in `group_vars/all.yml`) to a pool ID that covers RHEL + High Availability + Resilient Storage + NFV + Ceph Storage 7. The role passes it to `community.general.redhat_subscription` and attach happens at register time. Without `rhsm_pool` on a non-SCA account, the host registers but no repos are entitled and the next dnf step fails.
+If you are on a **legacy non-SCA account**, set `rhsm_pool` (in `group_vars/all/main.yml`) to a pool ID that covers RHEL + High Availability + Resilient Storage + NFV + Ceph Storage 7. The role passes it to `community.general.redhat_subscription` and attach happens at register time. Without `rhsm_pool` on a non-SCA account, the host registers but no repos are entitled and the next dnf step fails.
 
 For air-gapped Satellite (`sources.repo_source: satellite`) and local-mirror (`sources.repo_source: local_mirror`) paths, SCA is irrelevant — Satellite handles entitlement on its own and the local mirror serves repo content directly.
 

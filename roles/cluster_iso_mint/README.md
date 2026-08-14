@@ -31,7 +31,7 @@ The kickstart's `ignoredisk --only-use={{ cluster_iso_os_disk }}` explicitly pro
 | `cluster_iso_installer_tag` | `vpac-node-ks-v1` | written to `/etc/vpac-installer-tag` |
 | `cluster_iso_container_cli` | `podman` | set to `docker` if using Docker Desktop |
 
-Reads from `group_vars/all.yml`: `vpac_nodes`, `site_domain`, `site_timezone`, `site_dns_servers`, `networks.mgmt.{cidr,gateway}`, `networking_defaults.mgmt_bond.members`.
+Reads from `group_vars/all/main.yml`: `vpac_nodes`, `site_domain`, `site_timezone`, `site_dns_servers`, `networks.mgmt.{cidr,gateway}`, `networking_defaults.mgmt_bond.members`.
 
 ## How the mgmt NIC is picked at install time
 

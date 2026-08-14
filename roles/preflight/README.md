@@ -36,7 +36,7 @@ Defaults in `defaults/main.yml`. Tune with care:
 
 ## Dependencies
 
-Reads from `group_vars/all.yml`: `deployment_mode`, `sources.*`, `vpac_nodes`, `networks.*`, `networking_defaults.*`, `rt_tuning.*`, `stonith.fence_agent`.
+Reads from `group_vars/all/main.yml`: `deployment_mode`, `sources.*`, `vpac_nodes`, `networks.*`, `networking_defaults.*`, `rt_tuning.*`, `stonith.fence_agent`.
 
 No handlers. No writes to target hosts (read-only).
 

@@ -118,7 +118,7 @@ The VM's libvirt UUID is derived from its name via `to_uuid` with a fixed DNS-st
 |---|---|---|
 | `vm_templates_xml_dir` | `/etc/libvirt/qemu-vpac` | rendered XMLs land here |
 
-Reads from `group_vars/all.yml`: `vm_catalog`.
+Reads from `group_vars/all/main.yml`: `vm_catalog`.
 
 ## Dependencies
 

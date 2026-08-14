@@ -60,7 +60,7 @@
       cluster_iso_ssh_pubkey_path
       ({{ _cluster_iso_pubkey_resolved }}) not found. Generate one with
       `ssh-keygen -t ed25519` or set cluster_iso_ssh_pubkey_path to an
-      existing pubkey in group_vars/all.yml.
+      existing pubkey in group_vars/all/main.yml.
 
 - name: "Read SSH pubkey"
   ansible.builtin.slurp:

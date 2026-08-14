@@ -6,7 +6,7 @@ Takes `networks`, `networking_defaults`, `bridges`, `vpac_nodes`, and per-host `
 
 ## What it configures, per host
 
-From the inventory shape in `group_vars/all.yml`:
+From the inventory shape in `group_vars/all/main.yml`:
 
 | Network | NIC layout | Result |
 |---|---|---|
@@ -29,7 +29,7 @@ Why this is sound: **Red Hat support does not require a dedicated interconnect**
 
 **The heartbeat VLAN must be a distinct VLAN ID and subnet from storage.** Sharing the storage *bond* is the point; sharing the storage *VLAN/subnet* is not — it collapses ring separation into one broadcast domain and trips preflight's subnet-uniqueness check. E.g. if storage is on VLAN 30, put heartbeat on its own VLAN (23, etc.) with its own subnet. The switch ports for that bond must trunk both VLAN IDs.
 
-The five derived vars that drive this (`networking_heartbeat_shared`, `_bond_name`, `_iface`, `_shared_bond_role`, `networking_skip_heartbeat`) live in the inventory (`group_vars/all.yml`), **not** in this role's `defaults/` — they are consumed by `preflight` as well, and role defaults are role-scoped.
+The five derived vars that drive this (`networking_heartbeat_shared`, `_bond_name`, `_iface`, `_shared_bond_role`, `networking_skip_heartbeat`) live in the inventory (`group_vars/all/main.yml`), **not** in this role's `defaults/` — they are consumed by `preflight` as well, and role defaults are role-scoped.
 
 `heartbeat_ip` (per node) and the heartbeat CIDR are identical in both modes — only the interface that carries the IP changes. `pacemaker_base` (stage 70) binds each node's ring to its `heartbeat_ip` regardless of which interface holds it.
 
@@ -88,7 +88,7 @@ inherits the group default.
 ### Worked example — a 4-NIC node (heartbeat shares the storage bond)
 
 ```yaml
-# group_vars/all.yml
+# group_vars/all/main.yml
 networking_defaults:
   mgmt_bond:    { name: bond0, mode: active-backup, members: [eno8303] }   # 1-member "bond" = single NIC
   storage_bond: { name: bond1, mode: active-backup, members: [eno8403] }
@@ -121,7 +121,7 @@ bond must trunk **both** VLAN 30 and 23.
 
 ## Bond options
 
-Each `networking_defaults.<bond>` entry carries an `options` map that is rendered into nmstate's `link-aggregation.options`. Defaults shipped in `inventory/example/group_vars/all.yml`:
+Each `networking_defaults.<bond>` entry carries an `options` map that is rendered into nmstate's `link-aggregation.options`. Defaults shipped in `inventory/example/group_vars/all/main.yml`:
 
 - **active-backup bonds** (`mgmt_bond`, `station_bond`) — `miimon: 100` (carrier polling every 100 ms; far faster than the ARP-probe default), `primary: <first member>` (preferred member when both are healthy).
 - **802.3ad bonds** (`storage_bond`) — `miimon: 100`, `xmit_hash_policy: layer3+4` (spread flows by IP+port, best for many small Ceph connections), `lacp_rate: fast` (~3 s failover vs the ~30 s slow default).
@@ -158,7 +158,7 @@ After apply, `verify.yml` additionally:
 | `nmstate_apply_timeout` | `60` | seconds; nmstate rolls back if apply doesn't confirm in time |
 | `networking_disable_stp` | `true` | STP off on the VM-facing bridges; STP churn under guest-bridge load is documented to starve corosync heartbeats |
 
-The derived heartbeat vars (`networking_heartbeat_shared`, `_bond_name`, `_iface`, `_shared_bond_role`, `networking_skip_heartbeat`) are defined in the inventory `group_vars/all.yml` (**not** here) because `preflight` consumes them too and role defaults are role-scoped.
+The derived heartbeat vars (`networking_heartbeat_shared`, `_bond_name`, `_iface`, `_shared_bond_role`, `networking_skip_heartbeat`) are defined in the inventory `group_vars/all/main.yml` (**not** here) because `preflight` consumes them too and role defaults are role-scoped.
 
 Reads the full `networks`, `networking_defaults`, `bridges`, and `vpac_nodes` trees.
 

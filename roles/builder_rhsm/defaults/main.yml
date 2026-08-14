@@ -1,5 +1,5 @@
 ---
-# This role reads the following from group_vars/all.yml (or vault.yml):
+# This role reads the following from group_vars/all/main.yml (or vault.yml):
 #   rhsm_activation_key + rhsm_org_id   — preferred, matches production
 #   rhsm_username + rhsm_password       — fallback for SAs using a dev account
 #   rhsm_server_url                     — defaults to subscription.rhsm.redhat.com

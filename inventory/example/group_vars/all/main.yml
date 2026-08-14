@@ -92,7 +92,7 @@ sources:
 # EVERY secret the playbooks consume (all eight vault_* names, with
 # formats and where to obtain each) is enumerated in vault.yml.example
 # next to this file — copy it into an encrypted vault:
-#   ansible-vault create inventory/<yoursite>/group_vars/vault.yml
+#   ansible-vault create inventory/<yoursite>/group_vars/all/vault.yml
 # Preflight verifies each secret REQUIRED for your deployment shape
 # resolves non-empty, reporting names only.
 rhsm_activation_key: "{{ vault_rhsm_activation_key | default('') }}"

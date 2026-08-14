@@ -28,7 +28,7 @@ Stage 60 (second half). Runs against the `ceph_nodes` group (all Ceph-participat
 | `ceph_expand_sanlock_lockspace_name` | `"sanlock-leases"` | RBD image name for the sanlock lockspace; pick once, never rename |
 | `ceph_expand_sanlock_lockspace_size_mb` | `1024` | lockspace image size; 1 GiB is enough for hundreds of VMs |
 
-Reads from `group_vars/all.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_node`, `osd_devices`, `pools`, `cephfs_mountpoint`).
+Reads from `group_vars/all/main.yml`: `vpac_nodes`, `ceph.*` (especially `bootstrap_node`, `osd_devices`, `pools`, `cephfs_mountpoint`).
 
 ## Dependencies
 

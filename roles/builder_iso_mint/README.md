@@ -33,7 +33,7 @@ Together with `01-build-builder.yml`, this gives a Red Hat SA a true zero-to-clu
 | `builder_iso_installer_tag` | `vpac-builder-ks-v1` | written to `/etc/vpac-installer-tag` |
 | `builder_iso_container_cli` | `podman` | set to `docker` on macOS / Windows if you use Docker Desktop |
 
-Reads from `group_vars/all.yml`: `site_domain`, `site_timezone`, `site_dns_servers`, `networks.mgmt.{cidr,gateway}`, plus `hostvars[groups['builder'][0]]`.
+Reads from `group_vars/all/main.yml`: `site_domain`, `site_timezone`, `site_dns_servers`, `networks.mgmt.{cidr,gateway}`, plus `hostvars[groups['builder'][0]]`.
 
 ## Workstation requirements
 

@@ -13,7 +13,7 @@ networking_disable_stp: true
 # _iface / _shared_bond_role / networking_skip_heartbeat) are NOT defined here.
 # They are consumed cross-role — by preflight (stage 00) as well as this role —
 # and Ansible role defaults are role-scoped, so preflight would see them as
-# undefined. They live in the inventory (group_vars/all.yml, "Heartbeat mode"
+# undefined. They live in the inventory (group_vars/all/main.yml, "Heartbeat mode"
 # block) alongside their inputs (`networks.heartbeat`, `networking_defaults`),
 # which is the only scope both roles share. See that file to enable shared mode.
 

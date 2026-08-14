@@ -31,7 +31,7 @@ Hosts NOT in the `rt_hosts` group end_play immediately. Single-node deployments 
 | `rt_tuning_auto_reboot` | `false` | flip true for unattended labs |
 | `rt_tuning_is_relay_host` | `inventory_hostname in groups.get('rt_hosts', [])` | gates the RT chrony block |
 
-Reads from `group_vars/all.yml`: `rt_tuning.{isolated_cpus, hugepage_size, nr_hugepages_override, cpu_governor, sched_rt_runtime_us}`, `rt_chrony.{lock_all, sched_priority, combinelimit}`.
+Reads from `group_vars/all/main.yml`: `rt_tuning.{isolated_cpus, hugepage_size, nr_hugepages_override, cpu_governor, sched_rt_runtime_us}`, `rt_chrony.{lock_all, sched_priority, combinelimit}`.
 
 ### `isolated_cpus` MUST be recomputed for the actual CPU topology
 

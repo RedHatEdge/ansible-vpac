@@ -20,7 +20,7 @@ builder_registry_image: docker.io/library/registry:2
 # for hybrid-cloud-console APIs and do not authenticate to the registry.)
 redhat_registry_url: registry.redhat.io
 
-# Auth for redhat_registry_url. Set via group_vars/vault.yml — never
+# Auth for redhat_registry_url. Set via group_vars/all/vault.yml — never
 # commit in plaintext.
 #   redhat_registry_username: "<service-account-token-user>"
 #   redhat_registry_password: "<service-account-token-value>"

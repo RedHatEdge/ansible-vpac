@@ -111,7 +111,7 @@ Almost everything reads from the inventory's `time_sync.*` and
 | `ptp_timesync_gm_sample_interval` | `8` | seconds between samples (~30s window) |
 | `ptp_timesync_cephadm_time_sync_alias` | `true` | install `chrony.service` → `timemaster.service` alias so cephadm's time-sync probe passes on pure-PTP hosts |
 
-Reads from `group_vars/all.yml`: `time_sync.{mode, ntp_servers, ptp.*}`,
+Reads from `group_vars/all/main.yml`: `time_sync.{mode, ntp_servers, ptp.*}`,
 `rt_chrony.{lock_all, sched_priority, combinelimit}`,
 `networking_defaults.ptp_nic`, `vpac_nodes[*].{hostname, storage_ip}`.
 

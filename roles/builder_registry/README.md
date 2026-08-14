@@ -30,7 +30,7 @@ After this role finishes, the builder is fully ready to serve an air-gapped clus
 
 ## Getting a Red Hat registry service account token
 
-Go to <https://access.redhat.com/terms-based-registry/>, click **New Service Account**, pick a name. Red Hat generates a username shaped like `<org-id>|<token-name>` plus a long random password. Paste those into `group_vars/vault.yml`:
+Go to <https://access.redhat.com/terms-based-registry/>, click **New Service Account**, pick a name. Red Hat generates a username shaped like `<org-id>|<token-name>` plus a long random password. Paste those into `group_vars/all/vault.yml`:
 
 ```yaml
 redhat_registry_username: "12345678|my-sa-token"

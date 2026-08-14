@@ -46,7 +46,7 @@ copying and renaming the inventory, the vault) with nothing assumed.
 cp -r inventory/example inventory/<yoursite>
 ```
 
-Edit three things: `hosts.yml`, `group_vars/all.yml`, `host_vars/*.yml`.
+Edit three things: `hosts.yml`, `group_vars/all/main.yml`, `host_vars/*.yml`.
 `docs/OPERATOR-VALUES.md` is the per-variable companion; the notes below are
 the field-learned emphasis.
 
@@ -62,7 +62,7 @@ The design is **any VM runs on any node** — do not encode per-node capability
 differences as groups; VM placement lives in `vm_catalog`
 (`target_host` / `allowed_hosts`).
 
-### A.2 `group_vars/all.yml` — field-learned emphasis per section
+### A.2 `group_vars/all/main.yml` — field-learned emphasis per section
 
 | Key | Field-learned notes |
 |---|---|
@@ -85,7 +85,7 @@ guide: networking role README); get disk by-id paths from
 
 ### A.4 Secrets
 
-`ansible-vault create inventory/<yoursite>/group_vars/vault.yml`, define the
+`ansible-vault create inventory/<yoursite>/group_vars/all/vault.yml`, define the
 `vault_*` keys, run with `--ask-vault-pass` or `--vault-password-file`.
 
 ## Part B — Run it (exact commands)

@@ -6,7 +6,7 @@
     _node                                 — one vpac_nodes[] entry:
       _node.hostname                        short hostname (e.g. site1-node-a)
       _node.mgmt_ip                         static IP for the mgmt network
-    site_domain / site_timezone           — from group_vars/all.yml
+    site_domain / site_timezone           — from group_vars/all/main.yml
     networks.mgmt.{cidr,gateway}          — for netmask + gateway
     site_dns_servers                      — list, joined with commas
     cluster_iso_os_disk                   — OS install disk (sda / vda / nvme0n1)

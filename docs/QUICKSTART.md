@@ -95,8 +95,12 @@ Then edit, in this order:
 
 1. `inventory/mysite/hosts.yml` — replace every `site1-node-*` with your real
    hostnames, set each `ansible_host:` to the node's management IP and
-   `ansible_user:` to your admin user (the one from step 2).
-2. `inventory/mysite/group_vars/all.yml` — the big one. Work top to bottom;
+   `ansible_user:` to your admin user (the one from step 2). **Also: delete
+   the `builder` group and its `site1-builder` host entirely unless you are
+   on the air-gapped path** — connected deployments have no builder, and a
+   leftover placeholder host lingers forever otherwise (preflight will
+   remind you).
+2. `inventory/mysite/group_vars/all/main.yml` — the big one. Work top to bottom;
    every value is commented, and
    [`OPERATOR-VALUES.md`](OPERATOR-VALUES.md) is the companion table
    (what's required, what format, where to get it). Leave `vm_catalog: []`
@@ -108,11 +112,11 @@ Then edit, in this order:
 
 ```bash
 # The example enumerates every secret you owe, with where to get each:
-less inventory/mysite/group_vars/vault.yml.example
+less inventory/mysite/group_vars/all/vault.yml.example
 
 # Create the encrypted real one (pick a vault password; you'll type it on
 # every run) and paste/edit the contents of the example inside:
-ansible-vault create inventory/mysite/group_vars/vault.yml
+ansible-vault create inventory/mysite/group_vars/all/vault.yml
 ```
 
 ## Step 5 — Run preflight and read the verdict

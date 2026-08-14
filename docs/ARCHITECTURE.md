@@ -124,13 +124,13 @@ flowchart LR
 
 Ceph via `cephadm` containers. One MON+MGR per node, one MDS for CephFS, OSDs per-node from explicit device lists (no auto-discovery). CephFS is mounted at `/vms/` on all nodes; VM disk images live there, so any node can take over any VM after a fence event.
 
-Per-node OSD device lists are declared in `group_vars/all.yml` under `ceph.osd_devices` — the playbook refuses to provision OSDs on devices that aren't empty.
+Per-node OSD device lists are declared in `group_vars/all/main.yml` under `ceph.osd_devices` — the playbook refuses to provision OSDs on devices that aren't empty.
 
 ## Deployment model
 
 A single Ansible run from a control workstation:
 
-1. Operator fills in `inventory/<site>/group_vars/all.yml` and `hosts.yml`
+1. Operator fills in `inventory/<site>/group_vars/all/main.yml` and `hosts.yml`
 2. Runs `ansible-playbook -i inventory/<site> site.yml`
 3. Playbook runs stages in dependency order (see below)
 4. Validation stage produces a report; operator confirms targets are met

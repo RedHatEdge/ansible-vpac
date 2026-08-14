@@ -79,10 +79,10 @@ $EDITOR inventory/mysite/hosts.yml
 
 `hosts.yml` already has the `builder` group scaffolded (`site1-builder`). Replace with your builder's actual hostname and management IP, same for the three cluster nodes.
 
-## Step 3 — Fill in group_vars/all.yml
+## Step 3 — Fill in group_vars/all/main.yml
 
 ```bash
-$EDITOR inventory/mysite/group_vars/all.yml
+$EDITOR inventory/mysite/group_vars/all/main.yml
 ```
 
 Key settings for the air-gapped path:
@@ -112,7 +112,7 @@ Fill in the rest (node topology, networking, PTP, RT, Pacemaker, STONITH, VM cat
 ## Step 4 — Create the vault for secrets
 
 ```bash
-ansible-vault create inventory/mysite/group_vars/vault.yml
+ansible-vault create inventory/mysite/group_vars/all/vault.yml
 ```
 
 Add:

@@ -3,7 +3,7 @@
 #
 # Every threshold has a fallback here so the role is usable on a stock
 # inventory. Operators tune via the `validate.*` block in inventory
-# group_vars/all.yml (section 14 of the example contract).
+# group_vars/all/main.yml (section 14 of the example contract).
 #
 # Each check is independently tag-addressable AND gated by a
 # `validate_check_*` toggle, so an operator can re-run a single check

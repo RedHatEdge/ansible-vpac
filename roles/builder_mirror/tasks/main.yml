@@ -3,7 +3,7 @@
 # them over HTTP. This is the RPM half of the air-gapped builder; the
 # container half lives in builder_registry.
 #
-# Reads rhsm_repos from group_vars/all.yml — same list builder_rhsm just
+# Reads rhsm_repos from group_vars/all/main.yml — same list builder_rhsm just
 # enabled, so the two roles stay in lockstep.
 
 - name: "Install mirror tooling + httpd"
@@ -88,7 +88,7 @@
   ansible.builtin.debug:
     msg: |-
       Local RPM mirror is up.
-      Set in your cluster inventory group_vars/all.yml:
+      Set in your cluster inventory group_vars/all/main.yml:
         sources:
           repo_source: "local_mirror"
           local_mirror_url: "http://{{ ansible_default_ipv4.address }}/{{ builder_mirror_url_path }}"

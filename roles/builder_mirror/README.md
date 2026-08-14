@@ -20,7 +20,7 @@ Second role in `01-build-builder.yml`. Reposyncs the RHSM repos enabled by `buil
 | `builder_mirror_url_path` | `mirror` | URL path suffix (`http://<builder>/<path>`) |
 | `builder_mirror_skip_reposync` | `false` | skip the reposync step on re-runs when you trust the existing mirror |
 
-Reads `rhsm_repos` from `group_vars/all.yml`.
+Reads `rhsm_repos` from `group_vars/all/main.yml`.
 
 ## Storage + time expectations
 

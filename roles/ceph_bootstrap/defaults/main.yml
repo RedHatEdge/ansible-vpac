@@ -1,6 +1,6 @@
 ---
 # The container image used for MON/MGR/MDS/OSD/crash/ceph-exporter comes
-# from container_images.ceph in group_vars/all.yml. Monitoring images
+# from container_images.ceph in group_vars/all/main.yml. Monitoring images
 # (prometheus, grafana, alertmanager, node_exporter) come from the matching
 # keys in container_images. Paths are relative to sources.container_registry
 # — the same path works for connected (registry.redhat.io) and airgapped

@@ -79,8 +79,8 @@ pip install --user -r requirements.txt
 # 2. Copy the example inventory and fill it in
 cp -r inventory/example inventory/mysite
 $EDITOR inventory/mysite/hosts.yml               # your 3 cluster node IPs
-$EDITOR inventory/mysite/group_vars/all.yml      # set deployment_mode: connected, RHSM key, topology
-ansible-vault create inventory/mysite/group_vars/vault.yml  # RHSM key, BMC passwords, hacluster pw
+$EDITOR inventory/mysite/group_vars/all/main.yml      # set deployment_mode: connected, RHSM key, topology
+ansible-vault create inventory/mysite/group_vars/all/vault.yml  # RHSM key, BMC passwords, hacluster pw
 
 # 3. Install stock RHEL 9.7 on your 3 cluster nodes by any method you like.
 
@@ -103,8 +103,8 @@ cd ansible-vpac
 ansible-galaxy collection install -r requirements.yml
 pip install --user -r requirements.txt
 cp -r inventory/example inventory/mysite
-$EDITOR inventory/mysite/hosts.yml inventory/mysite/group_vars/all.yml
-ansible-vault create inventory/mysite/group_vars/vault.yml
+$EDITOR inventory/mysite/hosts.yml inventory/mysite/group_vars/all/main.yml
+ansible-vault create inventory/mysite/group_vars/all/vault.yml
 
 # 2. Mint the builder installer ISO (runs on your workstation via a
 #    podman/docker tooling container — works on Bazzite, Fedora, RHEL,

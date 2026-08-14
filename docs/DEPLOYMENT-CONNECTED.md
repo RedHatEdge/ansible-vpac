@@ -36,9 +36,9 @@ cp -r inventory/example inventory/mysite
 
 Edit `inventory/mysite/hosts.yml` — replace `site1-node-a/b/c` with your hostnames, update `ansible_host` IPs and `ansible_user`.
 
-## Step 3 — Fill in group_vars/all.yml
+## Step 3 — Fill in group_vars/all/main.yml
 
-Edit `inventory/mysite/group_vars/all.yml`. The file is heavily annotated; work top to bottom:
+Edit `inventory/mysite/group_vars/all/main.yml`. The file is heavily annotated; work top to bottom:
 
 1. **Site identity** — name, domain, DNS, timezone
 2. **Deployment mode** — set `deployment_mode: connected`
@@ -56,7 +56,7 @@ Edit `inventory/mysite/group_vars/all.yml`. The file is heavily annotated; work 
 ## Step 4 — Create the vault for secrets
 
 ```bash
-ansible-vault create inventory/mysite/group_vars/vault.yml
+ansible-vault create inventory/mysite/group_vars/all/vault.yml
 ```
 
 Add:

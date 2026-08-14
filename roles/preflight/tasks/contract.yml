@@ -49,6 +49,47 @@
       ] }}
   when: (_contract_ph_hits | default([])) | length > 0
 
+# --- classic layout traps ----------------------------------------------
+# group_vars/vault.yml is read by Ansible as vars for a GROUP NAMED
+# 'vault' — which exists in no inventory — so every vault_* silently
+# stays undefined while the operator is told to set values they just
+# set. Field-proven unbreakable loop; the documented location is
+# group_vars/all/vault.yml.
+- name: "Contract: detect a vault file at the silently-ignored location"
+  ansible.builtin.stat:
+    path: "{{ inventory_dir }}/group_vars/vault.yml"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: _contract_bad_vault
+
+- name: "Contract: record misplaced vault"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "group_vars/vault.yml exists — Ansible reads that as variables for a "
+        ~ "group named 'vault', which matches NO host, so every vault_* value "
+        ~ "in it is silently ignored. Move it: "
+        ~ "mv " ~ inventory_dir ~ "/group_vars/vault.yml "
+        ~ inventory_dir ~ "/group_vars/all/vault.yml"
+      ] }}
+  when: _contract_bad_vault.stat is defined and _contract_bad_vault.stat.exists
+
+- name: "Contract: inventory hostnames must not be example placeholders"
+  run_once: true
+  vars:
+    _ph_hosts: "{{ groups['all'] | select('search', 'site1-') | list }}"
+  ansible.builtin.set_fact:
+    _contract_deferred: >-
+      {{ _contract_deferred + [
+        "inventory hosts still carry example placeholder names: "
+        ~ (_ph_hosts | join(', '))
+        ~ " — rename them, or delete the builder group entirely on connected "
+        ~ "deployments (it is only used by the air-gapped path)"
+      ] }}
+  when: _ph_hosts | length > 0
+
 # --- ceph block (only meaningful on 3+ node clusters) ------------------
 - name: "Contract: ceph.bootstrap_node must be one of vpac_nodes"
   run_once: true
@@ -62,6 +103,28 @@
   when:
     - (vpac_nodes | default([])) | length >= 3
     - (ceph.bootstrap_node | default('')) not in _contract_hostnames
+
+# TWO sources of truth exist for the bootstrap node: the ceph.bootstrap_node
+# VARIABLE (drives every delegate_to) and the ceph_bootstrap_node GROUP
+# (targets the bootstrap play in 60-ceph.yml). A mismatch previously passed
+# the contract clean and would run bootstrap on one node while delegating
+# orchestration to another. Field-proven. They must name the same node.
+- name: "Contract: ceph_bootstrap_node group must match ceph.bootstrap_node variable"
+  run_once: true
+  ansible.builtin.set_fact:
+    _contract_issues: >-
+      {{ _contract_issues + [
+        "the ceph_bootstrap_node inventory GROUP contains "
+        ~ ((groups['ceph_bootstrap_node'] | default([])) | to_json)
+        ~ " but the ceph.bootstrap_node VARIABLE is '"
+        ~ (ceph.bootstrap_node | default('')) ~ "' — they must name the SAME "
+        ~ "single node: the group targets the bootstrap play, the variable "
+        ~ "drives every orchestrator delegate_to. Fix hosts.yml or "
+        ~ "group_vars/all/main.yml so they agree."
+      ] }}
+  when:
+    - (vpac_nodes | default([])) | length >= 3
+    - (groups['ceph_bootstrap_node'] | default([])) != [ceph.bootstrap_node | default('')]
 
 - name: "Contract: ceph.bootstrap_node must be an inventory host"
   run_once: true
@@ -178,7 +241,7 @@
 # since two of them have no default and would raise undefined instead of
 # failing usefully), are scoped to what this deployment shape actually
 # needs, and report NAMES only — never values. Full enumeration with
-# formats: inventory/example/group_vars/vault.yml.example.
+# formats: inventory/example/group_vars/all/vault.yml.example.
 
 # RHSM credentials are required only if some targeted host still NEEDS
 # registering. Field regression this fixes: preflight runs for every stage
