@@ -18,6 +18,25 @@ when nodes are homogeneous; per-node only when they differ).
 and a dry-run substitution pass with dummy values, writing nothing.
 """
 import http.server, json, os, re, shutil, subprocess, sys, tempfile, urllib.parse
+try:
+    from zoneinfo import available_timezones
+    TZS = sorted(available_timezones())
+except Exception:
+    TZS = ["UTC"]
+
+def tz_select_html():
+    groups = {}
+    for z in TZS:
+        if "/" not in z: continue
+        region, _, city = z.partition("/")
+        groups.setdefault(region, []).append((z, city.replace("_", " ")))
+    h = '<select name="site_timezone" id="tzsel">'
+    for region in sorted(groups):
+        h += '<optgroup label="%s">' % region
+        for z, city in groups[region]:
+            h += '<option value="%s">%s</option>' % (z, city)
+        h += '</optgroup>'
+    return h + '</select>'
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -263,6 +282,12 @@ def validate(f):
                             "(isolcpus would SILENTLY ignore the extras)" % (top, f["cpu_count"]))
         except ValueError:
             errs.append("isolated_cpus: use forms like 4-11 or 2,4-7")
+    if f["site_timezone"] not in TZS:
+        errs.append("timezone '%s' is not a valid zone — pick from the dropdown" % f["site_timezone"])
+    kp = os.path.expanduser(f["ssh_key"])
+    if not os.path.exists(kp):
+        errs.append("SSH key '%s' does not exist on this laptop — use 'Create a dedicated key' below, "
+                    "or point at a real key file" % f["ssh_key"])
     if len(f["vault_password"]) < 8: errs.append("vault password: 8+ characters")
     if not f["vault"]["hacluster_password"]: errs.append("hacluster password is required (3-node cluster)")
     if f["mode"] == "airgapped" and not (f["builder_host"] and f["builder_ip"] and f["mirror_url"]):
@@ -314,15 +339,25 @@ def form_page(errors=None, notice=None):
         c, v = defaults[k]
         nets += ('<label>%s CIDR</label><input name="net_%s_cidr" value="%s">'
                  '<label>%s VLAN (blank = untagged)</label><input name="net_%s_vlan" value="%s">') % (k, k, c, k, k, v)
-    h += """<form method="POST" action="/write">
+    h = h + ("""<form method="POST" action="/write">
 <fieldset><legend>1. Site</legend>
 <label>Site name (becomes the folder name)</label><input name="site_name" required pattern="[a-z0-9][a-z0-9_-]+">
 <label>DNS domain</label><input name="site_domain" required placeholder="ops.utility.example">
-<label>Timezone (IANA)</label><input name="site_timezone" value="UTC">
+<label>Where is this site? (sets every node's clock)</label>%%TZSEL%%
+<div class="hint">pre-selected from this laptop's own timezone — change it if the site is elsewhere</div>
 <label>DNS servers (comma-sep)</label><input name="dns" placeholder="10.0.0.1,10.0.0.2">
 <label>Admin username on the nodes</label><input name="ssh_user" value="admin">
-<label>SSH private key path on THIS laptop</label><input name="ssh_key" value="~/.ssh/id_ed25519">
-<div class="hint">the key you ssh-copy-id'd to each node (QUICKSTART step 2)</div></fieldset>
+<label>SSH key for the automation</label>
+<div class="hint"><b>Recommended: a NEW dedicated key</b> — not your personal one. It has no
+passphrase (unattended automation breaks on one), it can be rotated without touching anyone's
+identity, and it can be handed to a colleague.</div>
+<button type="button" onclick="makeKey()">Create a dedicated key for this site</button>
+<span id="keymsg" class="hint"></span>
+<label>Key path (filled by the button, or point at an existing key)</label>
+<input name="ssh_key" id="sshkey" value="">
+<div id="copyid" class="hint"></div>
+<button type="button" onclick="testSsh()">Test connectivity to all three nodes</button>
+<div id="sshtest" class="hint"></div></fieldset>
 <fieldset><legend>2. Mode</legend>
 <label>Deployment mode</label><select name="mode"><option>connected</option><option>airgapped</option></select>
 <label>Air-gapped only — builder hostname</label><input name="builder_host">
@@ -339,7 +374,7 @@ def form_page(errors=None, notice=None):
 <label>PTP domain</label><input name="ptp_domain" value="0">
 <label>Transport</label><select name="ptp_transport"><option>L2</option><option>UDPv4</option></select>
 <label>Delay mechanism</label><select name="ptp_delay"><option>P2P</option><option>E2E</option></select>
-<label>Profile</label><input name="ptp_profile" value="default">
+<label>Profile</label><select name="ptp_profile"><option>default</option><option>G.8275.1</option><option>G.8275.2</option></select>
 <label>Dedicated PTP NIC name (same on all nodes)</label><input name="ptp_nic" placeholder="eno4">
 <div class="hint">must be its own NIC — never bridged, bonded or shared. Check hardware timestamping: <code>ethtool -T &lt;nic&gt;</code></div></fieldset>
 <fieldset><legend>5b. Real-time</legend>
@@ -364,11 +399,26 @@ def form_page(errors=None, notice=None):
 <div class="hint">On success you get the exact next command to run. On any problem NOTHING is written.</div>
 </form>
 <script>
+try{const mytz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+const t=document.getElementById('tzsel');if(t&&[...t.options].some(o=>o.value===mytz))t.value=mytz;}catch(e){}
 const b=document.getElementById('bootstrap');
 function syncBoot(){const hs=[1,2,3].map(i=>document.querySelector(`[name=n${i}_host]`).value.trim()).filter(x=>x);
 b.innerHTML=hs.map(h=>`<option>${h}</option>`).join('');}
 [1,2,3].forEach(i=>document.querySelector(`[name=n${i}_host]`).addEventListener('input',syncBoot));syncBoot();
-</script></body></html>""" % (node_block, nets)
+function fd(){const o=new URLSearchParams();['site_name','ssh_user'].forEach(k=>o.set(k,document.querySelector(`[name=${k}]`).value));
+[1,2,3].forEach(i=>o.set('ip'+i,document.querySelector(`[name=n${i}_mgmt]`).value));
+o.set('key',document.getElementById('sshkey').value);return o;}
+async function makeKey(){const r=await fetch('/makekey',{method:'POST',body:fd()});const j=await r.json();
+document.getElementById('keymsg').textContent=j.msg;
+if(j.path){document.getElementById('sshkey').value=j.path;
+const u=document.querySelector('[name=ssh_user]').value||'admin';
+const ips=[1,2,3].map(i=>document.querySelector(`[name=n${i}_mgmt]`).value).filter(x=>x);
+document.getElementById('copyid').innerHTML='<b>Now copy it to each node (each asks for the admin password once):</b><br>'+
+ ips.map(ip=>`<code>ssh-copy-id -i ${j.path}.pub ${u}@${ip}</code>`).join('<br>');}}
+async function testSsh(){const el=document.getElementById('sshtest');el.textContent='testing…';
+const r=await fetch('/testssh',{method:'POST',body:fd()});const j=await r.json();
+el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">${x.ok?'OK — key + passwordless sudo work':'FAILED — '+x.err}</b>`).join('<br>');}
+</script></body></html>""" % (node_block, nets)).replace("%TZSEL%", tz_select_html())
     return h
 
 def success_page(f, files):
@@ -391,8 +441,36 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_GET(self): self._send(form_page())
+    def _json(self, obj):
+        b = json.dumps(obj).encode(); self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+        if self.path == "/makekey":
+            d = urllib.parse.parse_qs(body); site = d.get("site_name", ["site"])[0].strip() or "site"
+            path = os.path.expanduser("~/.ssh/vpac-%s" % site)
+            if os.path.exists(path):
+                return self._json(dict(path=path, msg="key already exists — reusing it"))
+            r = subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q",
+                                "-C", "vpac-%s" % site, "-f", path], capture_output=True, text=True)
+            if r.returncode != 0:
+                return self._json(dict(path="", msg="ssh-keygen failed: %s" % r.stderr.strip()))
+            return self._json(dict(path=path, msg="created %s (ed25519, no passphrase — dedicated to this site)" % path))
+        if self.path == "/testssh":
+            d = urllib.parse.parse_qs(body)
+            key = os.path.expanduser(d.get("key", [""])[0]); user = d.get("ssh_user", ["admin"])[0] or "admin"
+            out = []
+            for i in (1, 2, 3):
+                ip = d.get("ip%d" % i, [""])[0].strip()
+                if not ip: continue
+                r = subprocess.run(["ssh", "-i", key, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                                    "-o", "StrictHostKeyChecking=accept-new",
+                                    "%s@%s" % (user, ip), "sudo", "-n", "true"],
+                                   capture_output=True, text=True)
+                out.append(dict(ip=ip, ok=r.returncode == 0,
+                                err=(r.stderr.strip().splitlines() or ["no route / auth failed"])[-1] if r.returncode else ""))
+            return self._json(dict(results=out))
         f = parse(body)
         errs = validate(f)
         if errs: return self._send(form_page(errors=errs), 400)
