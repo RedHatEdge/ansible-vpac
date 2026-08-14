@@ -25,7 +25,9 @@ Both are first-class. Pick the one that matches your environment; the playbooks 
 
 Which path the playbooks use is controlled by one inventory variable: `deployment_mode: airgapped | connected`.
 
-**New to Ansible?** This project is built for protection and substation
+**Fastest fill-out path:** `python3 tools/site-form.py` — a local form that
+writes your whole site inventory (encrypted vault included) so you never
+hand-edit YAML. **New to Ansible?** This project is built for protection and substation
 engineers, not automation specialists — start at
 [`docs/QUICKSTART.md`](docs/QUICKSTART.md), which assumes nothing and takes
 you from "three servers and a laptop" to a verified-clean site configuration,

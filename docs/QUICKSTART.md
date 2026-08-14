@@ -20,16 +20,45 @@ Time: roughly an hour, most of it filling in your site's values.
 | **vault** | One encrypted file holding all passwords/keys. You unlock it with a single password when you run a playbook. |
 | **fact** | Something the automation reads from a server (NIC names, CPU count) to make decisions. You don't manage facts. |
 
-## What you need before starting
+## Step 0 — getting RHEL onto three servers (the part every guide skips)
 
-- 3 servers racked and powered, RHEL 9 installed, with an admin user you can
-  log into, and their management IPs known (air-gapped sites: the installer
-  ISOs are built later by [`DEPLOYMENT-AIRGAPPED.md`](DEPLOYMENT-AIRGAPPED.md) —
-  read this page first anyway; the flow below is the same once nodes exist)
-- Their BMC (iDRAC/IPMI) addresses and a STONITH user on each — with
+**This guide documents the CONNECTED path**: your servers can reach the
+internet, and everything installs from Red Hat's own services. If your site
+has no outbound internet (most substations), you want the air-gapped path —
+[`DEPLOYMENT-AIRGAPPED.md`](DEPLOYMENT-AIRGAPPED.md) — where a "builder"
+machine is loaded once and the servers install from it. If you are unsure:
+labs and proofs-of-concept are usually connected; production substations are
+usually air-gapped. Everything below Step 3 is the same for both.
+
+**Get RHEL:** download the RHEL 9 DVD ISO from
+[access.redhat.com/downloads](https://access.redhat.com/downloads/content/rhel)
+— this needs a Red Hat account login (creating one is free). Use any current
+RHEL 9 minor release, 9.6 or newer — this project is field-validated on 9.7
+and 9.8; preflight checks the version for you. Install it on each of the
+three servers with the **Server (no GUI)** base environment, create the same
+admin user on each, and note each server's management IP.
+
+**Subscriptions — what you actually need (ask for this list by name):**
+a subscription covering **RHEL 9 + High Availability + Resilient Storage +
+NFV (real-time kernel) + Red Hat Ceph Storage**. Asking for "RHEL" alone
+gets you a subscription that fails mid-deployment when the HA or real-time
+repositories turn out to be missing. Where to get it:
+
+- **Lab / evaluation:** the free [Red Hat Developer subscription]
+  (https://developers.redhat.com/register) covers individual
+  development/testing use — enough to build this cluster in a lab.
+- **Production:** give your Red Hat account team the entitlement list above.
+
+Then create an **activation key** (console.redhat.com → Inventory → System
+Configuration → Activation keys) and note the **org ID** shown on the same
+page — the form/vault asks for both later.
+
+## What else you need
+
+- The servers' BMC (iDRAC/IPMI) addresses and a STONITH user on each — with
   **IPMI-over-LAN enabled** (iDRACs ship with it off)
-- A Red Hat activation key + org ID, and (air-gapped) a registry service
-  account — [`OPERATOR-VALUES.md`](OPERATOR-VALUES.md) says how to get each one
+- (Air-gapped only) a registry service account —
+  [`OPERATOR-VALUES.md`](OPERATOR-VALUES.md) says how
 - A laptop with Linux or macOS (this guide shows RHEL/Fedora commands)
 
 ## Step 1 — Put the tools on your laptop
@@ -78,6 +107,18 @@ your key anywhere else, change that one line. (The alternative,
 `--private-key <path>` on every command, works but is easy to forget.)
 
 ## Step 3 — Make the inventory yours
+
+**The easy way — use the form.** The repo ships a local form that asks for
+every value in plain language and writes all of these files for you,
+including the encrypted vault (steps 3 and 4 collapse into one):
+
+```bash
+python3 tools/site-form.py     # then open http://127.0.0.1:8765
+```
+
+Fill it top to bottom; on success it prints the exact preflight command —
+skip straight to Step 5. The rest of this step is the **by-hand path**: the
+fallback, and the reference for exactly what the form writes.
 
 ```bash
 cp -r inventory/example inventory/mysite
