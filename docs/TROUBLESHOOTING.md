@@ -45,6 +45,28 @@ cages entirely, and 1000BASE-T switch ports may offer no fixed-speed option
 at all (1000BASE-T mandates autonegotiation) — neither knob can fix a
 transcoding module.
 
+**Reading the switch counters — field-measured reference numbers:**
+
+- **Only `fragments` discriminates.** `undersizes` and `jabbers` are noise —
+  in the measured incident they were proportionally HIGHER on the known-clean
+  control port. An operator chasing those counters will conclude the link is
+  fine. Ignore them; watch `fragments`.
+- Normalize per GB transmitted, not per time. Measured on a same-switch,
+  same-NIC, same-firmware controlled pair differing only in module:
+  **~2.6 fragments/GB (native-rate module) vs ~22 (rate-adapting module)** at
+  light traffic — roughly 8× — and **~170–185 fragments/GB** on affected
+  links under sustained multi-stream load. Even near-idle, the dirty link
+  drifted at ~1.3 fragments/min.
+- Second, blunter metric: **throughput collapse** — affected 1 Gb links
+  sustained only ~130–145 Mbit/s in a multi-stream iperf3 ring. A genuine
+  fix must lift this materially, not merely reduce fragments.
+- The host-side clean-sheet is total, which is what makes the signature
+  deceptive: `ethtool -S` shows zero error/discard/fault counters,
+  `netstat -su` clean, zero ICMP loss including don't-fragment size sweeps,
+  knet average latency in the tens of microseconds. **Everything a
+  host-side investigation can reach looks perfect** — pull the switch port
+  statistics or you will not find it.
+
 **The fix is physical**: matched-rate media end to end (native 1G modules
 into 1G ports, or 10G end to end). Corosync token tuning or a second knet
 ring are *mitigations*, not fixes — especially when storage shares the same
