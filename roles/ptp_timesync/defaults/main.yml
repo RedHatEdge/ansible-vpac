@@ -20,25 +20,50 @@ ptp_timesync_mode: "{{ time_sync.mode | default('ntp') }}"
 # ptp4l options. Domain / transport / delay_mechanism come from
 # time_sync.ptp.*. Everything else is hard-won field tuning:
 #
-#   announceReceiptTimeout 5  — damp BMCA flapping when multiple
-#                                grandmasters are reachable; default 3
-#                                triggers re-elect on every burst.
+#   logAnnounceInterval 0     — 1 announce/sec.
+#   logSyncInterval 0         — 1 sync/sec.
+#   logMinPdelayReqInterval 0 — 1 pdelay-req/sec (client-driven: this is
+#                                the rate WE put on the wire).
+#     All three are the IEC 61850-9-3 power-utility-profile rates
+#     (= IEEE C37.238 power profile), confirmed against a production
+#     substation deployment. Earlier releases shipped -3 (8/sec) here
+#     with a comment claiming that matched the Power Profile — it did
+#     not; -3 is the 802.1AS/gPTP sync rate.
+#   announceReceiptTimeout 5  — DELIBERATE deviation from the profile's 3:
+#                                damp BMCA flapping when multiple
+#                                grandmasters are reachable; 3 triggers
+#                                re-elect on every burst. The timeout
+#                                window is ART x 2^logAnnounceInterval =
+#                                5 s here.
 #   maxStepsRemoved 3         — accept a GM up to 3 hops away (default 1
 #                                stalls when a GM is two transparent
 #                                clocks deep).
 #   step_threshold 0.1        — clamp clock step events to <100 ms; large
-#                                steps wreck relay timestamping.
+#                                steps wreck relay timestamping. (Servo
+#                                knob, not a profile parameter. A known
+#                                field deployment runs 0.00001 instead —
+#                                step on anything >10 us; which the relay
+#                                vendor actually specifies is unresolved,
+#                                so the conservative slew-don't-step
+#                                default stands.)
 #   clientOnly 1              — never advertise as grandmaster. Cluster
 #                                hosts always follow an external GPS-
 #                                disciplined GM.
-#   logSyncInterval -3        — 8 syncs/sec; matches Power Profile.
+#   tx_timestamp_timeout 10   — wait up to 10 ms for the NIC's TX
+#                                timestamp (default 1). Intel NICs
+#                                (i40e/ice) can exceed 1 ms under load,
+#                                which faults the port; 10 is the proven
+#                                field value and only widens a poll
+#                                window.
 ptp_timesync_ptp4l:
   announce_receipt_timeout: 5
   max_steps_removed: 3
   step_threshold: 0.1
   client_only: 1
-  log_sync_interval: -3
-  log_min_pdelay_req_interval: -3
+  log_announce_interval: 0
+  log_sync_interval: 0
+  log_min_pdelay_req_interval: 0
+  tx_timestamp_timeout: 10
 
 # chrony directives that timemaster will inject into the chronyd it
 # supervises. Values from documented vendor (ABB) Engineering Manual
