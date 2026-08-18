@@ -40,12 +40,14 @@ ptp_timesync_mode: "{{ time_sync.mode | default('ntp') }}"
 #                                clocks deep).
 #   step_threshold 0.1        — clamp clock step events to <100 ms; large
 #                                steps wreck relay timestamping. (Servo
-#                                knob, not a profile parameter. A known
-#                                field deployment runs 0.00001 instead —
-#                                step on anything >10 us; which the relay
-#                                vendor actually specifies is unresolved,
-#                                so the conservative slew-don't-step
-#                                default stands.)
+#                                knob, not a profile parameter.) 0.1 is
+#                                the value the relay vendor specifies in
+#                                the joint documentation-scoping
+#                                worksheet (vendor-stated spec, not a
+#                                quote from the released engineering
+#                                manual). A known field deployment runs
+#                                0.00001 — a local deviation, not vendor
+#                                guidance.
 #   clientOnly 1              — never advertise as grandmaster. Cluster
 #                                hosts always follow an external GPS-
 #                                disciplined GM.

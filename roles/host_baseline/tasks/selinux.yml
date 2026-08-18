@@ -2,22 +2,29 @@
 # Set SELinux to the configured mode persistently. Default is permissive
 # because qemu-kvm under enforcing cannot read /etc/ceph/ceph.conf without
 # context tweaks, and every RBD-backed VM dies on start. The kernel cmdline
-# `selinux=0` is the WRONG fix — it removes /sys/fs/selinux entirely and
-# breaks Ceph OSD containers. The correct knob is /etc/selinux/config plus
-# setenforce. Sites that have proven SELinux contexts can override
-# selinux_target_mode to "enforcing".
+# `selinux=0` is still rejected, but for accurate reasons: it removes
+# /sys/fs/selinux, which makes the mode unmanageable by this role (no
+# setenforce, no policy loaded, every transition needs a grub edit plus
+# reboot instead of a config line), and it is outside Red Hat's supported
+# configuration. It is NOT claimed to break running Ceph OSD containers —
+# a production RHCS cluster has been observed healthy with selinux=0 — the
+# rejection is about manageability and supportability, not an observed
+# crash. The correct knob is /etc/selinux/config plus setenforce. Sites
+# that have proven SELinux contexts can override selinux_target_mode to
+# "enforcing".
 
 - name: "Read kernel cmdline"
   ansible.builtin.slurp:
     src: /proc/cmdline
   register: _baseline_cmdline
 
-- name: "Reject selinux=0 on kernel cmdline (breaks Ceph OSD containers)"
+- name: "Reject selinux=0 on kernel cmdline (unmanageable + unsupported)"
   ansible.builtin.assert:
     that: "'selinux=0' not in (_baseline_cmdline.content | b64decode)"
     fail_msg: >-
       Kernel cmdline contains 'selinux=0', which removes /sys/fs/selinux and
-      breaks Ceph OSD containers. Remove it from grubby and reboot before
+      makes the SELinux mode unmanageable by this role (and is outside Red
+      Hat's supported configuration). Remove it from grubby and reboot before
       re-running. The correct knob is /etc/selinux/config — set
       SELINUX={{ selinux_target_mode }} and let this role handle it.
 
