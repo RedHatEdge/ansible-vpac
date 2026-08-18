@@ -34,17 +34,30 @@ ntp_program chronyd
 
 # ptp4l options for the host clock.
 # clientOnly       — discipline from the grandmaster, never act as a server.
-# network_transport / delay_mechanism / step_threshold — the IEC 61850-9-3
-#   power-utility profile: PTP over Ethernet (L2) with peer-to-peer delay.
-#   This matches the SSC600 vendor documentation and most substation
-#   grandmasters. The transport is SITE-DEPENDENT: if the grandmaster runs
-#   PTP over UDPv4 with end-to-end delay, set network_transport UDPv4 and
+# network_transport / delay_mechanism — the IEC 61850-9-3 power-utility
+#   profile: PTP over Ethernet (L2) with peer-to-peer delay. This matches
+#   the SSC600 vendor documentation and most substation grandmasters. The
+#   transport is SITE-DEPENDENT: if the grandmaster runs PTP over UDPv4
+#   with end-to-end delay, set network_transport UDPv4 and
 #   delay_mechanism E2E instead — confirm against the grandmaster's config.
+# logAnnounceInterval / logSyncInterval / logMinPdelayReqInterval 0 —
+#   one message per second, the 61850-9-3 profile rates. The pdelay rate
+#   is client-driven, so this line sets what this host puts on the wire.
+# step_threshold 0.1 — slew rather than step for offsets under 100 ms;
+#   clock steps wreck relay event timestamping. (Servo behavior, not a
+#   profile parameter.)
+# tx_timestamp_timeout 10 — wait up to 10 ms for the NIC's transmit
+#   timestamp. Intel NICs (i40e/ice) can exceed the 1 ms default under
+#   load, which faults the PTP port.
 [ptp4l.conf]
 clientOnly 1
 network_transport L2
 delay_mechanism P2P
+logAnnounceInterval 0
+logSyncInterval 0
+logMinPdelayReqInterval 0
 step_threshold 0.1
+tx_timestamp_timeout 10
 
 # Do NOT add any [ntp_server <address>] sections. Their absence is what makes
 # PTP the only time source; add one only if site policy requires a fallback.
@@ -100,7 +113,7 @@ EOF
 sudo systemctl enable --now phc2sys
 ```
 
-With this option, put the same profile settings in the `[global]` section of `/etc/ptp4l.conf`: `network_transport L2`, `delay_mechanism P2P`, `step_threshold 0.1` — or the UDPv4/E2E branch, per the grandmaster (see Option A).
+With this option, put the same settings in the `[global]` section of `/etc/ptp4l.conf`: `network_transport L2`, `delay_mechanism P2P`, `logAnnounceInterval 0`, `logSyncInterval 0`, `logMinPdelayReqInterval 0`, `step_threshold 0.1`, `tx_timestamp_timeout 10` — or the UDPv4/E2E branch, per the grandmaster (see Option A).
 
 Remove NTP sources from chrony so it does not pull against `phc2sys`. Either stop chronyd entirely, or comment out every `server`/`pool` line in `/etc/chrony.conf` and leave chrony only as a local clock holder.
 

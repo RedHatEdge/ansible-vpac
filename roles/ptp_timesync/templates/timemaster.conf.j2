@@ -10,8 +10,10 @@ ptp4l_option clientOnly {{ ptp_timesync_ptp4l.client_only }}
 ptp4l_option step_threshold {{ ptp_timesync_ptp4l.step_threshold }}
 ptp4l_option announceReceiptTimeout {{ ptp_timesync_ptp4l.announce_receipt_timeout }}
 ptp4l_option maxStepsRemoved {{ ptp_timesync_ptp4l.max_steps_removed }}
+ptp4l_option logAnnounceInterval {{ ptp_timesync_ptp4l.log_announce_interval }}
 ptp4l_option logSyncInterval {{ ptp_timesync_ptp4l.log_sync_interval }}
 ptp4l_option logMinPdelayReqInterval {{ ptp_timesync_ptp4l.log_min_pdelay_req_interval }}
+ptp4l_option tx_timestamp_timeout {{ ptp_timesync_ptp4l.tx_timestamp_timeout }}
 
 {% for ntp in ptp_timesync_ntp_servers_in_timemaster %}
 [ntp_server {{ ntp }}]
