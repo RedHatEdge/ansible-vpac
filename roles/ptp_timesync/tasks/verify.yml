@@ -37,6 +37,38 @@
     state: present
     timeout: 60
 
+# --- Synchronization gate: the port must actually reach SLAVE ---
+# GM-identity-stable (below) is necessary but NOT sufficient. On hardware a node
+# selected the GM and held a perfectly stable GM identity while stuck
+# UNCALIBRATED and never synchronizing — a switch dropped the two-step Follow_Up.
+# portState cycles LISTENING -> UNCALIBRATED -> SLAVE; a node that never reaches
+# SLAVE is not time-synced no matter how stable the GM looks.
+- name: "Poll ptp4l portState until it reaches SLAVE"
+  ansible.builtin.command: >-
+    pmc -s {{ ptp_timesync_socket_template | replace('<num>', '0') }}
+    -b 0 -u "GET PORT_DATA_SET"
+  register: _ptp_port
+  changed_when: false
+  failed_when: false
+  until: _ptp_port.stdout is regex('portState\s+SLAVE')
+  retries: "{{ [((ptp_timesync_slave_timeout | int) // 5), 1] | max }}"
+  delay: 5
+
+- name: "Assert the port reached SLAVE (actually synchronized)"
+  ansible.builtin.assert:
+    that: _ptp_port.stdout is regex('portState\s+SLAVE')
+    fail_msg: >-
+      ptp4l never reached SLAVE within ~{{ ptp_timesync_slave_timeout }}s — the port is
+      stuck (LISTENING/UNCALIBRATED). A grandmaster can be PRESENT and its identity
+      perfectly stable while the node is NOT synchronized. A known field cause is the
+      transparent-clock fabric failing to deliver the two-step Follow_Up (signature:
+      stable GM identity + working Pdelay + zero Follow_Up at the node — confirm with
+      tcpdump). Check the fabric and the GM (re-initialize the TC's PTP engine, verify
+      the GM is disciplined) — see the 'PTP fabric requirement' note in this role's
+      README. Last PORT_DATA_SET:
+      {{ _ptp_port.stdout }}
+    success_msg: "ptp4l port reached SLAVE."
+
 - name: "Sample PARENT_DATA_SET to verify grandmaster identity is stable"
   ansible.builtin.command: >-
     pmc -s {{ ptp_timesync_socket_template | replace('<num>', '0') }}
@@ -78,3 +110,47 @@
       priority1/priority2 ordering before re-running.
     success_msg: >-
       PTP GM stable: {{ _ptp_gm_ids | first }} across {{ ptp_timesync_gm_samples }} samples.
+
+# --- Servo gate: offsetFromMaster must be bounded AND live ---
+# Even at SLAVE, a frozen offset means the clock is not actually being disciplined.
+# On the hardware failure the offset sat frozen at a default. Require it small AND
+# varying across samples (a real servo jitters at the ns level; a dead one does not).
+- name: "Sample CURRENT_DATA_SET for offsetFromMaster"
+  ansible.builtin.command: >-
+    pmc -s {{ ptp_timesync_socket_template | replace('<num>', '0') }}
+    -b 0 -u "GET CURRENT_DATA_SET"
+  register: _ptp_offset_samples
+  changed_when: false
+  loop: "{{ range(0, ptp_timesync_gm_samples | int) | list }}"
+  loop_control:
+    extended: true
+    pause: "{{ ptp_timesync_gm_sample_interval | int }}"
+
+- name: "Extract offsetFromMaster (float ns) from each sample"
+  ansible.builtin.set_fact:
+    _ptp_offsets: >-
+      {{ _ptp_offset_samples.results
+         | map(attribute='stdout')
+         | map('regex_findall', 'offsetFromMaster\s+(\S+)')
+         | select
+         | map('first')
+         | map('float')
+         | list }}
+
+- name: "Assert offsetFromMaster is bounded AND servoing (not frozen)"
+  ansible.builtin.assert:
+    that:
+      - _ptp_offsets | length == (ptp_timesync_gm_samples | int)
+      - (_ptp_offsets | map('abs') | max) < (ptp_timesync_max_offset_ns | float)
+      - (_ptp_offsets | unique | length) > 1
+    fail_msg: >-
+      offsetFromMaster check failed. Samples (ns): {{ _ptp_offsets }}. Either
+      |offset| exceeded {{ ptp_timesync_max_offset_ns }} ns, or the value is FROZEN
+      (identical across every sample) — a frozen offset means ptp4l has a grandmaster
+      "present" but is not disciplining the clock. If portState reads SLAVE but the
+      offset is frozen, check whether the fabric is delivering the two-step Follow_Up
+      and whether the GM is disciplined (see this role's README 'PTP fabric
+      requirement').
+    success_msg: >-
+      offsetFromMaster bounded (< {{ ptp_timesync_max_offset_ns }} ns) and live across
+      {{ ptp_timesync_gm_samples }} samples: {{ _ptp_offsets }}.
