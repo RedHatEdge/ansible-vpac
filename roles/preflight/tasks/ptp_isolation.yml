@@ -1,8 +1,18 @@
 ---
 # Verify the PTP NIC is genuinely isolated. A documented field regression
-# had ptp4l running on a NIC that was also the macvtap target for guest VMs;
-# guest traffic stole PTP frames, producing SYNCHRONIZATION_FAULT every
-# ~10 seconds for multiple days.
+# had ptp4l running on a NIC that was also the macvtap target for guest VMs,
+# with SYNCHRONIZATION_FAULT every ~10 seconds for multiple days.
+#
+# Evidence status of that mechanism, kept honest: a controlled idle test
+# (2026-08-18, Intel E823-C / ice / RHEL 9.8 RT, single node, minutes-scale)
+# could NOT reproduce frame loss on either a plain-bridge member or a
+# macvtap-attached NIC — ptp4l's AF_PACKET socket received every event
+# message and macvtap REPLICATED the L2 multicast rather than consuming it.
+# So "guest traffic steals PTP frames" is not universally true on current
+# driver/kernel eras. The isolation requirement STANDS anyway: behavior
+# under process-bus load (SV-rate multicast contention) is untested, the
+# original regression is documented, it may be driver/era-specific, and the
+# failure domain is protection-grade timing. Narrow claim, keep guard.
 #
 # This file is only imported when networking_defaults.ptp_nic is set — the
 # orchestrator gates on that, so no per-task skip here.
@@ -24,9 +34,10 @@
   ansible.builtin.assert:
     that: (networking_defaults.ptp_nic ~ ' ') not in _preflight_bridge_links.stdout
     fail_msg: >-
-      PTP NIC {{ networking_defaults.ptp_nic }} appears to be a bridge member. The ptp_timesync role
-      will not run ptp4l on a bridged NIC — bridges steal PTP frames. Remove it from the bridge
-      before proceeding.
+      PTP NIC {{ networking_defaults.ptp_nic }} appears to be a bridge member. This deployment
+      requires a dedicated, unbridged PTP NIC: a documented field regression involved PTP sharing
+      a NIC with guest networking, and PTP behavior under load on a shared port is unproven.
+      Remove it from the bridge before proceeding.
 
 - name: "Check bond slaves"
   ansible.builtin.command: "cat /proc/net/bonding/{{ item }}"
@@ -58,8 +69,10 @@
   ansible.builtin.assert:
     that: _preflight_macvtap.stdout | length == 0
     fail_msg: >-
-      PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap steals
-      PTP frames. Move those guests to a different NIC before proceeding.
+      PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. This deployment requires the
+      PTP NIC to carry no guest attachments: a documented field regression involved exactly this
+      sharing (SYNCHRONIZATION_FAULT every ~10 s), and shared-port behavior under process-bus load
+      is unproven. Move those guests to a different NIC before proceeding.
 
 # ---- PTP NIC capability: hardware timestamping ----
 # ptp4l cannot deliver sub-microsecond accuracy on a NIC without HW

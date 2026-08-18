@@ -62,6 +62,8 @@
   ansible.builtin.assert:
     that: _ptp_macvtap.stdout | length == 0
     fail_msg: >-
-      PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. Guest traffic on macvtap
-      steals PTP frames. Move those guests to a different NIC.
+      PTP NIC {{ networking_defaults.ptp_nic }} has macvtap children. This deployment requires
+      the PTP NIC to carry no guest attachments: a documented field regression involved exactly
+      this sharing (SYNCHRONIZATION_FAULT every ~10 s), and shared-port behavior under
+      process-bus load is unproven. Move those guests to a different NIC.
   tags: [ptp-isolation]

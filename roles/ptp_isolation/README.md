@@ -10,7 +10,7 @@ Running it three times is cheap (read-only assertions) and the cost of a regress
 
 ## Why this exists as its own role
 
-Documented field incident: `ptp4l` was bound to a NIC that was also the macvtap target for guest VMs. Guests stole PTP frames and produced `SYNCHRONIZATION_FAULT` every ~10 seconds for multiple days. Making this a dedicated, re-runnable role keeps the check visible and tag-addressable — any change to networking gets this gate for free.
+Documented field incident: `ptp4l` was bound to a NIC that was also the macvtap target for guest VMs, producing `SYNCHRONIZATION_FAULT` every ~10 seconds for multiple days. (Evidence note: a controlled idle test on a current driver/kernel era could not reproduce frame loss on a shared port — macvtap replicated rather than consumed the L2 multicast — so the mechanism may be load- or era-specific. The isolation requirement stands: shared-port behavior under process-bus load is unproven and the failure domain is protection-grade timing.) Making this a dedicated, re-runnable role keeps the check visible and tag-addressable — any change to networking gets this gate for free.
 
 ## Tags
 

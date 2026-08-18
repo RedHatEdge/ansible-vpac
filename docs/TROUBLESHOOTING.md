@@ -124,7 +124,7 @@ Common causes:
    ```bash
    ip -d link show <ptp-nic>
    ```
-   If output shows `master <bridge>` or `macvtap@...` children, the NIC is stealing PTP frames. Detach it (remove from the bridge, remove the macvtap VM interface).
+   If output shows `master <bridge>` or `macvtap@...` children, the NIC violates the dedicated-PTP-NIC requirement (a documented field regression involved exactly this sharing). Detach it (remove from the bridge, remove the macvtap VM interface).
 
 2. Multiple PTP grandmasters on the domain. Run on two different nodes:
    ```bash
