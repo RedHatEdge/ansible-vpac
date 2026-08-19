@@ -259,6 +259,10 @@ lsblk                                          # OSD devices bare
 
 Clean each non-bootstrap node in this order: `systemctl stop 'ceph-*'` → `podman rm -fa` → `dmsetup remove` each `ceph--*` mapping → `wipefs -a` + `sgdisk --zap-all` each OSD device (by-id paths — double-check none is the OS disk).
 
+**If the cluster being removed is WEDGED (orchestrator stuck, deploys abandoned): do not lead with `rm-cluster` at all.** `cephadm rm-cluster` depends on the same podman/ceph-volume path that is already jammed — field-measured, it ran 32 minutes against a wedged cluster with zero state change, while the same command had removed a healthy cluster in ~2. The first step of any teardown-after-failure is to kill orphaned `ceph-volume`, `podman run`, and `conmon` processes left by the failed deploy (they hold device locks and can hang even `podman ps`), then go straight to the manual per-node path above, which depends on nothing being healthy.
+
+**A CephFS mount and its fstab entry survive cluster removal.** Neither `rm-cluster` nor the manual path unmounts a CephFS mount or removes its `_netdev` fstab line — a mount pointing at a destroyed cluster's fsid persists on every node, collides with a redeploy that mounts the same path (the roles now refuse loudly when they detect it), and is a boot-time hazard. On each node: `umount -l <mountpoint>` (lazy — a dead-cluster cephfs mount can block a normal umount), then remove the matching `/etc/fstab` line (back the file up first). The tell is the fsid in the mount source not matching the current cluster's.
+
 Two systemd traps seen in the field while doing this:
 - Phantom `ceph-<fsid>.target` units that survive `systemctl reset-failed` — it does **not** clear not-found *inactive* units. Delete the dangling symlinks under `/etc/systemd/system/{ceph.target.wants,multi-user.target.wants,ceph-<fsid>.target.wants}/`, then `systemctl daemon-reload`.
 - `pgrep -f`/`pkill -f` patterns that match their own shell wrapper — bracket the first character of the pattern (`pgrep -af '[c]eph'`) and verify results by observed state, not exit code.
