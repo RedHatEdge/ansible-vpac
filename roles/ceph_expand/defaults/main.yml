@@ -13,15 +13,24 @@ ceph_expand_orch_timeout_s: 1800
 # is ~1.3 GB per node (larger than RHCS 7); sized for a slow link.
 ceph_expand_image_pull_timeout_s: 1800
 
-# Per-invocation ceiling for every `ceph orch ...` CLI call. These all ride
-# the mgr's cephadm module, which can wedge (field-measured: three
-# `ceph orch daemon add osd` calls blocked 47+ minutes each AFTER the
-# orchestrator had already declared CEPHADM_APPLY_SPEC_FAIL — `retries:`
-# governs re-invocation between COMPLETED attempts and cannot interrupt a
-# call that never returns). A healthy orch call returns in seconds; when
-# this fires, the orchestrator is wedged and the loud failure names the
-# task, host, and device instead of hanging the play overnight.
+# Per-invocation ceiling for `ceph orch ...` CLI reads/applies. These ride
+# the mgr's cephadm module, which can wedge (field-measured: calls blocked
+# 47+ minutes after the orchestrator had already given up). Enforced with
+# GNU `timeout --kill-after` so the ceiling REAPS the process — an
+# Ansible-level task timeout abandons the remote process alive, and each
+# retry then spawns another one (field-measured orphan farm: 4 retry waves
+# x 3 nodes = 12 live orphans, which later block teardown by holding
+# device locks). A healthy orch call returns in seconds; when this fires,
+# the orchestrator is wedged and the failure is loud AND leaves no orphan.
 ceph_expand_orch_call_timeout_s: 300
+
+# Ceiling for the `ceph orch daemon add osd` SUBMIT specifically. RHCS 9
+# (20.2) field behavior: this CLI can hang even when the deploy SUCCEEDS
+# (daemon deployed in ~6 s; the CLI sat 22+ minutes) — so the call is
+# treated as fire-and-verify: GNU timeout reaps it at this bound, rc 124
+# counts as "request submitted, convergence unknown" (not a failure, not
+# retried), and the OSD-count state poll is the actual verdict.
+ceph_expand_osd_submit_timeout_s: 120
 
 # How long to wait for HEALTH_OK (or the operator-configured acceptable
 # state) at the end of the role. Tuning OSDs on slow disks can make this

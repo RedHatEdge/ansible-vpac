@@ -7,8 +7,10 @@
 # idempotently (only when the current spec differs).
 
 - name: "Read current mon service spec"
-  ansible.builtin.command: /usr/bin/ceph orch ls mon --format json
-  timeout: "{{ ceph_expand_orch_call_timeout_s | int }}"
+  # GNU timeout REAPS on expiry (see defaults comment).
+  ansible.builtin.command: >-
+    /usr/bin/timeout --kill-after=10 {{ ceph_expand_orch_call_timeout_s | int }}
+    /usr/bin/ceph orch ls mon --format json
   register: _ceph_mon_spec
   delegate_to: "{{ ceph.bootstrap_node }}"
   run_once: true
@@ -16,8 +18,8 @@
 
 - name: "Right-size mon placement (cephadm default spec wants 5)"
   ansible.builtin.command: >-
+    /usr/bin/timeout --kill-after=10 {{ ceph_expand_orch_call_timeout_s | int }}
     /usr/bin/ceph orch apply mon {{ ceph_expand_mon_count }}
-  timeout: "{{ ceph_expand_orch_call_timeout_s | int }}"
   delegate_to: "{{ ceph.bootstrap_node }}"
   run_once: true
   changed_when: true
