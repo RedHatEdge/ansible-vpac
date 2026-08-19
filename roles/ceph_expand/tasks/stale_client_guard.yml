@@ -25,6 +25,35 @@
   register: _ceph_guard_rbd
   failed_when: false
 
+# Second face of the same gap: /etc/ceph/rbdmap entries + an enabled
+# rbdmap.service RESURRECT the mapping on next boot even when nothing is
+# mapped right now. An enabled service with NO file (or an empty one) is
+# harmless — the entries are the load-bearing part, so only they trip
+# the guard. Catches hand-built and inherited nodes, not just ones this
+# project's teardown touched.
+- name: "Check for leftover rbdmap entries"
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep -Ev '^\s*(#|$)' /etc/ceph/rbdmap 2>/dev/null | wc -l
+  register: _ceph_guard_rbdmap_entries
+  changed_when: false
+  failed_when: false
+
+- name: "Assert no boot-persistent rbdmap entries predate this cluster"
+  ansible.builtin.assert:
+    that: >-
+      _ceph_guard_conf.stat.exists or
+      ((_ceph_guard_rbdmap_entries.stdout | default('0') | trim | int) == 0)
+    fail_msg: >-
+      {{ inventory_hostname }} has
+      {{ _ceph_guard_rbdmap_entries.stdout | default('?') | trim }}
+      entr(y/ies) in /etc/ceph/rbdmap but no /etc/ceph/ceph.conf — a
+      previous cluster's boot-persistent mapping config. On the next boot
+      rbdmap.service would map a device against a cluster that no longer
+      exists, which is unreadable, blocks device enumeration, and is
+      reboot-only to clear. Remove the stale entries from /etc/ceph/rbdmap
+      (and disable rbdmap.service if nothing else uses it), then re-run.
+
 - name: "Assert no RBD mapping predates this cluster on the node"
   ansible.builtin.assert:
     that: >-
