@@ -13,6 +13,16 @@ ceph_expand_orch_timeout_s: 1800
 # is ~1.3 GB per node (larger than RHCS 7); sized for a slow link.
 ceph_expand_image_pull_timeout_s: 1800
 
+# Per-invocation ceiling for every `ceph orch ...` CLI call. These all ride
+# the mgr's cephadm module, which can wedge (field-measured: three
+# `ceph orch daemon add osd` calls blocked 47+ minutes each AFTER the
+# orchestrator had already declared CEPHADM_APPLY_SPEC_FAIL — `retries:`
+# governs re-invocation between COMPLETED attempts and cannot interrupt a
+# call that never returns). A healthy orch call returns in seconds; when
+# this fires, the orchestrator is wedged and the loud failure names the
+# task, host, and device instead of hanging the play overnight.
+ceph_expand_orch_call_timeout_s: 300
+
 # How long to wait for HEALTH_OK (or the operator-configured acceptable
 # state) at the end of the role. Tuning OSDs on slow disks can make this
 # take a while.

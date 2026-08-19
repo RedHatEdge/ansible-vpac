@@ -102,6 +102,10 @@
   ansible.builtin.command: >-
     /usr/bin/ceph orch daemon add osd
     {{ hostvars[inventory_hostname].ansible_fqdn }}:{{ item }}
+  # Bounded per invocation: a wedged orchestrator left this exact command
+  # blocked for 47+ minutes in the field with no Ansible error. When the
+  # ceiling fires the failure is loud and names the host:device.
+  timeout: "{{ ceph_expand_orch_call_timeout_s | int }}"
   loop: "{{ ceph.osd_devices[inventory_hostname] | default([]) }}"
   delegate_to: "{{ ceph.bootstrap_node }}"
   register: _ceph_add_osd

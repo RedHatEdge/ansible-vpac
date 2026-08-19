@@ -31,6 +31,7 @@
 
 - name: "List hosts currently known to the orchestrator"
   ansible.builtin.command: /usr/bin/ceph orch host ls --format json
+  timeout: "{{ ceph_expand_orch_call_timeout_s | int }}"
   register: _ceph_orch_hosts
   delegate_to: "{{ ceph.bootstrap_node }}"
   run_once: true
@@ -48,11 +49,13 @@
     /usr/bin/ceph orch host add
     {{ hostvars[inventory_hostname].ansible_fqdn }}
     {{ (vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first).storage_ip }}
+  timeout: "{{ ceph_expand_orch_call_timeout_s | int }}"
   delegate_to: "{{ ceph.bootstrap_node }}"
   when: (hostvars[inventory_hostname].ansible_fqdn) not in _ceph_known_hosts
 
 - name: "Wait for all cluster nodes to be reported as online"
   ansible.builtin.command: /usr/bin/ceph orch host ls --format json
+  timeout: "{{ ceph_expand_orch_call_timeout_s | int }}"
   register: _ceph_orch_hosts_check
   delegate_to: "{{ ceph.bootstrap_node }}"
   run_once: true
