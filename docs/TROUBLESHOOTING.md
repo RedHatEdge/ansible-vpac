@@ -244,6 +244,25 @@ Common cases:
 - `OSD_DOWN` — check `journalctl` for the OSD that didn't come back; likely a disk issue
 - `MON_CLOCK_SKEW` — PTP/chrony issue; see PTP troubleshooting above
 
+## Removing a Ceph cluster leaves residue on non-bootstrap nodes
+
+`cephadm rm-cluster --fsid <fsid> --force --zap-osds` only cleans the node it runs on — `cephadm` is typically installed on the bootstrap node alone, so the other nodes keep their OSD containers, device-mapper mappings, and disk signatures. After any cluster removal, verify **on every node** (not just where the command ran):
+
+```bash
+ls -la /etc/ceph/ /var/lib/ceph/ 2>/dev/null   # must be empty/absent — a leftover
+                                               # ceph.conf makes a re-deploy silently
+                                               # SKIP bootstrap
+podman ps -a                                   # no ceph containers
+dmsetup ls | grep ceph                         # no ceph--* mappings
+lsblk                                          # OSD devices bare
+```
+
+Clean each non-bootstrap node in this order: `systemctl stop 'ceph-*'` → `podman rm -fa` → `dmsetup remove` each `ceph--*` mapping → `wipefs -a` + `sgdisk --zap-all` each OSD device (by-id paths — double-check none is the OS disk).
+
+Two systemd traps seen in the field while doing this:
+- Phantom `ceph-<fsid>.target` units that survive `systemctl reset-failed` — it does **not** clear not-found *inactive* units. Delete the dangling symlinks under `/etc/systemd/system/{ceph.target.wants,multi-user.target.wants,ceph-<fsid>.target.wants}/`, then `systemctl daemon-reload`.
+- `pgrep -f`/`pkill -f` patterns that match their own shell wrapper — bracket the first character of the pattern (`pgrep -af '[c]eph'`) and verify results by observed state, not exit code.
+
 ## Deployment halts in stage 60 (Ceph)
 
 Most common causes in order:
