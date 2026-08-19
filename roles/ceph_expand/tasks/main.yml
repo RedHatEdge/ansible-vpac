@@ -3,6 +3,10 @@
   ansible.builtin.import_tasks: load_facts.yml
   tags: [ceph, ceph-expand, ceph-facts]
 
+- name: "Refuse to proceed over stale client state from a previous cluster"
+  ansible.builtin.import_tasks: stale_client_guard.yml
+  tags: [ceph, ceph-expand, ceph-guard]
+
 - name: "Install podman + ceph-common on every cluster node"
   ansible.builtin.import_tasks: client_packages.yml
   tags: [ceph, ceph-expand, ceph-packages]
