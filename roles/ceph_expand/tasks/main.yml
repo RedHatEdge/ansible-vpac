@@ -15,6 +15,10 @@
   ansible.builtin.import_tasks: add_hosts.yml
   tags: [ceph, ceph-expand, ceph-hosts]
 
+- name: "Pre-pull the ceph image on every node (before any cephadm deploy)"
+  ansible.builtin.import_tasks: prepull_image.yml
+  tags: [ceph, ceph-expand, ceph-prepull]
+
 - name: "Right-size mon placement to the cluster node count"
   ansible.builtin.import_tasks: mon_placement.yml
   tags: [ceph, ceph-expand, ceph-mons]

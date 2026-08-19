@@ -14,6 +14,58 @@
          if (ceph.container_image | default('', true) | length > 0)
          else (sources.container_registry ~ '/' ~ container_images.ceph) }}
 
+# ---- Pre-pull the ceph image (cache-warming) --------------------------
+# cephadm bootstrap pulls the image inline if it is not present, and on a
+# cold node that pull dominates the bootstrap wall-time (RHCS 9 core image
+# ~1.3 GB). Pulling it as an explicit, separately-timed step makes the
+# bootstrap timeout meaningful again and turns a slow registry into a
+# visible, attributable failure instead of a mystery timeout. podman is
+# used directly (not `cephadm pull`) so the same mechanism works on nodes
+# without the cephadm binary (ceph_expand reuses it).
+- name: "Check whether the ceph image is already present"
+  ansible.builtin.command: "podman image exists {{ _ceph_image }}"
+  register: _ceph_image_present
+  changed_when: false
+  failed_when: false
+
+- name: "Read registry credentials (only when a credentials file is set)"
+  ansible.builtin.slurp:
+    src: "{{ ceph.registry_credentials_file }}"
+  register: _ceph_reg_creds_raw
+  no_log: true
+  when:
+    - _ceph_image_present.rc != 0
+    - (ceph.registry_credentials_file | default('', true) | length > 0)
+
+- name: "podman login to the registry (only when credentials are set)"
+  # Credentials pass via environment, never interpolated into the shell
+  # line — a password containing quotes or $ must not break (or inject
+  # into) the command.
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    printf '%s' "$CEPH_REG_PW"
+    | podman login "$CEPH_REG_URL" -u "$CEPH_REG_USER" --password-stdin
+  environment:
+    CEPH_REG_URL: "{{ (_ceph_reg_creds_raw.content | b64decode | from_json).url }}"
+    CEPH_REG_USER: "{{ (_ceph_reg_creds_raw.content | b64decode | from_json).username }}"
+    CEPH_REG_PW: "{{ (_ceph_reg_creds_raw.content | b64decode | from_json).password }}"
+  no_log: true
+  changed_when: false
+  when:
+    - _ceph_image_present.rc != 0
+    - (ceph.registry_credentials_file | default('', true) | length > 0)
+
+- name: "Pre-pull the ceph image (bounded; pull time is the dominant cost)"
+  ansible.builtin.command: >-
+    podman pull
+    {{ '--tls-verify=false' if (sources.container_registry_insecure | default(false)) else '' }}
+    {{ _ceph_image }}
+  register: _ceph_prepull
+  changed_when: _ceph_image_present.rc != 0
+  when: _ceph_image_present.rc != 0
+  async: "{{ ceph_bootstrap_image_pull_timeout_s }}"
+  poll: 15
+
 - name: "Run cephadm bootstrap (first run only)"
   # --image pins the target image before bootstrap — otherwise cephadm
   # picks its own default, which may drift from ceph.release.
@@ -54,3 +106,24 @@
   when: not _ceph_conf.stat.exists
   async: "{{ ceph_bootstrap_cmd_timeout_s }}"
   poll: 15
+
+# ---- Raise cephadm's own per-command ceiling ---------------------------
+# mgr/cephadm/default_cephadm_command_timeout ships at 900 s and is the
+# BINDING constraint for `cephadm deploy` on a host: a deploy that has to
+# cold-pull the image can exceed it, at which point cephadm aborts the
+# deploy itself (CEPHADM_APPLY_SPEC_FAIL / CEPHADM_HOST_TIMEOUT_ERROR) and
+# every downstream wait in these roles expires pointlessly. The pre-pull
+# steps remove the pull from deploy time; this raise is the backstop for
+# whatever else runs long on slow hardware. Idempotent: set only when the
+# current value differs.
+- name: "Read cephadm's per-command timeout"
+  ansible.builtin.command: /usr/bin/ceph config get mgr mgr/cephadm/default_cephadm_command_timeout
+  register: _ceph_cmd_timeout
+  changed_when: false
+
+- name: "Set cephadm's per-command timeout (bounded raise)"
+  ansible.builtin.command: >-
+    /usr/bin/ceph config set mgr mgr/cephadm/default_cephadm_command_timeout
+    {{ ceph_bootstrap_cephadm_command_timeout_s }}
+  when: (_ceph_cmd_timeout.stdout | trim) != (ceph_bootstrap_cephadm_command_timeout_s | string)
+  changed_when: true

@@ -18,7 +18,9 @@ Stage 60 (first half). Runs on the `ceph_bootstrap_node` group (a single-host gr
 | `ceph_bootstrap_enable_dashboard` | `true` | flip `false` if you want only Grafana (no native Ceph dashboard). When on, reach it at `https://<active-mgr>:8443`; cephadm auto-generates an admin password printed to the bootstrap log — reset with `echo '<pw>' \| ceph dashboard ac-user-create admin -i - administrator` |
 | `ceph_bootstrap_dashboard_server_addr` | `"0.0.0.0"` | dashboard bind address; restrict to a specific IP if you want it reachable only from one network |
 | `ceph_bootstrap_mon_health_timeout_s` | `120` | max wait for MON health |
-| `ceph_bootstrap_cmd_timeout_s` | `600` | max wait for `cephadm bootstrap` itself |
+| `ceph_bootstrap_cmd_timeout_s` | `1800` | max wait for `cephadm bootstrap` itself. The wait is dominated by the container-image pull when cold (RHCS 9 core image ~1.3 GB) — the role pre-pulls the image first, so this ceiling normally has headroom. Air-gapped sites with a local registry can lower it; connected sites doing a cold first pull should not. |
+| `ceph_bootstrap_image_pull_timeout_s` | `1800` | max wait for the pre-bootstrap image pull |
+| `ceph_bootstrap_cephadm_command_timeout_s` | `3600` | value written to cephadm's own `mgr/cephadm/default_cephadm_command_timeout` (ships at 900 s, which a deploy-with-cold-pull can exceed — cephadm then aborts the deploy itself) |
 
 Reads from `group_vars/all/main.yml`: `vpac_nodes`, `ceph.*` (including `registry_credentials_file`), `sources.container_registry`, `sources.container_registry_insecure`, `container_images.*`.
 
