@@ -87,7 +87,7 @@ Building a **single node by hand** (no Ansible), with the ABB SSC600SW IED as th
 **Connected path extras:**
 
 - Active RHEL subscription (RHSM or Satellite) reachable from the cluster nodes
-- Red Hat Ceph Storage entitlement (the `rhceph-7-tools-for-rhel-9-x86_64-rpms` repo enabled via your subscription)
+- Red Hat Ceph Storage entitlement (the `rhceph-9-tools-for-rhel-9-x86_64-rpms` repo enabled via your subscription)
 
 **Air-gapped path extras:**
 
@@ -178,7 +178,7 @@ Full walk-through: [`docs/DEPLOYMENT-AIRGAPPED.md`](docs/DEPLOYMENT-AIRGAPPED.md
 | 30 | Virtualization | `virt` | ✅ ready | libvirt, KVM modprobe drop-in, tuned cpu-partitioning, libvirt networks (mgmt + station-bus), qemu hook, qemu.conf overrides, sanlock host chain, virt-host-validate |
 | 40 | PTP | `ptp` | ✅ ready | timemaster supervises ptp4l + phc2sys + embedded chronyd on hosts with a PTP NIC (system chronyd masked); NTP-follower path on hosts without one; Power Profile P2P/L2; multi-GM damping; `ptp_status` writer for virtiofs share to relay VMs; 4-sample GM-stability verify |
 | 50 | RT tuning | `rt` | ✅ ready | kernel-rt + RT package set, versionlock pattern, RT cmdline knobs, `/etc/sysctl.d/vpac-rt.conf`, `realtime-virtual-host` tuned profile (variables file written **before** activation), `sys-fs-resctrl.mount` for Intel CAT, RT chrony overrides on relay hosts, cpufreq governor — runs on `rt_hosts` only; reboot required after first run |
-| 60 | Ceph | `ceph` | ✅ ready | cephadm bootstrap with RHCS 7 (`--ssh-user`), post-bootstrap network/dashboard config, OSD wipe + restorecon; `ceph_expand` adds RBD pool, libvirt cephx secret with shared UUID, sanlock-on-RBD chain |
+| 60 | Ceph | `ceph` | ✅ ready | cephadm bootstrap with RHCS 9 (`--ssh-user`), post-bootstrap network/dashboard config, OSD wipe + restorecon; `ceph_expand` adds RBD pool, libvirt cephx secret with shared UUID, sanlock-on-RBD chain |
 | 70 | Pacemaker | `pacemaker` | ✅ ready | pcs cluster on the heartbeat network, hacluster auth, `pcsd` web UI on :2224, resource defaults, operator recovery primitives (`pcs-safe-reboot`, `pcs-cluster-precheck`, `pcs-vm-move`, `pcs-vm-status`, `op-pacemaker-recover.yml`) |
 | 75 | STONITH | `stonith` | ✅ ready | fence_ipmilan or fence_virsh per node (idempotent), location constraints (no node fences itself), atomic enable, interactive `op-stonith-fence-test.yml` playbook |
 | 80 | VM deploy | `vm` | ✅ ready | render libvirt domain XML from `vm_catalog` (RT block, RBD disks, sanlock leases, virtiofs, Windows-11 UEFI/TPM/Hyper-V); Pacemaker-managed mode by default on ≥3-node clusters (`VirtualDomain` resources, location constraints, `op-vm-undefine.yml`); standalone fallback on single-node |

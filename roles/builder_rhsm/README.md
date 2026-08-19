@@ -19,7 +19,7 @@ Idempotent — a second run against a registered host with repos already enabled
 | `rhsm_username` | `group_vars/all/vault.yml` | fallback auth path |
 | `rhsm_password` | `group_vars/all/vault.yml` | required with username |
 | `rhsm_server_url` | `group_vars/all/main.yml` | defaults to `subscription.rhsm.redhat.com`; override for Satellite |
-| `rhsm_repos` | `group_vars/all/main.yml` | list of repo IDs to enable; include `rhceph-7-tools-for-rhel-9-x86_64-rpms` to source RHCS packages |
+| `rhsm_repos` | `group_vars/all/main.yml` | list of repo IDs to enable; include `rhceph-9-tools-for-rhel-9-x86_64-rpms` to source RHCS packages |
 | `builder_rhsm_skip_register` | role default `false` | flip true if the host is already registered (Satellite-managed, re-run, etc.) |
 
 ## When to use

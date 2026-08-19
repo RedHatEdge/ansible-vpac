@@ -14,7 +14,7 @@ You need:
   - `rhel-9-for-x86_64-{baseos,appstream,highavailability}-rpms` — base + HA add-on
   - `rhel-9-for-x86_64-nfv-rpms` — `kernel-rt` for `rt_tuning`
   - `codeready-builder-for-rhel-9-x86_64-rpms` (CRB) — `libvirt-daemon-plugin-sanlock` (sanlock-on-RBD chain)
-  - `rhceph-7-tools-for-rhel-9-x86_64-rpms` — Red Hat Ceph Storage
+  - `rhceph-9-tools-for-rhel-9-x86_64-rpms` — Red Hat Ceph Storage
 - **A Red Hat registry service account** — `cephadm bootstrap` pulls the RHCS container image from `registry.redhat.io`, which requires authentication. Create one at [access.redhat.com/terms-based-registry](https://access.redhat.com/terms-based-registry/); save the username (shape `<org-id>|<token-name>`) + password for the vault file below. (Not the IAM/API service accounts at `console.redhat.com/iam` — those don't authenticate to `registry.redhat.io`.)
 - An Ansible control workstation with Ansible 2.15+ and Python 3.9+ (the workstation needs `passlib` from pip — see `requirements.txt` — for the `password_hash` filter the `pacemaker_base` role uses)
 - Physical network cabling matching the five-network layout in [`ARCHITECTURE.md`](ARCHITECTURE.md)

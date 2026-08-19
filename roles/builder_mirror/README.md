@@ -24,7 +24,7 @@ Reads `rhsm_repos` from `group_vars/all/main.yml`.
 
 ## Storage + time expectations
 
-- First run pulls ~10–20 GB for the default 6-repo set (BaseOS + AppStream + HA + resilient-storage + NFV + rhceph-7-tools). Size grows with each additional repo.
+- First run pulls ~10–20 GB for the default 6-repo set (BaseOS + AppStream + HA + resilient-storage + NFV + rhceph-9-tools). Size grows with each additional repo.
 - Duration depends on the builder's egress bandwidth. Plan 30–60 minutes for the initial sync; subsequent runs with no new packages upstream are fast.
 
 ## Dependencies

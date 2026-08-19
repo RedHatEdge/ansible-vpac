@@ -1,0 +1,70 @@
+---
+# Stale client-state guard. Field root cause of a full day of failed
+# redeployments: a kernel RBD mapping for a DESTROYED cluster's sanlock
+# lockspace survived teardown on every node (the sanlock chain makes maps
+# boot-persistent via /etc/ceph/rbdmap, and nothing unmapped them before
+# the cluster was removed). Against a dead cluster the mapping is
+# reboot-only: unmap hangs, reads park in uninterruptible D-state, and
+# ceph-volume activate on the NEXT deployment blocks forever enumerating
+# block devices — every OSD failed on every node until a rolling reboot.
+#
+# Detection rule: a node that does NOT yet have this cluster's
+# /etc/ceph/ceph.conf but DOES have kernel RBD mappings is carrying state
+# from a previous cluster. (Healthy re-runs pass: ceph.conf exists, so
+# legitimately-mapped lockspace devices never trip this.)
+
+- name: "Check for this cluster's ceph.conf on the node"
+  ansible.builtin.stat:
+    path: /etc/ceph/ceph.conf
+  register: _ceph_guard_conf
+
+- name: "List kernel RBD mappings on the node"
+  ansible.builtin.find:
+    paths: /sys/bus/rbd/devices
+    file_type: any
+  register: _ceph_guard_rbd
+  failed_when: false
+
+# Second face of the same gap: /etc/ceph/rbdmap entries + an enabled
+# rbdmap.service RESURRECT the mapping on next boot even when nothing is
+# mapped right now. An enabled service with NO file (or an empty one) is
+# harmless — the entries are the load-bearing part, so only they trip
+# the guard. Catches hand-built and inherited nodes, not just ones this
+# project's teardown touched.
+- name: "Check for leftover rbdmap entries"
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep -Ev '^\s*(#|$)' /etc/ceph/rbdmap 2>/dev/null | wc -l
+  register: _ceph_guard_rbdmap_entries
+  changed_when: false
+  failed_when: false
+
+- name: "Assert no boot-persistent rbdmap entries predate this cluster"
+  ansible.builtin.assert:
+    that: >-
+      _ceph_guard_conf.stat.exists or
+      ((_ceph_guard_rbdmap_entries.stdout | default('0') | trim | int) == 0)
+    fail_msg: >-
+      {{ inventory_hostname }} has
+      {{ _ceph_guard_rbdmap_entries.stdout | default('?') | trim }}
+      entr(y/ies) in /etc/ceph/rbdmap but no /etc/ceph/ceph.conf — a
+      previous cluster's boot-persistent mapping config. On the next boot
+      rbdmap.service would map a device against a cluster that no longer
+      exists, which is unreadable, blocks device enumeration, and is
+      reboot-only to clear. Remove the stale entries from /etc/ceph/rbdmap
+      (and disable rbdmap.service if nothing else uses it), then re-run.
+
+- name: "Assert no RBD mapping predates this cluster on the node"
+  ansible.builtin.assert:
+    that: >-
+      _ceph_guard_conf.stat.exists or
+      ((_ceph_guard_rbd.files | default([])) | length == 0)
+    fail_msg: >-
+      {{ inventory_hostname }} has {{ (_ceph_guard_rbd.files | default([])) | length }}
+      kernel RBD mapping(s) but no /etc/ceph/ceph.conf — stale client state
+      from a previous cluster. If that cluster still exists: `rbd unmap`
+      each device and clear its /etc/ceph/rbdmap entry, then re-run. If
+      that cluster was already destroyed, unmap will hang (uninterruptible
+      D-state) and a REBOOT of this node is the only cure — then re-run.
+      Rule for next time: unmap RBD devices and unmount CephFS BEFORE
+      destroying a cluster (see docs/TROUBLESHOOTING.md).

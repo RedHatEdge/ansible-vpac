@@ -12,7 +12,7 @@ This cluster pattern replaces a rack of single-purpose hardware relay panels wit
 |---|---|---|
 | Operating system | RHEL 9 (9.7+) | Base platform, real-time tuning, kernel-rt from NFV repo |
 | Hypervisor | KVM + libvirt | VM lifecycle, CPU pinning, hugepages, sanlock leases |
-| Shared storage | Red Hat Ceph Storage 7 (`cephadm`) — CephFS + RBD | CephFS for VM disks; RBD pool backs the sanlock lockspace |
+| Shared storage | Red Hat Ceph Storage 9 (`cephadm`) — CephFS + RBD | CephFS for VM disks; RBD pool backs the sanlock lockspace |
 | Cluster manager | Pacemaker + Corosync (RHEL HA add-on) | VM placement, failover, quorum |
 | Fencing | STONITH — `fence_ipmilan` (production) or `fence_virsh` (lab) | Split-brain prevention; configurable via `stonith.fence_agent` |
 | Time sync | PTP (IEEE 1588 / Power Profile C37.238) via `timemaster` + RT-tuned chrony | Sub-µs sync for relays, NTP-follower fallback for hosts without a PTP NIC |

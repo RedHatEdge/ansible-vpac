@@ -22,9 +22,11 @@
 # The Leap-status assert above proves the clock is right; this one proves
 # cephadm will BELIEVE it. On pure-PTP hosts (chronyd masked, timemaster
 # owns chrony) the ptp_timesync role satisfies the probe with a
-# chrony.service -> timemaster.service alias. The list mirrors cephadm's
-# check_time_sync as shipped in RHCS 7 (newer builds also accept
-# timemaster.service natively).
+# chrony.service -> timemaster.service alias. The list deliberately
+# mirrors the STRICT check_time_sync of RHCS 7-era cephadm builds, which
+# lack timemaster.service; RHCS 9's cephadm (20.x) accepts timemaster
+# natively. Probing the older, stricter list means this assert passes on
+# every release — via the alias where needed, natively on newer builds.
 - name: "Probe the systemd units cephadm accepts as time sync"
   ansible.builtin.command: >-
     systemctl is-active

@@ -1,0 +1,72 @@
+---
+# Pre-pull the ceph container image on EVERY cluster node before any
+# `cephadm deploy` targets it (mon/mgr expansion, OSD daemons).
+#
+# Why: cephadm's per-host deploy includes the image pull when the image is
+# cold, and cephadm's own per-command timeout (default 900 s) aborts the
+# deploy if the pull is slow — RHCS 9's core image is ~1.3 GB per node
+# (field-diagnosed: CEPHADM_APPLY_SPEC_FAIL / CEPHADM_HOST_TIMEOUT_ERROR,
+# OSDs created but never activated). Pulling here makes deploy time
+# independent of registry throughput, keeps every timeout meaningful, and
+# turns a slow registry into a visible, attributable step. Works
+# identically for connected (registry.redhat.io + credentials) and
+# air-gapped (builder's anonymous local registry) paths.
+#
+# cephadm exists only on the bootstrap node, so podman is the mechanism.
+# On the bootstrap node the image is already present from ceph_bootstrap's
+# pre-pull — `podman image exists` makes this a no-op there.
+
+- name: "Compute RHCS container image path"
+  ansible.builtin.set_fact:
+    _ceph_image: >-
+      {{ ceph.container_image
+         if (ceph.container_image | default('', true) | length > 0)
+         else (sources.container_registry ~ '/' ~ container_images.ceph) }}
+
+- name: "Check whether the ceph image is already present on this node"
+  ansible.builtin.command: "podman image exists {{ _ceph_image }}"
+  register: _ceph_image_present
+  changed_when: false
+  failed_when: false
+
+# The registry credentials file lives on the bootstrap node (the operator
+# placed it there for `cephadm bootstrap --registry-json`). Read it once
+# from there; run_once copies the registered result to every host in the
+# play.
+- name: "Read registry credentials from the bootstrap node (when set)"
+  ansible.builtin.slurp:
+    src: "{{ ceph.registry_credentials_file }}"
+  register: _ceph_reg_creds_raw
+  delegate_to: "{{ ceph.bootstrap_node }}"
+  run_once: true
+  no_log: true
+  when: (ceph.registry_credentials_file | default('', true) | length > 0)
+
+- name: "podman login to the registry (only when credentials are set)"
+  # Credentials pass via environment, never interpolated into the shell
+  # line — a password containing quotes or $ must not break (or inject
+  # into) the command.
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    printf '%s' "$CEPH_REG_PW"
+    | podman login "$CEPH_REG_URL" -u "$CEPH_REG_USER" --password-stdin
+  environment:
+    CEPH_REG_URL: "{{ (_ceph_reg_creds_raw.content | b64decode | from_json).url }}"
+    CEPH_REG_USER: "{{ (_ceph_reg_creds_raw.content | b64decode | from_json).username }}"
+    CEPH_REG_PW: "{{ (_ceph_reg_creds_raw.content | b64decode | from_json).password }}"
+  no_log: true
+  changed_when: false
+  when:
+    - _ceph_image_present.rc != 0
+    - (ceph.registry_credentials_file | default('', true) | length > 0)
+
+- name: "Pre-pull the ceph image (bounded; pull time is the dominant cost)"
+  ansible.builtin.command: >-
+    podman pull
+    {{ '--tls-verify=false' if (sources.container_registry_insecure | default(false)) else '' }}
+    {{ _ceph_image }}
+  register: _ceph_prepull
+  changed_when: _ceph_image_present.rc != 0
+  when: _ceph_image_present.rc != 0
+  async: "{{ ceph_expand_image_pull_timeout_s }}"
+  poll: 15

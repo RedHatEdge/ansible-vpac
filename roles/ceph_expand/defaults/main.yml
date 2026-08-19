@@ -1,14 +1,41 @@
 ---
 # How long to wait for each `ceph orch` operation to report its target
 # state — host addition, OSD creation, fs ready, etc.
-# First-cold runs pull the ~1 GB ceph container image on each non-bootstrap
-# node; at typical NAT bandwidth that plus OSD deploy pushes past 5 min.
-ceph_expand_orch_timeout_s: 900
+# The role pre-pulls the ceph image on every node (prepull_image.yml)
+# BEFORE any deploy, so orch waits no longer include image pulls. The
+# ceiling stays generous because cephadm's own per-command timeout (raised
+# by ceph_bootstrap) is the binding constraint, and OUR wait expiring
+# early just hides cephadm's more specific error. Bounded on purpose —
+# these timeouts are what convert a silent hang into a reported failure.
+ceph_expand_orch_timeout_s: 1800
+
+# Max time for the per-node cache-warming image pull. RHCS 9's core image
+# is ~1.3 GB per node (larger than RHCS 7); sized for a slow link.
+ceph_expand_image_pull_timeout_s: 1800
+
+# Per-invocation ceiling for `ceph orch ...` CLI reads/applies. These ride
+# the mgr's cephadm module, which can wedge (field-measured: calls blocked
+# 47+ minutes after the orchestrator had already given up). Enforced with
+# GNU `timeout --kill-after` so the ceiling REAPS the process — an
+# Ansible-level task timeout abandons the remote process alive, and each
+# retry then spawns another one (field-measured orphan farm: 4 retry waves
+# x 3 nodes = 12 live orphans, which later block teardown by holding
+# device locks). A healthy orch call returns in seconds; when this fires,
+# the orchestrator is wedged and the failure is loud AND leaves no orphan.
+ceph_expand_orch_call_timeout_s: 300
+
+# Ceiling for the `ceph orch daemon add osd` SUBMIT specifically. RHCS 9
+# (20.2) field behavior: this CLI can hang even when the deploy SUCCEEDS
+# (daemon deployed in ~6 s; the CLI sat 22+ minutes) — so the call is
+# treated as fire-and-verify: GNU timeout reaps it at this bound, rc 124
+# counts as "request submitted, convergence unknown" (not a failure, not
+# retried), and the OSD-count state poll is the actual verdict.
+ceph_expand_osd_submit_timeout_s: 120
 
 # How long to wait for HEALTH_OK (or the operator-configured acceptable
 # state) at the end of the role. Tuning OSDs on slow disks can make this
 # take a while.
-ceph_expand_health_timeout_s: 600
+ceph_expand_health_timeout_s: 900
 
 # Whether HEALTH_OK is required for the role to succeed. Set false for
 # deployments that expect HEALTH_WARN (e.g. insufficient OSDs in a minimal

@@ -35,6 +35,34 @@
   register: _ceph_restorecon
   changed_when: (_ceph_restorecon.stdout | default('')) | length > 0
 
+# ---- Stale-mount guard -------------------------------------------------
+# Field-verified: a CephFS mount + _netdev fstab entry from a PREVIOUS
+# cluster survives `cephadm rm-cluster` AND the manual residue path — it
+# sat on this exact mountpoint pointing at a destroyed cluster's fsid,
+# directly in the redeploy's way (and as a boot-time hazard). A mount
+# module told "state: mounted" over a dead-cluster ceph mount can hang or
+# silently leave the wrong cluster mounted. Refuse loudly instead.
+- name: "Read what is currently mounted at the CephFS mountpoint"
+  ansible.builtin.command: "findmnt -n -o SOURCE --mountpoint {{ ceph.cephfs_mountpoint }}"
+  register: _ceph_mnt_src
+  changed_when: false
+  failed_when: false
+
+- name: "Assert the mountpoint is free, or already ours (same fsid)"
+  ansible.builtin.assert:
+    that: >-
+      ((_ceph_mnt_src.stdout | trim) | length == 0) or
+      (ceph_fsid in (_ceph_mnt_src.stdout | trim))
+    fail_msg: >-
+      {{ ceph.cephfs_mountpoint }} is already mounted from
+      '{{ _ceph_mnt_src.stdout | trim }}', which does not belong to this
+      cluster (fsid {{ ceph_fsid }}). This is usually a stale CephFS mount
+      from a previous cluster — cluster removal does NOT clean it up. Fix
+      on this node, then re-run:
+      `umount -l {{ ceph.cephfs_mountpoint }}` (lazy — a dead-cluster
+      cephfs mount can block a normal umount), then remove the matching
+      line from /etc/fstab (back it up first).
+
 - name: "Create mountpoint"
   ansible.builtin.file:
     path: "{{ ceph.cephfs_mountpoint }}"
