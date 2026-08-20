@@ -31,3 +31,31 @@
   community.general.rhsm_repository:
     name: "{{ rhsm_repos }}"
     state: enabled
+
+# Repo enablement is ADDITIVE: enabling the rhceph-9 tools repo does not
+# disable a previously-enabled rhceph-7 one, so an in-place RHCS version
+# migration leaves BOTH tools repos active (field-observed on all nodes
+# after a 7→9 bump) — harmless until dnf resolves a package from the
+# wrong stream. Disable any rhceph tools repo that is not the one the
+# inventory declares. Scoped to rhceph-*-tools only — no other repo
+# family is version-exclusive like this.
+- name: "List enabled rhceph tools repos"
+  ansible.builtin.shell: |
+    set -o pipefail
+    subscription-manager repos --list-enabled 2>/dev/null \
+      | awk '/Repo ID:.*rhceph-.*-tools-/ {print $3}'
+  register: _baseline_rhceph_enabled
+  changed_when: false
+  failed_when: false
+
+- name: "Disable rhceph tools repos not declared in rhsm_repos"
+  community.general.rhsm_repository:
+    name: "{{ _baseline_rhceph_stale }}"
+    state: disabled
+  vars:
+    _baseline_rhceph_stale: >-
+      {{ (_baseline_rhceph_enabled.stdout_lines | default([]))
+         | reject('in', rhsm_repos) | list }}
+  when: >-
+    ((_baseline_rhceph_enabled.stdout_lines | default([]))
+     | reject('in', rhsm_repos) | list) | length > 0

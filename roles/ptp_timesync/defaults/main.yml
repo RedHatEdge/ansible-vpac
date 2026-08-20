@@ -135,9 +135,11 @@ ptp_timesync_require_hw_timestamping: true
 # /etc/systemd/system/chrony.service -> timemaster.service, which
 # satisfies cephadm's probe truthfully (timemaster supervises the chronyd
 # that disciplines the clock). Upstream cephadm >= reef 18.2.4 / squid
-# recognizes timemaster.service natively; the alias is required for
-# older builds and harmless on newer ones. Only relevant when the ceph
-# stages run; safe to leave on everywhere.
+# recognizes timemaster.service natively — hardware-confirmed by A/B on
+# RHCS 9 (20.2.1): check-host passes with the alias PARKED, naming
+# timemaster.service explicitly. The alias is required for RHCS 7/8 and
+# belt-and-braces on 9 (proven, no longer predicted). Only relevant when
+# the ceph stages run; safe to leave on everywhere.
 ptp_timesync_cephadm_time_sync_alias: true
 
 # Packages. linuxptp brings ptp4l, phc2sys, timemaster, pmc; ethtool is
