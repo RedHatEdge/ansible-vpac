@@ -61,6 +61,14 @@
         - _vn_storage_if | length > 0
         - validate_storage_nic_min_mbps | int > 0
 
+    # KNOWN LIMIT of this check (field-measured 2026-08-20): sysfs `speed`
+    # is the module's HOST-SIDE rate, not the wire rate. An SFP-to-copper
+    # module reports 10000 to the host while negotiating 1G on the wire —
+    # a saturated 1G fabric measured 42 MiB/s client writes on a node whose
+    # storage NIC reported 10000 here. This assert catches downgrades the
+    # HOST can see (a slave that linked at 1G); it CANNOT catch a
+    # rate-adapting module into a slower switch port. Wire-rate truth needs
+    # a throughput probe or the switch's own port state.
     - name: "Assert storage NIC speed at or above floor"
       ansible.builtin.assert:
         that:
@@ -68,7 +76,11 @@
         fail_msg: >-
           storage NIC reports {{ _vn_storage_speed.stdout | trim }} Mbps,
           below {{ validate_storage_nic_min_mbps }} Mbps floor —
-          common cause: a slave came up at 1G when the partner should be 10G
+          common cause: a slave came up at 1G when the partner should be 10G.
+          NOTE: this reads the module's host-side rate; a PASSING value does
+          not prove the wire rate (SFP-to-copper modules report 10000 while
+          negotiating 1G on the copper side) — confirm fabric capability
+          with a throughput test or the switch port state.
       when:
         - _vn_storage_speed is not skipped
         - _vn_storage_speed.stdout is defined
