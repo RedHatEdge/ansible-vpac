@@ -10,7 +10,7 @@ This cluster pattern replaces a rack of single-purpose hardware relay panels wit
 
 | Layer | Technology | Role |
 |---|---|---|
-| Operating system | RHEL 9 (9.7+) | Base platform, real-time tuning, kernel-rt from NFV repo |
+| Operating system | RHEL 9 (9.6+; validated on 9.7/9.8) | Base platform, real-time tuning, kernel-rt from NFV repo |
 | Hypervisor | KVM + libvirt | VM lifecycle, CPU pinning, hugepages, sanlock leases |
 | Shared storage | Red Hat Ceph Storage 9 (`cephadm`) — CephFS + RBD | CephFS for VM disks; RBD pool backs the sanlock lockspace |
 | Cluster manager | Pacemaker + Corosync (RHEL HA add-on) | VM placement, failover, quorum |

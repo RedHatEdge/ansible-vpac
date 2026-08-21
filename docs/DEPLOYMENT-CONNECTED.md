@@ -8,7 +8,7 @@ If your site cannot reach the internet from the cluster nodes, use [`DEPLOYMENT-
 
 You need:
 
-- 3 × RHEL 9.7+ hosts, freshly installed, reachable via SSH with passwordless sudo
+- 3 × RHEL 9 hosts (9.6 or newer; field-validated on 9.7 and 9.8), freshly installed, reachable via SSH with passwordless sudo
 - BMC credentials (iDRAC or IPMI) for each node, IPMI-over-LAN enabled in the BMC
 - Active RHEL subscription (activation key + org ID) or a Satellite you can reach, with these repo entitlements:
   - `rhel-9-for-x86_64-{baseos,appstream,highavailability}-rpms` — base + HA add-on

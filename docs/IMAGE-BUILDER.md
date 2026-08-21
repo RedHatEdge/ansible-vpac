@@ -52,7 +52,7 @@ Override any defaults on the command line with `-e`:
 
 ```bash
 ansible-playbook -i inventory/mysite playbooks/00-mint-builder-iso.yml \
-    -e builder_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso \
+    -e builder_iso_input=/path/to/rhel-9-x86_64-dvd.iso \
     -e builder_iso_output=/path/to/output/builder.iso \
     -e builder_iso_os_disk=nvme0n1
 ```

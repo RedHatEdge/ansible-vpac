@@ -26,7 +26,7 @@ copying and renaming the inventory, the vault) with nothing assumed.
   (`ansible.cfg` sets `become=True`). Setup + the no-prompt test:
   QUICKSTART.md step 2. The key path is set once in `hosts.yml`
   (`ansible_ssh_private_key_file`).
-- RHEL 9.7 installed on the nodes (connected mode); for the air-gapped path
+- RHEL 9 (9.6 or newer; field-validated on 9.7 and 9.8) installed on the nodes (connected mode); for the air-gapped path
   the builder/ISO workflow installs them — see `docs/DEPLOYMENT-AIRGAPPED.md`.
 - Connected mode: RHSM activation key + org, and `registry.redhat.io` pull
   credentials (**terms-based registry service account** — see
@@ -113,7 +113,7 @@ ansible-playbook -i inventory/<yoursite> playbooks/<NN>-<name>.yml
 | 30 | `virt` | `30-virtualization.yml` | KVM/libvirt, tuned, qemu hook | `virsh list`, `systemctl status libvirtd` |
 | 40 | `ptp` | `40-ptp.yml` | timemaster (ptp4l+phc2sys+chrony), masks system chronyd, cephadm time-sync alias | **portState SLAVE + bounded, live offset** (see gotcha below) |
 | 50 | `rt` | `50-rt-tuning.yml` | **stages** kernel-rt, isolcpus, RT cmdline (RT kernels only), tuned — **takes effect only after the rolling reboot below** | staged: `grubby --default-kernel` shows the rt kernel. After the reboot: `cat /sys/devices/system/cpu/isolated` equals your declared list, cyclictest |
-| 60 | `ceph` | `60-ceph.yml` | cephadm bootstrap → hosts → OSDs → CephFS/RBD → monitoring | `ceph -s` HEALTH_OK, `ceph osd tree`. **Destructive on osd_devices** (guarded — see OPERATOR-VALUES.md re-run section) |
+| 60 | `ceph` | `60-ceph.yml` | cephadm bootstrap → hosts → OSDs → CephFS/RBD → monitoring | `ceph -s` HEALTH_OK, `ceph osd tree`. **Destructive on osd_devices** (guarded — see OPERATOR-VALUES.md re-run section). First run visibly pre-pulls the ~1.3 GB ceph image on every node before daemon work (pull time dominates a cold run); the role REFUSES loudly over residue from a previously-destroyed cluster (stale RBD maps, foreign CephFS mounts, squatting libvirt secrets) instead of failing mysteriously later — the failure text says exactly what to remove. |
 | 70 | `pacemaker` | `70-pacemaker.yml` | corosync/pacemaker on the heartbeat ring | `pcs status` |
 | 75 | `stonith` | `75-stonith.yml` | fencing (fence_ipmilan / fence_virsh) | `pcs stonith`, then `op-stonith-fence-test.yml` on a **drained** node |
 | 80 | `vm` | `80-vm-deploy.yml` | render + define VMs from `vm_catalog` (no-op when empty) | `virsh list`, VM boots |

@@ -32,7 +32,7 @@ Both guides follow the same basic structure so you can skim them side-by-side:
 2. Copy `inventory/example/` → `inventory/<your-site>/`, edit `hosts.yml` + `group_vars/all/main.yml`
 3. Create `group_vars/all/vault.yml` with the secrets (BMC passwords, RHSM key, registry creds where applicable)
 4. (Air-gapped only) Mint builder ISO → boot builder → bootstrap builder → mint cluster ISOs → boot cluster nodes
-5. (Connected only) Install stock RHEL 9.7 on the cluster nodes yourself
+5. (Connected only) Install stock RHEL 9 (9.6+; validated on 9.7/9.8) on the cluster nodes yourself
 6. Preflight, deploy (`site.yml`), validate
 
 ## Related docs

@@ -134,7 +134,7 @@ Produces a bootable RHEL 9 ISO for the builder host, with the static IP / hostna
 
 ```bash
 ansible-playbook -i inventory/mysite playbooks/00-mint-builder-iso.yml \
-    -e builder_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+    -e builder_iso_input=/path/to/rhel-9-x86_64-dvd.iso
 ```
 
 Runs on your workstation — builds a local podman/docker tooling container from `tools/iso-builder/`, invokes `mkksiso` inside it. Output lands at `build/vpac-builder-installer.iso` (configurable via `-e builder_iso_output=...`).
@@ -193,7 +193,7 @@ Produces one bootable RHEL 9 installer ISO per entry in `vpac_nodes`, each with 
 
 ```bash
 ansible-playbook -i inventory/mysite playbooks/00b-mint-cluster-isos.yml \
-    -e cluster_iso_input=/path/to/rhel-9.7-x86_64-dvd.iso
+    -e cluster_iso_input=/path/to/rhel-9-x86_64-dvd.iso
 ```
 
 Output: one `build/vpac-node-<hostname>.iso` per node (~13 GB each). Override `cluster_iso_output_dir` if you want them somewhere else — **but not `/tmp`** on Fedora/Bazzite (tmpfs, will run out of RAM).

@@ -77,16 +77,25 @@ Ansible logs into the servers the same way you would — over SSH — but it mus
 do so **without password prompts**. That takes two one-time setups per node:
 an SSH key, and passwordless sudo for your admin user.
 
+**Using the form in step 3? It does most of this step for you** — it
+creates a dedicated key, shows the exact `ssh-copy-id` commands pre-filled
+with your node IPs, and runs the 2d test per node with pass/fail. Do **2c**
+(passwordless sudo) by hand first — that part needs your password and a
+shell — then let the form drive the key. The commands below are the
+by-hand path, and they teach the same pattern the form uses.
+
 ```bash
-# 2a. Create a key on the laptop, once (accept the defaults; a passphrase is
-#     fine if you use ssh-agent, but simplest is none for a dedicated key):
-ssh-keygen -t ed25519
+# 2a. Create a DEDICATED key for this deployment (not your personal key):
+#     a deployment key can be rotated or handed to a colleague without
+#     touching your own identity, and no passphrase keeps unattended
+#     Ansible runs from stalling at a prompt.
+ssh-keygen -t ed25519 -f ~/.ssh/vpac-mysite -N ''
 
 # 2b. Copy the key to EACH node (repeat per node; enter the admin password
 #     one last time when asked):
-ssh-copy-id admin@10.0.0.11
-ssh-copy-id admin@10.0.0.12
-ssh-copy-id admin@10.0.0.13
+ssh-copy-id -i ~/.ssh/vpac-mysite.pub admin@10.0.0.11
+ssh-copy-id -i ~/.ssh/vpac-mysite.pub admin@10.0.0.12
+ssh-copy-id -i ~/.ssh/vpac-mysite.pub admin@10.0.0.13
 
 # 2c. On EACH node, allow the admin user to sudo without a password:
 ssh admin@10.0.0.11
@@ -101,9 +110,11 @@ ssh admin@10.0.0.11 sudo -n true && echo OK
 
 If 2d prints `OK` silently for all three nodes, this step is done forever.
 
-**How Ansible finds the key:** the example inventory sets
-`ansible_ssh_private_key_file: ~/.ssh/id_ed25519` in `hosts.yml` — if you made
-your key anywhere else, change that one line. (The alternative,
+**How Ansible finds the key:** one line in `hosts.yml` —
+`ansible_ssh_private_key_file`. The form writes the path of whatever key it
+created or you pointed it at; on the by-hand path, set it to your dedicated
+key (e.g. `~/.ssh/vpac-mysite`). The shipped example says `~/.ssh/id_ed25519`
+only as a lowest-common default — change it. (The alternative,
 `--private-key <path>` on every command, works but is easy to forget.)
 
 ## Step 3 — Make the inventory yours
