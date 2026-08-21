@@ -267,7 +267,7 @@ Clean each non-bootstrap node in this order: `systemctl stop 'ceph-*'` → `podm
 
 Two systemd traps seen in the field while doing this:
 - Phantom `ceph-<fsid>.target` units that survive `systemctl reset-failed` — it does **not** clear not-found *inactive* units. Delete the dangling symlinks under `/etc/systemd/system/{ceph.target.wants,multi-user.target.wants,ceph-<fsid>.target.wants}/`, then `systemctl daemon-reload`.
-- `pgrep -f`/`pkill -f` patterns that match their own shell wrapper — bracket the first character of the pattern (`pgrep -af '[c]eph'`) and verify results by observed state, not exit code.
+- `pgrep -f`/`pkill -f` patterns that match their own shell wrapper. The bracket trick (`pgrep -af '[c]eph'`) is a WORKAROUND that only helps when the pattern occurs once — if the same string appears anywhere else in your own command line (an argument, a path), you still match and kill yourself (field-repeated, multiple variants). Reliable methods: derive the PID from the resource the process holds (`ss -lptnH 'sport = :PORT'` for a listener, an fd, a pidfile) and kill by PID, or put the probe in a script file so the pattern never appears in the calling command line. Always verify by observed state afterwards, not exit code.
 
 ## Deployment halts in stage 60 (Ceph)
 

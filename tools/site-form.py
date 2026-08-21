@@ -353,16 +353,20 @@ def validate(f):
                     errs.append("heartbeat NIC '%s' is not in %s's NIC list" % (f["hb_nic"], n["host"]))
     if f["cpu_count"]:
         if not f["isolated_cpus"].strip():
+            # exclusive with the parse below — the blank case must emit ONE
+            # precise message, not this plus the generic parse error
+            # (field-observed double-emit).
             errs.append("cpu_count is set but isolated_cpus is blank — the two fields are "
                         "validated TOGETHER: either fill the isolated CPUs (e.g. 4-11) or "
                         "clear cpu_count")
-        try:
-            top = max(int(x) for part in f["isolated_cpus"].split(",") for x in part.split("-"))
-            if top >= int(f["cpu_count"]):
-                errs.append("isolated_cpus references CPU %d but this machine reports only %s CPUs "
-                            "(isolcpus would SILENTLY ignore the extras)" % (top, f["cpu_count"]))
-        except ValueError:
-            errs.append("isolated_cpus: use forms like 4-11 or 2,4-7")
+        else:
+            try:
+                top = max(int(x) for part in f["isolated_cpus"].split(",") for x in part.split("-"))
+                if top >= int(f["cpu_count"]):
+                    errs.append("isolated_cpus references CPU %d but this machine reports only %s CPUs "
+                                "(isolcpus would SILENTLY ignore the extras)" % (top, f["cpu_count"]))
+            except ValueError:
+                errs.append("isolated_cpus: use forms like 4-11 or 2,4-7")
     if f["site_timezone"] not in TZS:
         errs.append("timezone '%s' is not a valid zone — pick from the dropdown" % f["site_timezone"])
     kp = os.path.expanduser(f["ssh_key"])
