@@ -352,6 +352,10 @@ def validate(f):
                 if n["nics"] and f["hb_nic"] not in n["nics"]:
                     errs.append("heartbeat NIC '%s' is not in %s's NIC list" % (f["hb_nic"], n["host"]))
     if f["cpu_count"]:
+        if not f["isolated_cpus"].strip():
+            errs.append("cpu_count is set but isolated_cpus is blank — the two fields are "
+                        "validated TOGETHER: either fill the isolated CPUs (e.g. 4-11) or "
+                        "clear cpu_count")
         try:
             top = max(int(x) for part in f["isolated_cpus"].split(",") for x in part.split("-"))
             if top >= int(f["cpu_count"]):
@@ -418,6 +422,9 @@ button:hover{background:var(--rh-red-dark)} button:disabled{opacity:.55;cursor:w
 encrypted vault. Nothing is written until you press the button at the end, and if
 anything is wrong it refuses and tells you why. Every "how do I find this?" hint
 is a command you run on the server itself.</p>"""
+
+import hashlib as _hashlib
+BUILD_STAMP = _hashlib.sha256(open(os.path.abspath(__file__), "rb").read()).hexdigest()[:10]
 
 def form_page(errors=None, notice=None):
     h = PAGE_HEAD
@@ -534,6 +541,7 @@ identity, and it can be handed to a colleague.</div>
 <button>Review nothing — WRITE my site inventory now</button>
 <div class="hint">On success you get the exact next command to run. On any problem NOTHING is written.</div>
 </form>
+<p class="hint">form build %s — verify this matches <code>sha256sum tools/site-form.py | cut -c1-10</code>; a mismatch means a STALE server process is answering (kill it and restart)</p>
 <script>
 function showErr(m){const b=document.getElementById('errbanner');b.style.display='block';
 b.textContent='The form hit a problem in this browser: '+m+' — nothing was changed on disk. Report this exact text.';}
@@ -583,7 +591,7 @@ document.getElementById('keymsg').textContent='reusing '+p+' — make sure this 
 async function testSsh(){const el=document.getElementById('sshtest');el.textContent='testing…';
 const j=await jfetch('/testssh',fd());
 el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">${x.ok?'OK — key + passwordless sudo work':'FAILED — '+x.err}</b>`).join('<br>');}
-</script></body></html>""" % (node_block, nets)).replace("%TZSEL%", tz_select_html())
+</script></body></html>""" % (node_block, nets, BUILD_STAMP)).replace("%TZSEL%", tz_select_html())
     return h
 
 def success_page(f, files):
