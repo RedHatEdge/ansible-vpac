@@ -16,7 +16,7 @@ The architecture pattern this implements aligns with the [vPAC Alliance](https:/
 python3 tools/site-form.py
 ```
 
-Then open **<http://127.0.0.1:8765>** in your browser. It is a local web page (nothing to install, nothing leaves your machine, works offline) that asks plain questions — where is this site, what are the node addresses, which disks for storage — and every question comes with the exact command to run to find the answer. It can create and test the SSH key for you. When you press the button at the end, it writes your **complete site configuration, including the encrypted password vault**, into `inventory/<your-site>/`, and refuses with a plain-language list of problems if anything is wrong. That configuration is the single input everything else reads.
+Then open **<http://127.0.0.1:8765>** in your browser. It is a local web page (nothing to install, nothing leaves your machine, works offline) that asks plain questions — where is this site, what are the node addresses, which disks for storage. Every question with a discoverable answer comes with the exact command to find it; the rest (the network addressing) come from your site's network plan, which QUICKSTART's "What you need" list tells you to prepare first. It can create and test the SSH key for you. When you press the button at the end, it writes your **complete site configuration, including the encrypted password vault**, into `inventory/<your-site>/`, and refuses with a plain-language list of problems if anything is wrong. That configuration is the single input everything else reads.
 
 After that, deployment is three commands, and QUICKSTART walks you through each:
 

@@ -258,8 +258,9 @@ networks:
     # VLAN for shared mode (ignored for a raw dedicated NIC). In shared mode this
     # MUST be a different VLAN ID than networks.storage.vlan — reusing the storage
     # VLAN puts heartbeat and storage in one broadcast domain and one subnet, which
-    # breaks ring separation and trips preflight's subnet-uniqueness check. Here
-    # storage is VLAN 10, so heartbeat safely uses 30; pick any distinct free VLAN.
+    # breaks ring separation and trips preflight's subnet-uniqueness check. Any
+    # free VLAN distinct from the storage VLAN works; the form and preflight both
+    # enforce the distinctness.
     vlan: 30
     shared_bond: null                    # null/"" = dedicated NIC (default).
                                          # storage | mgmt | station | <bond ifname> = shared VLAN mode.

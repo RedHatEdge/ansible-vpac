@@ -52,8 +52,15 @@
       - item.item.storage_ip in (item.stdout | default(''))
     fail_msg: >-
       getent ahosts {{ item.item.hostname }}-storage returned '{{ item.stdout | default('(no answer)') }}';
-      expected to contain storage_ip {{ item.item.storage_ip }}. host_baseline must populate
-      <hostname>-storage entries in /etc/hosts (required for live migration and Ceph private mons).
+      expected to contain storage_ip {{ item.item.storage_ip }}.
+      {% if '.' in item.item.hostname %}CAUSE: '{{ item.item.hostname }}' is an
+      FQDN — vpac_nodes hostnames must be SHORT names (site_domain is appended
+      automatically), so the -storage alias was glued onto the TLD. Fix the
+      hostname in the inventory; host_baseline is healthy.
+      {% else %}If /etc/hosts already carries <short>-storage entries under a
+      different spelling, the inventory hostname does not match the node's —
+      align them. Otherwise re-run stage 10 (host_baseline populates these
+      entries; required for live migration and Ceph private mons).{% endif %}
   loop: "{{ _preflight_resolve_storage.results }}"
   loop_control:
     label: "{{ item.item.hostname }}-storage"

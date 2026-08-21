@@ -92,6 +92,26 @@
   when: _ph_hosts | length > 0
 
 # --- ceph block (only meaningful on 3+ node clusters) ------------------
+# --- hostnames must be SHORT (the /etc/hosts template appends site_domain) --
+# Field-diagnosed: an FQDN in vpac_nodes[].hostname renders every
+# /etc/hosts block malformed — the mgmt line gets the domain DOUBLED
+# (caught by nothing downstream) and the -storage/-hb aliases are glued
+# onto the TLD (caught only later, by resolution checks, with a message
+# that used to blame the wrong component). Reject it here, by name.
+- name: "Contract: vpac_nodes hostnames must be short names, not FQDNs"
+  ansible.builtin.assert:
+    that: >-
+      (vpac_nodes | default([]) | map(attribute='hostname')
+       | select('search', '[.]') | list | length) == 0
+    fail_msg: >-
+      vpac_nodes hostname(s)
+      {{ vpac_nodes | map(attribute='hostname') | select('search', '[.]') | list | to_json }}
+      contain dots — use the SHORT hostname. The /etc/hosts template appends
+      site_domain ('{{ site_domain | default('') }}') automatically, so an
+      FQDN here doubles the domain on the mgmt line and glues -storage/-hb
+      suffixes onto the TLD.
+  run_once: true
+
 - name: "Contract: ceph.bootstrap_node must be one of vpac_nodes"
   run_once: true
   ansible.builtin.set_fact:

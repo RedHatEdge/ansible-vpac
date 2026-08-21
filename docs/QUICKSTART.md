@@ -57,6 +57,13 @@ page — the form/vault asks for both later.
 
 - The servers' BMC (iDRAC/IPMI) addresses and a STONITH user on each — with
   **IPMI-over-LAN enabled** (iDRACs ship with it off)
+- **A network plan — four networks (management, storage, station bus,
+  heartbeat) with an address for each node on each.** On a fresh node only
+  the management network exists; the automation creates the rest, so these
+  are DESIGN decisions you make before the form, not values you look up.
+  The heartbeat must be its own network: either a dedicated NIC per node,
+  or — normal for 4-NIC hardware — a VLAN riding the storage bond (shares
+  physical fate with storage; supported, and the form asks which you want).
 - **If you will use PTP time sync: the switch carrying PTP must be a P2P
   transparent clock, configured as one.** A plain switch/bridge cannot forward
   the peer-delay frames PTP needs — every node will look *almost* synchronized

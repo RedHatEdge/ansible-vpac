@@ -134,6 +134,28 @@ def build_main_yml(f, base):
         rep = (r'\g<1>%s\g<2>' if quote else r'\g<1>%s') % val
         t = scoped(t, r'^  ptp:\n(?:    .*\n)+', pat, rep, misses, "time_sync.ptp.%s" % key)
     sub("ptp_nic", r'^  ptp_nic: ".*?"', '  ptp_nic: "%s"' % f["ptp_nic"])
+    # NIC-to-role bond mapping (from the operator's typed NIC lists — the
+    # collected names are now CONSUMED, not discarded). Homogeneous default:
+    # one mapping for all nodes; differing nodes stay a host_vars task.
+    for _mk, _bn in (("map_mgmt", "mgmt_bond"), ("map_storage", "storage_bond"),
+                     ("map_station", "station_bond")):
+        _members = "[%s]" % ", ".join('"%s"' % m for m in f[_mk])
+        _blk = r'^  %s:\n(?:    .*\n)+' % _bn
+        t = scoped(t, _blk, r'^(    members: )\[.*\]$', r'\g<1>%s' % _members,
+                   misses, "networking_defaults.%s.members" % _bn)
+        if _bn in ("mgmt_bond", "station_bond") and f[_mk]:
+            t = scoped(t, _blk, r'^(      primary: ").*(")', r'\g<1>%s\g<2>' % f[_mk][0],
+                       misses, "networking_defaults.%s.primary" % _bn)
+    # Heartbeat mode — BOTH keys written from the one explicit answer, so
+    # the VLAN and the mode selector can never disagree (HF-5).
+    if f["hb_mode"] == "shared":
+        # `    shared_bond:` at 4-space indent is unique in the contract —
+        # a plain anchored sub is sufficient and survives comment churn.
+        sub("networks.heartbeat.shared_bond", r'^    shared_bond: \S+',
+            '    shared_bond: "%s"' % f["hb_bond"])
+        sub("heartbeat_nic", r'^  heartbeat_nic: ".*?"', '  heartbeat_nic: ""')
+    else:
+        sub("heartbeat_nic", r'^  heartbeat_nic: ".*?"', '  heartbeat_nic: "%s"' % f["hb_nic"])
     # real-time (5b)
     sub("isolated_cpus", r'^  isolated_cpus: ".*?"', '  isolated_cpus: "%s"' % f["isolated_cpus"])
     sub("hugepage_size", r'^  hugepage_size: "\S+"', '  hugepage_size: "%s"' % f["hugepage_size"])
@@ -262,6 +284,10 @@ def parse(qs):
              cyclictest_us=g("cyclictest_us", "120"), ssh_user=g("ssh_user", "admin"),
              ssh_key=g("ssh_key", "~/.ssh/id_ed25519"), vault_password=g("vault_password"),
              reg_creds_path=g("reg_creds_path", "/root/ceph-registry.json"),
+             map_mgmt=[x.strip() for x in g("map_mgmt").split(",") if x.strip()],
+             map_storage=[x.strip() for x in g("map_storage").split(",") if x.strip()],
+             map_station=[x.strip() for x in g("map_station").split(",") if x.strip()],
+             hb_mode=g("hb_mode"), hb_bond=g("hb_bond", "storage"), hb_nic=g("hb_nic"),
              vault=dict(rhsm_activation_key=g("v_rhsm_key"), rhsm_org_id=g("v_rhsm_org"),
                         redhat_registry_username=g("v_reg_user"), redhat_registry_password=g("v_reg_pw"),
                         hacluster_password=g("v_hacluster")))
@@ -281,6 +307,50 @@ def validate(f):
         if not n["disks"]: errs.append("%s: at least one OSD by-id device required" % n["host"])
         if not n["bmc_pw"] and f["fence_agent"] == "fence_ipmilan":
             errs.append("%s: BMC password required for fence_ipmilan" % n["host"])
+        if "." in n["host"]:
+            errs.append("%s: hostname must be the SHORT name — the DNS domain '%s' is appended "
+                        "automatically; an FQDN here doubles the domain in every /etc/hosts entry"
+                        % (n["host"], f["site_domain"]))
+    # NIC role mapping must AGREE with the typed per-node NIC lists (the
+    # agreement-pattern family: disagreement is rejected here as UX, and
+    # preflight re-asserts it as the sole enforcer).
+    _rolemap = {"mgmt bond": f["map_mgmt"], "storage bond": f["map_storage"],
+                "station bond": f["map_station"]}
+    _assigned = []
+    for _role, _members in _rolemap.items():
+        if not _members:
+            errs.append("%s members: at least one NIC required (single-member bonds are fine)" % _role)
+        for _m in _members:
+            for n in f["nodes"]:
+                if n["nics"] and _m not in n["nics"]:
+                    errs.append("%s member '%s' is not in %s's NIC list (%s) — every member must "
+                                "exist on every node" % (_role, _m, n["host"], ", ".join(n["nics"])))
+            if _m in _assigned:
+                errs.append("NIC '%s' is assigned to two roles — one role per NIC" % _m)
+            _assigned.append(_m)
+    if f["ptp_nic"] and f["ptp_nic"] in _assigned:
+        errs.append("PTP NIC '%s' is also a bond member — the PTP NIC must stay out of all bonds" % f["ptp_nic"])
+    # Heartbeat mode: an explicit choice, both keys written from it.
+    if f["hb_mode"] not in ("shared", "dedicated"):
+        errs.append("Heartbeat 'runs on' choice is required — shared (VLAN on a bond) or dedicated NIC")
+    elif f["hb_mode"] == "shared":
+        _hbv = f["net"]["heartbeat"]["vlan"]
+        if not _hbv:
+            errs.append("shared heartbeat mode needs the heartbeat VLAN (Networks section)")
+        elif _hbv == f["net"]["storage"]["vlan"]:
+            errs.append("heartbeat VLAN must differ from the storage VLAN — same VLAN = one broadcast "
+                        "domain = no ring separation")
+    else:
+        if not f["hb_nic"]:
+            errs.append("dedicated heartbeat mode needs the heartbeat NIC name")
+        else:
+            if f["hb_nic"] in _assigned:
+                errs.append("heartbeat NIC '%s' is also a bond member — dedicated mode needs its own port" % f["hb_nic"])
+            if f["hb_nic"] == f["ptp_nic"]:
+                errs.append("heartbeat NIC and PTP NIC cannot be the same port")
+            for n in f["nodes"]:
+                if n["nics"] and f["hb_nic"] not in n["nics"]:
+                    errs.append("heartbeat NIC '%s' is not in %s's NIC list" % (f["hb_nic"], n["host"]))
     if f["cpu_count"]:
         try:
             top = max(int(x) for part in f["isolated_cpus"].split(",") for x in part.split("-"))
@@ -357,15 +427,19 @@ def form_page(errors=None, notice=None):
     node_block = ""
     for i, label in ((1, "Node A"), (2, "Node B"), (3, "Node C")):
         node_block += ('<div class="node"><h4>%s</h4>'
-          '<label>Hostname (FQDN)</label><input name="n%d_host" required>'
+          '<label>Hostname (SHORT name — the DNS domain from step 1 is appended automatically)</label><input name="n%d_host" required>'
+          '<div class="hint">on the node: <code>hostname -s</code>. NO dots — an FQDN here would double the domain in /etc/hosts</div>'
           '<label>Management IP</label><input name="n%d_mgmt" required>'
+          '<div class="hint">the address you SSH to today</div>'
           '<label>Storage IP</label><input name="n%d_storage" required>'
           '<label>Station IP</label><input name="n%d_station" required>'
           '<label>Heartbeat IP</label><input name="n%d_hb" required>'
+          '<div class="hint">these three come from your NETWORK PLAN (QUICKSTART: what you need) — the interfaces do not exist on the node yet; the automation creates them</div>'
           '<label>BMC (iDRAC/IPMI) IP</label><input name="n%d_bmc" required>'
+          '<div class="hint">from the BMC settings screen (iDRAC: Settings → Network)</div>'
           '<label>BMC type</label><select name="n%d_bmc_type"><option>idrac9</option><option>idrac8</option>'
           '<option>supermicro_ipmi</option><option>generic_ipmilan</option></select>'
-          '<label>BMC username</label><input name="n%d_bmc_user" value="admin">'
+          '<label>BMC username</label><input name="n%d_bmc_user" value="root">'
           '<label>BMC password (goes to vault)</label><input type="password" name="n%d_bmc_pw">'
           '<label>NIC names (comma-sep)</label><input name="n%d_nics" placeholder="eno1,eno2,eno3,eno4">'
           '<div class="hint">on the node: <code>ip -br link</code></div>'
@@ -410,7 +484,20 @@ identity, and it can be handed to a colleague.</div>
 <fieldset><legend>3. Nodes</legend>%s
 <label>Which node bootstraps Ceph?</label><select name="bootstrap" id="bootstrap"></select>
 <div class="hint">the form derives BOTH the variable and the inventory group from this — they can never disagree</div></fieldset>
-<fieldset><legend>4. Networks</legend>%s</fieldset>
+<fieldset><legend>4. Networks</legend>
+<div class="hint">Everything here comes from your NETWORK PLAN, not from the nodes — see QUICKSTART "What else you need". Four networks, addresses per node already entered above.</div>
+<label>Mgmt bond members (comma-separated, from the NIC names typed above)</label><input name="map_mgmt" required placeholder="eno1,eno2">
+<label>Storage bond members</label><input name="map_storage" required placeholder="ens1f0,ens1f1">
+<label>Station-bus bond members</label><input name="map_station" required placeholder="ens2f0,ens2f1">
+<div class="hint">every name must appear in EVERY node's NIC list (homogeneous hardware is the default; per-node differences go to host_vars by hand). One role per NIC; the PTP NIC stays out of all bonds; single-member bonds are fine.</div>
+<label>Heartbeat runs on</label><select name="hb_mode" id="hbmode" required><option value="">— choose —</option>
+<option value="shared">a VLAN on an existing bond (typical for 4-NIC hardware; shares physical fate with that bond)</option>
+<option value="dedicated">its own dedicated NIC (needs a spare port)</option></select>
+<span id="hbshared"><label>Which bond carries the heartbeat VLAN</label><select name="hb_bond"><option>storage</option><option>mgmt</option><option>station</option></select>
+<div class="hint">uses the heartbeat VLAN below — it MUST differ from the storage VLAN (ring separation; preflight enforces it)</div></span>
+<span id="hbdedicated"><label>Dedicated heartbeat NIC</label><input name="hb_nic" placeholder="ens3f0">
+<div class="hint">must exist on every node and belong to no bond</div></span>
+%s</fieldset>
 <fieldset><legend>4b. Timing — your domain, not a default</legend>
 <label>Time mode</label><select name="ts_mode"><option value="ptp">ptp — pure PTP, no NTP below the grandmaster (substation standard)</option>
 <option value="ptp_with_ntp">ptp_with_ntp — PTP with NTP fallback</option><option value="ntp">ntp — NTP only (labs)</option></select>
@@ -468,6 +555,10 @@ function toggleMode(){const ag=document.getElementById('modesel').value==='airga
 document.getElementById('agfields').style.display=ag?'':'none';
 document.getElementById('modenote').textContent=ag?'':'Connected mode: no builder exists — the builder questions are hidden because they do not apply.';}
 document.getElementById('modesel').addEventListener('change',toggleMode);toggleMode();
+function hbToggle(){const v=document.getElementById('hbmode').value;
+document.getElementById('hbshared').style.display=(v==='shared')?'':'none';
+document.getElementById('hbdedicated').style.display=(v==='dedicated')?'':'none';}
+document.getElementById('hbmode').addEventListener('change',hbToggle);hbToggle();
 document.getElementById('lscpu').addEventListener('input',e=>{const m=e.target.value.match(/^CPU\\(s\\):\\s*(\\d+)/m);
 if(m)document.getElementById('cpucount').value=m[1];});
 function fd(){const o=new URLSearchParams();['site_name','ssh_user'].forEach(k=>o.set(k,document.querySelector(`[name=${k}]`).value));
@@ -519,8 +610,10 @@ def success_page(f, files):
 vm_catalog empty — cluster-only path; stage 80 will be a no-op.</pre>
 <p>From there, follow <code>docs/DEPLOYMENT-RUNBOOK.md</code> Part B, one stage at a time.</p>
 <p><b>Left at example defaults for hand review</b> (deliberate v1 scope):
-NIC-to-role mapping beyond the PTP NIC (contract's networking_defaults),
-Ceph pool layout, and — air-gapped sites — the builder ISO section (contract §13).</p></div></body></html>""" % (
+Ceph pool layout, bond modes/options (members and heartbeat mode are now
+written from your answers; the mode/miimon/LACP options stay at the
+example's defaults), and — air-gapped sites — the builder ISO section
+(contract §13).</p></div></body></html>""" % (
         "".join("<li><code>%s</code></li>" % x for x in files), f["site_name"])
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -615,13 +708,16 @@ def selfcheck():
     print(js_gate())
     dummy_nodes = [dict(host="h%d" % i, mgmt="1.1.1.%d" % i, storage="2.2.2.%d" % i, station="3.3.3.%d" % i,
                         hb="4.4.4.%d" % i, bmc="5.5.5.%d" % i, bmc_type="idrac9", bmc_user="admin",
-                        bmc_pw="x", nics=["eno1"], disks=["/dev/disk/by-id/x%d" % i], letter=L)
+                        bmc_pw="x", nics=["eno1", "eno2", "ens1f0", "ens1f1", "ens2f0", "ens2f1", "ens3f0", "eno4"],
+                        disks=["/dev/disk/by-id/x%d" % i], letter=L)
                    for i, L in ((1, "a"), (2, "b"), (3, "c"))]
     f = dict(site_name="selfcheck", site_domain="d", site_timezone="UTC", dns=["1.1.1.1"], mode="connected",
              mirror_url="", registry="", builder_host="", builder_ip="", nodes=dummy_nodes,
              net={k: dict(cidr="9.9.9.0/24", vlan="7") for k in ("mgmt", "storage", "station", "heartbeat", "bmc")},
              bootstrap="h1", ts_mode="ptp", ptp_domain="0", ptp_transport="L2", ptp_delay="P2P",
-             ptp_profile="default", ptp_nic="eno4", reg_creds_path="/root/ceph-registry.json", isolated_cpus="4-11", cpu_count="16", hugepage_size="1G",
+             ptp_profile="default", ptp_nic="eno4", reg_creds_path="/root/ceph-registry.json",
+             map_mgmt=["eno1", "eno2"], map_storage=["ens1f0", "ens1f1"], map_station=["ens2f0", "ens2f1"],
+             hb_mode="shared", hb_bond="storage", hb_nic="", isolated_cpus="4-11", cpu_count="16", hugepage_size="1G",
              fence_agent="fence_ipmilan", storage_mbps="1000", cyclictest_us="120", ssh_user="admin",
              ssh_key="~/.ssh/k", vault_password="testtest",
              vault=dict(rhsm_activation_key="k", rhsm_org_id="o", redhat_registry_username="u",
