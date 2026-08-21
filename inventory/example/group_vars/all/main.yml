@@ -126,15 +126,21 @@ host_baseline_enable_insights: false
 # air-gapped and connected deployments.
 #   baseos / appstream       — RHEL core
 #   highavailability         — pcs, pacemaker, corosync, fence-agents
-#   resilient-storage        — gfs2 + companion bits
 #   nfv                      — kernel-rt, tuned-profiles-nfv, realtime
+#   codeready-builder        — libvirt-daemon-plugin-sanlock (virtualization
+#                              sanlock chain; included with base RHEL, no
+#                              extra entitlement)
 #   rhceph-9-tools           — cephadm, ceph-common (Red Hat Ceph Storage 9)
+# NOTE: repo IDs must match RHSM EXACTLY — preflight verifies each one
+# exists on the node's subscription. (A resilient-storage repo was once
+# listed here misspelled AND unused — nothing in the roles needs gfs2;
+# removed, not fixed.)
 rhsm_repos:
   - rhel-9-for-x86_64-baseos-rpms
   - rhel-9-for-x86_64-appstream-rpms
   - rhel-9-for-x86_64-highavailability-rpms
-  - rhel-9-for-x86_64-resilient-storage-rpms
   - rhel-9-for-x86_64-nfv-rpms
+  - codeready-builder-for-rhel-9-x86_64-rpms
   - rhceph-9-tools-for-rhel-9-x86_64-rpms
 
 # Red Hat container registry credentials. Required for builder_registry

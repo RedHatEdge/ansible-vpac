@@ -39,8 +39,9 @@ three servers with the **Server (no GUI)** base environment, create the same
 admin user on each, and note each server's management IP.
 
 **Subscriptions — what you actually need (ask for this list by name):**
-a subscription covering **RHEL 9 + High Availability + Resilient Storage +
-NFV (real-time kernel) + Red Hat Ceph Storage**. Asking for "RHEL" alone
+a subscription covering **RHEL 9 + High Availability + NFV (real-time
+kernel) + Red Hat Ceph Storage**. (The CodeReady Builder repo is also
+used; it comes with base RHEL and needs no extra entitlement.) Asking for "RHEL" alone
 gets you a subscription that fails mid-deployment when the HA or real-time
 repositories turn out to be missing. Where to get it:
 

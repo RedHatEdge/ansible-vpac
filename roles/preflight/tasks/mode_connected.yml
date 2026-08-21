@@ -24,6 +24,42 @@
   when: sources.repo_source == "rhsm"
   run_once: true
 
+# --- every rhsm_repos ID must EXIST on the node's subscription ----------
+# Value-vs-OUTSIDE-WORLD check (a different family from the contract's
+# self-consistency asserts): a misspelled repo ID passes every inventory
+# check and dies at stage 10 with "not a valid repository ID". Field
+# specimen: 'resilient-storage' listed with a hyphen when RHSM's real ID
+# family is 'resilientstorage'. Runs per node — offered repos depend on
+# each node's attached subscription.
+- name: "List repo IDs offered by this node's subscription"
+  ansible.builtin.shell: |
+    set -o pipefail
+    subscription-manager repos --list 2>/dev/null | awk '/^Repo ID:/ {print $3}'
+  args:
+    executable: /bin/bash
+  register: _preflight_repo_ids
+  changed_when: false
+  failed_when: false
+  when: sources.repo_source in ["rhsm", "satellite"]
+
+- name: "Assert every rhsm_repos entry exists on this node's subscription"
+  ansible.builtin.assert:
+    that: >-
+      (rhsm_repos | default([])
+       | reject('in', _preflight_repo_ids.stdout_lines | default([]))
+       | list | length) == 0
+    fail_msg: >-
+      rhsm_repos entr(y/ies)
+      {{ rhsm_repos | default([]) | reject('in', _preflight_repo_ids.stdout_lines | default([])) | list | to_json }}
+      are not offered by {{ inventory_hostname }}'s subscription. Check the
+      exact spelling against `subscription-manager repos --list` on the node
+      (RHSM IDs have no-hyphen surprises — e.g. 'resilientstorage'), and
+      check the subscription carries the entitlement. Stage 10 would
+      otherwise die here with 'not a valid repository ID'.
+  when:
+    - sources.repo_source in ["rhsm", "satellite"]
+    - (_preflight_repo_ids.stdout_lines | default([])) | length > 0
+
 - name: "Probe Satellite URL"
   ansible.builtin.uri:
     url: "{{ sources.satellite_url }}"
