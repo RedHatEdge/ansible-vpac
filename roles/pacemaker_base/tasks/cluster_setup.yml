@@ -29,6 +29,41 @@
          | join(' ') }}
   run_once: true
 
+# When setup is SKIPPED (conf exists), the existing cluster must BE the
+# contract's cluster. Field incident: a teardown stopped the old cluster
+# but never destroyed its config; the role correctly skipped the
+# non-idempotent setup and stage 70 went green against the WRONG cluster
+# — contract said one name, pcs status said another, and nothing
+# reported the divergence. Survives-teardown class, fifth member
+# (corosync.conf/CIB), and worse than the others: it is silent and a
+# DIFFERENT site's contract would silently manage the wrong cluster.
+- name: "Read the existing cluster's name (skip path only)"
+  ansible.builtin.command:
+    cmd: >-
+      awk -F': ' '/^\s*cluster_name:/ {print $2; exit}'
+      /etc/corosync/corosync.conf
+  delegate_to: "{{ vpac_nodes[0].hostname }}"
+  run_once: true
+  register: _pm_existing_name
+  changed_when: false
+  when: _pm_corosync_conf.stat.exists
+
+- name: "Assert the existing cluster IS the contract's cluster"
+  ansible.builtin.assert:
+    that: (_pm_existing_name.stdout | trim) == (pacemaker.cluster_name | string)
+    fail_msg: >-
+      /etc/corosync/corosync.conf already exists and names cluster
+      '{{ _pm_existing_name.stdout | trim }}', but this inventory's
+      pacemaker.cluster_name is '{{ pacemaker.cluster_name }}'. Cluster
+      setup would be SKIPPED (it is not idempotent) and you would be
+      silently managing a DIFFERENT cluster than your contract declares.
+      Either this host carries a previous deployment — destroy it
+      deliberately (`pcs cluster destroy --all` from any member, then
+      verify corosync.conf and the CIB are gone on every node) — or your
+      cluster_name is wrong for this site. Nothing was changed.
+  run_once: true
+  when: _pm_corosync_conf.stat.exists
+
 - name: "pcs cluster setup (first run only)"
   ansible.builtin.command:
     cmd: >-

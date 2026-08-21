@@ -269,6 +269,15 @@ Two systemd traps seen in the field while doing this:
 - Phantom `ceph-<fsid>.target` units that survive `systemctl reset-failed` — it does **not** clear not-found *inactive* units. Delete the dangling symlinks under `/etc/systemd/system/{ceph.target.wants,multi-user.target.wants,ceph-<fsid>.target.wants}/`, then `systemctl daemon-reload`.
 - `pgrep -f`/`pkill -f` patterns that match their own shell wrapper. The bracket trick (`pgrep -af '[c]eph'`) is a WORKAROUND that only helps when the pattern occurs once — if the same string appears anywhere else in your own command line (an argument, a path), you still match and kill yourself (field-repeated, multiple variants). Reliable methods: derive the PID from the resource the process holds (`ss -lptnH 'sport = :PORT'` for a listener, an fd, a pidfile) and kill by PID, or put the probe in a script file so the pattern never appears in the calling command line. Always verify by observed state afterwards, not exit code.
 
+## Pacemaker/corosync config survives `pcs cluster stop` — a redeploy silently adopts the old cluster
+
+The fifth member of the survives-teardown class, and the only silent one. `pcs cluster stop` (including `--all`) stops the services but removes **nothing**: `/etc/corosync/corosync.conf` and the CIB under `/var/lib/pacemaker/cib/` stay on every node. Because `pcs cluster setup` is not idempotent, the deploy deliberately skips it when `corosync.conf` already exists — so a redeploy over a stopped-but-not-destroyed cluster starts the old cluster back up and reports green, while `pcs status` shows a different cluster name than your inventory declares. Field-hit exactly this way: stages 70/75 passed against the previous deployment's cluster and nothing looked wrong until the name was checked. The roles now read the existing conf's `cluster_name` and refuse when it does not match the contract's `pacemaker.cluster_name`, naming both values.
+
+To actually remove a cluster, the command is **`pcs cluster destroy`** (or `--all` from any member) — that is what deletes the config. Two field notes:
+
+- `pcs cluster stop --all` (and destroy's own stop phase) can hang indefinitely against a partially degraded cluster. The force path, per node: `kill` the pacemaker daemons, `systemctl stop corosync`, remove `/etc/corosync/corosync.conf` and `/var/lib/pacemaker/cib/`, then `systemctl reset-failed`. Ceph is unaffected — it does not depend on corosync.
+- Verify on **every** node afterwards that both the conf and the CIB directory are gone. One node keeping its conf is enough to seed the stale cluster back.
+
 ## Deployment halts in stage 60 (Ceph)
 
 Most common causes in order:
