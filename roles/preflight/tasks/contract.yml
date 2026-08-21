@@ -308,16 +308,34 @@
   failed_when: false
   when: (sources.repo_source | default('')) in ['rhsm', 'satellite']
 
+# A nonzero rc from the probe is NOT proof of an unregistered host — a
+# probe that merely FAILED (lock contention, transient daemon state) must
+# never be reported as a determined "unregistered" with a confident
+# remediation (field-observed: a demonstrably registered host was named
+# unregistered by an intermittent probe failure; misleading-diagnosis
+# family). Determination requires subscription-manager's OWN verdict text;
+# anything else is "could not determine" and says so.
 - name: "Contract: RHSM credentials must be set when unregistered hosts need them"
   run_once: true
   vars:
     _contract_unregistered: >-
-      {{ ansible_play_hosts
-         | map('extract', hostvars)
-         | selectattr('_contract_rhsm_id', 'defined')
-         | selectattr('_contract_rhsm_id.rc', 'defined')
-         | rejectattr('_contract_rhsm_id.rc', 'equalto', 0)
-         | map(attribute='inventory_hostname') | list }}
+      {%- set out = [] -%}
+      {%- for h in ansible_play_hosts -%}
+        {%- set r = hostvars[h]._contract_rhsm_id | default({}) -%}
+        {%- set txt = (((r.stdout | default('')) ~ ' ' ~ (r.stderr | default(''))) | lower) -%}
+        {%- if (r.rc | default(0)) != 0 and 'not yet registered' in txt -%}
+          {%- set _ = out.append(h) -%}
+        {%- endif -%}
+      {%- endfor -%}{{ out }}
+    _contract_rhsm_indeterminate: >-
+      {%- set out = [] -%}
+      {%- for h in ansible_play_hosts -%}
+        {%- set r = hostvars[h]._contract_rhsm_id | default({}) -%}
+        {%- set txt = (((r.stdout | default('')) ~ ' ' ~ (r.stderr | default(''))) | lower) -%}
+        {%- if (r.rc | default(0)) != 0 and 'not yet registered' not in txt -%}
+          {%- set _ = out.append(h ~ " (rc=" ~ (r.rc | default('?')) ~ ": " ~ ((r.stderr | default(r.stdout | default(''))) | trim | truncate(80))  ~ ")") -%}
+        {%- endif -%}
+      {%- endfor -%}{{ out }}
   ansible.builtin.set_fact:
     _contract_issues: >-
       {{ _contract_issues
@@ -326,14 +344,24 @@
               ~ " — set vault_rhsm_activation_key in your vault.yml (see "
               ~ "vault.yml.example); required because sources.repo_source is '"
               ~ (sources.repo_source | default('')) ~ "'" ]
-            if (rhsm_activation_key | default('', true) | length) == 0 else [])
+            if ((rhsm_activation_key | default('', true) | length) == 0
+                and (_contract_unregistered | length) > 0) else [])
          + ([ "rhsm_org_id is empty and these hosts are NOT yet registered: "
               ~ (_contract_unregistered | join(', '))
               ~ " — set vault_rhsm_org_id in your vault.yml" ]
-            if (rhsm_org_id | default('', true) | length) == 0 else []) }}
+            if ((rhsm_org_id | default('', true) | length) == 0
+                and (_contract_unregistered | length) > 0) else [])
+         + ([ "registration state could NOT be determined for: "
+              ~ (_contract_rhsm_indeterminate | join(', '))
+              ~ " — the probe failed without subscription-manager's own "
+              ~ "'not yet registered' verdict. Usually transient; re-run "
+              ~ "preflight. If it persists, run `subscription-manager "
+              ~ "identity` on the host by hand. These hosts are NOT being "
+              ~ "reported as unregistered." ]
+            if (_contract_rhsm_indeterminate | length) > 0 else []) }}
   when:
     - (sources.repo_source | default('')) in ['rhsm', 'satellite']
-    - _contract_unregistered | length > 0
+    - (_contract_unregistered | length > 0) or (_contract_rhsm_indeterminate | length > 0)
 
 - name: "Contract: note already-registered hosts (creds not required for re-runs)"
   run_once: true
