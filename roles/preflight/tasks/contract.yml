@@ -98,6 +98,38 @@
 # (caught by nothing downstream) and the -storage/-hb aliases are glued
 # onto the TLD (caught only later, by resolution checks, with a message
 # that used to blame the wrong component). Reject it here, by name.
+# --- Ceph release, tools repo, and container image must AGREE -----------
+# The release is pinned in THREE places (rhsm_repos entry, container image
+# path, ceph.release) and nothing else enforces their agreement — while
+# cephadm, unpinned, "picks its own default, which may drift from
+# ceph.release" (bootstrap.yml's own comment). A version bump that misses
+# one field bootstraps one release while the inventory claims another.
+# Same agreement-pattern family as bond-members/NIC-list and
+# hostname/site_domain. An explicit ceph.container_image pin (digest or
+# custom path) exempts only the image leg — the operator who pins owns it.
+- name: "Contract: Ceph release, tools repo, and container image agree"
+  ansible.builtin.assert:
+    that:
+      - (rhsm_repos | default([]) | select('search', 'rhceph-') | list | length) == 1
+      - >-
+        (rhsm_repos | default([]) | select('search', 'rhceph-') | first | default(''))
+        is search('rhceph-' ~ (ceph.release | string) ~ '-tools')
+      - >-
+        ((ceph.container_image | default('', true) | length) > 0) or
+        ((container_images.ceph | default('')) is search('rhceph-' ~ (ceph.release | string) ~ '-rhel'))
+    fail_msg: >-
+      Ceph version pins DISAGREE — ceph.release is
+      '{{ ceph.release | default('?') }}', the rhceph tools repo in
+      rhsm_repos is {{ rhsm_repos | default([]) | select('search', 'rhceph-') | list | to_json }},
+      and container_images.ceph is
+      '{{ container_images.ceph | default('') }}'. All three must carry the
+      SAME major version (exactly one rhceph-<N>-tools repo, N ==
+      ceph.release, and an rhceph-<N>-rhel image) or the deploy bootstraps
+      one release while the inventory claims another. If you pinned
+      ceph.container_image explicitly, the image leg is exempt — you own
+      that pin.
+  run_once: true
+
 - name: "Contract: vpac_nodes hostnames must be short names, not FQDNs"
   ansible.builtin.assert:
     that: >-
