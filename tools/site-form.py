@@ -297,6 +297,17 @@ def validate(f):
     errs = []
     if not valid_site(f["site_name"]):
         errs.append("site name: lowercase letters/digits/dash, becomes the directory name")
+    else:
+        # Cheapest CERTAIN failure first: if the site directory already
+        # exists, no amount of fixing other errors makes the write happen —
+        # say so at the TOP of the list instead of after the operator has
+        # cleared everything else (the writer still re-checks; this is the
+        # early, operator-facing copy). Field-observed on a re-run — which
+        # is exactly what a walker does.
+        if os.path.exists(os.path.join(REPO, "inventory", f["site_name"])):
+            errs.append("inventory/%s already exists — this form writes NEW sites only; "
+                        "move or remove that directory first (nothing below matters until "
+                        "then)" % f["site_name"])
     hosts = [n["host"] for n in f["nodes"]]
     if len(set(hosts)) != 3 or "" in hosts: errs.append("three distinct node hostnames are required")
     if f["bootstrap"] not in hosts: errs.append("bootstrap node must be one of the three hostnames")
