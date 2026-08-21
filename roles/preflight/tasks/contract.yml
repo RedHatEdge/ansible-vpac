@@ -306,6 +306,22 @@
   register: _contract_rhsm_id
   changed_when: false
   failed_when: false
+  # Retry before classifying: most probe failures are transient (field
+  # specimen: rc=70 network blip to the RHSM server that cleared within
+  # seconds). A definitive answer — registered (rc 0) or subscription-
+  # manager's own 'not yet registered' verdict — stops the retries.
+  until: >-
+    _contract_rhsm_id.rc == 0 or
+    ('not yet registered' in
+     (((_contract_rhsm_id.stdout | default('')) ~ ' ' ~ (_contract_rhsm_id.stderr | default(''))) | lower))
+  retries: 2
+  delay: 3
+  when: (sources.repo_source | default('')) in ['rhsm', 'satellite']
+
+- name: "Contract: check for a consumer certificate on disk (local evidence)"
+  ansible.builtin.stat:
+    path: /etc/pki/consumer/cert.pem
+  register: _contract_consumer_cert
   when: (sources.repo_source | default('')) in ['rhsm', 'satellite']
 
 # A nonzero rc from the probe is NOT proof of an unregistered host — a
@@ -327,12 +343,18 @@
           {%- set _ = out.append(h) -%}
         {%- endif -%}
       {%- endfor -%}{{ out }}
+    # Indeterminate splits on LOCAL evidence: a consumer cert on disk is
+    # cheap proof of prior registration that needs no network — with it,
+    # a failed probe downgrades to a WARNING (stage 10 fails clearly if
+    # registration is genuinely broken); without it, the operator should
+    # look before a long run proceeds.
     _contract_rhsm_indeterminate: >-
       {%- set out = [] -%}
       {%- for h in ansible_play_hosts -%}
         {%- set r = hostvars[h]._contract_rhsm_id | default({}) -%}
+        {%- set cert = (hostvars[h]._contract_consumer_cert | default({})).stat | default({}) -%}
         {%- set txt = (((r.stdout | default('')) ~ ' ' ~ (r.stderr | default(''))) | lower) -%}
-        {%- if (r.rc | default(0)) != 0 and 'not yet registered' not in txt -%}
+        {%- if (r.rc | default(0)) != 0 and 'not yet registered' not in txt and not (cert.exists | default(false)) -%}
           {%- set _ = out.append(h ~ " (rc=" ~ (r.rc | default('?')) ~ ": " ~ ((r.stderr | default(r.stdout | default(''))) | trim | truncate(80))  ~ ")") -%}
         {%- endif -%}
       {%- endfor -%}{{ out }}
@@ -362,6 +384,31 @@
   when:
     - (sources.repo_source | default('')) in ['rhsm', 'satellite']
     - (_contract_unregistered | length > 0) or (_contract_rhsm_indeterminate | length > 0)
+
+- name: "Contract: WARN on probe-failed hosts with local registration evidence"
+  run_once: true
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: the RHSM probe failed on
+      {{ _contract_rhsm_probably_fine | join(', ') }} but a consumer
+      certificate exists on disk — treating as registered and PROCEEDING
+      (usually a transient network blip to the RHSM server; stage 10 will
+      fail with a clear subscription error if registration is genuinely
+      broken). Not blocking the run on it.
+  vars:
+    _contract_rhsm_probably_fine: >-
+      {%- set out = [] -%}
+      {%- for h in ansible_play_hosts -%}
+        {%- set r = hostvars[h]._contract_rhsm_id | default({}) -%}
+        {%- set cert = (hostvars[h]._contract_consumer_cert | default({})).stat | default({}) -%}
+        {%- set txt = (((r.stdout | default('')) ~ ' ' ~ (r.stderr | default(''))) | lower) -%}
+        {%- if (r.rc | default(0)) != 0 and 'not yet registered' not in txt and (cert.exists | default(false)) -%}
+          {%- set _ = out.append(h) -%}
+        {%- endif -%}
+      {%- endfor -%}{{ out }}
+  when:
+    - (sources.repo_source | default('')) in ['rhsm', 'satellite']
+    - _contract_rhsm_probably_fine | length > 0
 
 - name: "Contract: note already-registered hosts (creds not required for re-runs)"
   run_once: true

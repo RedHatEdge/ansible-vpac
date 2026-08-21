@@ -48,6 +48,55 @@
       stage 40 (ptp_timesync) with ptp_timesync_cephadm_time_sync_alias
       enabled. On NTP hosts, chronyd should simply be running.
 
+# --- stale client-state guard, BOOTSTRAP-NODE EDITION -------------------
+# ceph_expand's stale_client_guard short-circuits once /etc/ceph/ceph.conf
+# exists — and on the bootstrap node, bootstrap itself creates that file
+# BEFORE ceph_expand runs, so a stale /etc/ceph/rbdmap from a previous
+# cluster would never be caught there (field-observed asymmetry: the
+# guard fired on the non-bootstrap nodes only). Run the same checks HERE,
+# before bootstrap writes the conf. Semantics identical: no ceph.conf yet
+# + kernel RBD maps or rbdmap entries = a previous cluster's client state.
+- name: "Check for a pre-existing ceph.conf (re-run vs fresh bootstrap)"
+  ansible.builtin.stat:
+    path: /etc/ceph/ceph.conf
+  register: _ceph_pf_conf
+
+- name: "List kernel RBD mappings (fresh bootstrap only)"
+  ansible.builtin.find:
+    paths: /sys/bus/rbd/devices
+    file_type: any
+  register: _ceph_pf_rbd
+  failed_when: false
+  when: not _ceph_pf_conf.stat.exists
+
+- name: "Check for leftover rbdmap entries (fresh bootstrap only)"
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep -Ev '^\s*(#|$)' /etc/ceph/rbdmap 2>/dev/null | wc -l
+  args:
+    executable: /bin/bash
+  register: _ceph_pf_rbdmap
+  changed_when: false
+  failed_when: false
+  when: not _ceph_pf_conf.stat.exists
+
+- name: "Assert no previous cluster's client state on the bootstrap node"
+  ansible.builtin.assert:
+    that:
+      - ((_ceph_pf_rbd.files | default([])) | length) == 0
+      - ((_ceph_pf_rbdmap.stdout | default('0') | trim | int)) == 0
+    fail_msg: >-
+      The bootstrap node carries client state from a previous cluster:
+      {{ (_ceph_pf_rbd.files | default([])) | length }} kernel RBD
+      mapping(s) and
+      {{ _ceph_pf_rbdmap.stdout | default('0') | trim }} rbdmap entr(y/ies)
+      — with no current ceph.conf. A stale mapping against a destroyed
+      cluster is reboot-only (D-state); stale rbdmap entries resurrect it
+      on the next boot. Unmap / clear /etc/ceph/rbdmap (and disable
+      rbdmap.service if unused), then re-run. Rule: client artifacts come
+      OFF while the cluster is still alive (docs/TROUBLESHOOTING.md).
+  when: not _ceph_pf_conf.stat.exists
+
 - name: "Find this node's entry in vpac_nodes"
   ansible.builtin.set_fact:
     _ceph_node: "{{ vpac_nodes | selectattr('hostname', 'equalto', inventory_hostname) | first }}"
