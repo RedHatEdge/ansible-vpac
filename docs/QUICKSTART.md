@@ -57,6 +57,12 @@ page — the form/vault asks for both later.
 
 - The servers' BMC (iDRAC/IPMI) addresses and a STONITH user on each — with
   **IPMI-over-LAN enabled** (iDRACs ship with it off)
+- **If you will use PTP time sync: the switch carrying PTP must be a P2P
+  transparent clock, configured as one.** A plain switch/bridge cannot forward
+  the peer-delay frames PTP needs — every node will look *almost* synchronized
+  and no server-side setting can fix it. Confirm with whoever owns the switch
+  BEFORE install day; it is the most expensive site precondition to discover
+  late.
 - (Air-gapped only) a registry service account —
   [`OPERATOR-VALUES.md`](OPERATOR-VALUES.md) says how
 - A laptop with Linux or macOS (this guide shows RHEL/Fedora commands)
@@ -213,11 +219,24 @@ are reachable and sane.
 From here follow [`DEPLOYMENT-RUNBOOK.md`](DEPLOYMENT-RUNBOOK.md) Part B: the
 stage ladder (baseline → networking → virtualization → PTP → RT → storage →
 cluster → fencing → validate), one command per stage, with what to check after
-each. One heads-up so it doesn't surprise you there: the RT stage (50)
-**stages** its changes and nothing takes effect until each node reboots — the
-runbook ships a safe one-node-at-a-time reboot playbook for exactly that; the
-servers are never rebooted behind your back. Path-specific detail: [`DEPLOYMENT-CONNECTED.md`](DEPLOYMENT-CONNECTED.md)
+each. A few heads-ups so the runbook doesn't surprise you:
+the RT stage (50) **stages** its changes and nothing takes effect until each
+node reboots — the runbook ships a safe one-node-at-a-time reboot playbook for
+exactly that; the servers are never rebooted behind your back. The storage
+stage's first run **downloads a ~1.3 GB image to every node** — minutes per
+node on a 1 Gb link; that is deliberate (the download happens up front where
+you can see it) — size your window for it. And after the PTP stage, a
+**masked chronyd on the PTP nodes is CORRECT, not broken** — the PTP service
+supervises its own time daemon, and masking stops anything from starting a
+second one against it. Path-specific detail: [`DEPLOYMENT-CONNECTED.md`](DEPLOYMENT-CONNECTED.md)
 or [`DEPLOYMENT-AIRGAPPED.md`](DEPLOYMENT-AIRGAPPED.md).
+
+One rule for much later, recorded here because you will not go looking for
+it until it is too late: **if you ever destroy the storage cluster (rebuild,
+node replacement), client-side artifacts come OFF first, while the cluster is
+still alive** — mounts, device mappings, credentials. The exact order is in
+[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) under cluster removal; doing it
+backwards turns removable state into a per-node reboot.
 
 If anything fails with a message that does not tell you what to do next,
 that is a bug in this repo — please file it.

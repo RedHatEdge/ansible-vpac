@@ -103,6 +103,9 @@ def build_main_yml(f, base):
     dns = "\n".join("  - %s" % d for d in f["dns"]) or "  - 8.8.8.8"
     sub("site_dns_servers", r'^site_dns_servers:\n(?:  - .*\n)+', "site_dns_servers:\n%s\n" % dns)
     sub("deployment_mode", r'^deployment_mode: ".*?"', 'deployment_mode: "%s"' % f["mode"])
+    if f["mode"] == "connected":
+        sub("registry_credentials_file", r'^  registry_credentials_file: .*$',
+            '  registry_credentials_file: "%s"' % f["reg_creds_path"])
     if f["mode"] == "airgapped":
         sub("repo_source", r'^  repo_source: ".*?"', '  repo_source: "local_mirror"')
         sub("local_mirror_url", r'^  local_mirror_url: ".*?"', '  local_mirror_url: "%s"' % f["mirror_url"])
@@ -142,9 +145,8 @@ def build_main_yml(f, base):
     for n in f["nodes"]:
         osd += '    %s:\n' % n["host"] + "".join('      - "%s"\n' % d for d in n["disks"])
     sub("osd_devices block", r'^  osd_devices:\n(?:    .*\n)+', osd)
-    if f["mode"] == "connected":
-        sub("registry_credentials_file", r'^  registry_credentials_file: null',
-            '  registry_credentials_file: "/root/ceph-registry.json"')
+    # (registry_credentials_file is substituted earlier, from the operator's
+    # reg_creds_path field — previously hardcoded here.)
     # stonith
     sub("fence_agent", r'^  fence_agent: "\S+"', '  fence_agent: "%s"' % f["fence_agent"])
     # thresholds (step 7)
@@ -259,6 +261,7 @@ def parse(qs):
              fence_agent=g("fence_agent", "fence_ipmilan"), storage_mbps=g("storage_mbps", "10000"),
              cyclictest_us=g("cyclictest_us", "120"), ssh_user=g("ssh_user", "admin"),
              ssh_key=g("ssh_key", "~/.ssh/id_ed25519"), vault_password=g("vault_password"),
+             reg_creds_path=g("reg_creds_path", "/root/ceph-registry.json"),
              vault=dict(rhsm_activation_key=g("v_rhsm_key"), rhsm_org_id=g("v_rhsm_org"),
                         redhat_registry_username=g("v_reg_user"), redhat_registry_password=g("v_reg_pw"),
                         hacluster_password=g("v_hacluster")))
@@ -367,6 +370,7 @@ def form_page(errors=None, notice=None):
           '<label>NIC names (comma-sep)</label><input name="n%d_nics" placeholder="eno1,eno2,eno3,eno4">'
           '<div class="hint">on the node: <code>ip -br link</code></div>'
           '<label>OSD disks — one /dev/disk/by-id/ path per line</label><textarea rows="4" name="n%d_disks"></textarea>'
+          '<div class="hint">by-id ONLY — kernel names like /dev/sdb or /dev/nvme0n1 reorder across boots, the storage stage WIPES what it is handed, and a swapped name can destroy the OS disk. List them: <code>ls -l /dev/disk/by-id/</code></div>'
           '<div class="hint">on the node: <code>ls -l /dev/disk/by-id/ | grep -v part</code> — these disks are WIPED</div>'
           '</div>') % ((label,) + (i,) * 11)
     nets = ""
@@ -413,6 +417,7 @@ identity, and it can be handed to a colleague.</div>
 <label>PTP domain</label><input name="ptp_domain" value="0">
 <label>Transport</label><select name="ptp_transport"><option>L2</option><option>UDPv4</option></select>
 <label>Delay mechanism</label><select name="ptp_delay"><option>P2P</option><option>E2E</option></select>
+<div class="hint">P2P requires the SWITCH carrying PTP to be a P2P transparent clock. A plain bridge cannot forward peer-delay frames (they are link-local): nodes receive sync but never compute a path delay, and NO node-side setting can fix it. Verify the switch configuration before install day.</div>
 <label>Profile</label><select name="ptp_profile"><option>default</option><option>G.8275.1</option><option>G.8275.2</option></select>
 <label>Dedicated PTP NIC name (same on all nodes)</label><input name="ptp_nic" placeholder="eno4">
 <div class="hint">must be its own NIC — never bridged, bonded or shared. Check hardware timestamping: <code>ethtool -T &lt;nic&gt;</code></div></fieldset>
@@ -430,10 +435,13 @@ identity, and it can be handed to a colleague.</div>
 <label>registry.redhat.io service-account username</label><input name="v_reg_user" placeholder="1234567|token-name">
 <div class="hint">TERMS-BASED account from access.redhat.com/terms-based-registry — an IAM account will NOT work</div>
 <label>registry.redhat.io service-account password</label><input type="password" name="v_reg_pw">
+<label>Registry credentials file path ON the bootstrap node</label><input name="reg_creds_path" value="/root/ceph-registry.json">
+<div class="hint">Connected mode: BEFORE the storage stage you must create this file on the bootstrap node — JSON with "url", "username", "password" of the account above, then <code>chmod 0600</code> it. The success page prints the exact commands. Preflight verifies it exists. Air-gapped sites with an anonymous local registry: ignore, it is not written.</div>
+<div class="hint">Plan for the download: the first deploy pulls a ~1.3 GB ceph image PER NODE from the registry — minutes per node on a 1 Gb link. The roles pre-pull it deliberately so later steps are not timed out by the download; size your maintenance window for it.</div>
 <label>hacluster password (invent a strong one)</label><input type="password" name="v_hacluster" required></fieldset>
 <fieldset><legend>7. Thresholds — set from YOUR hardware</legend>
 <label>Storage network speed</label><select name="storage_mbps"><option value="10000">10 Gb (10000)</option><option value="1000">1 Gb (1000)</option></select>
-<div class="hint">answer honestly — the wrong value fails validation at the very end of deployment</div>
+<div class="hint">answer honestly — the wrong value fails validation at the very end of deployment. Do NOT read this from ethtool or /sys: a media-converter module reports its HOST-side rate (10000) even when the wire is 1 Gb. Verify with a throughput test or the switch port state.</div>
 <label>cyclictest max latency (µs)</label><input name="cyclictest_us" value="120">
 <label>Fence agent</label><select name="fence_agent"><option>fence_ipmilan</option><option>fence_virsh</option></select></fieldset>
 <button>Review nothing — WRITE my site inventory now</button>
@@ -492,7 +500,18 @@ def success_page(f, files):
     if f["mode"] == "connected" and any((f["builder_host"], f["builder_ip"], f["mirror_url"], f["registry"])):
         note = ('<p><b>Note:</b> builder/mirror values were entered but this is a CONNECTED '
                 'site — they do not apply and were intentionally NOT written.</p>')
-    return PAGE_HEAD + note + """<div class="ok"><h2>Site inventory written</h2><p>Files created:</p><ul>%s</ul>
+    reg_note = ""
+    if f["mode"] == "connected":
+        reg_note = (
+            '<p><b>One manual step before the storage stage</b> — on the bootstrap '
+            'node (<code>' + f["bootstrap"] + '</code>), create the registry credentials file '
+            '(use the account you entered in the form; the password is never shown here):</p>'
+            '<pre>sudo tee ' + f["reg_creds_path"] + " &lt;&lt;'EOF'\n"
+            '{"url":"registry.redhat.io","username":"YOUR-TERMS-BASED-USERNAME","password":"YOUR-TOKEN"}\n'
+            "EOF\n"
+            'sudo chmod 0600 ' + f["reg_creds_path"] + '</pre>'
+            '<p>Preflight checks that the file exists; the deploy fails without it.</p>')
+    return PAGE_HEAD + note + reg_note + """<div class="ok"><h2>Site inventory written</h2><p>Files created:</p><ul>%s</ul>
 <h3>Your next command (from the repo root):</h3>
 <pre>ansible-playbook -i inventory/%s site.yml --tags preflight --ask-vault-pass</pre>
 <p>It will either print a numbered list of everything still to fix (fix all, re-run), or:</p>
@@ -602,7 +621,7 @@ def selfcheck():
              mirror_url="", registry="", builder_host="", builder_ip="", nodes=dummy_nodes,
              net={k: dict(cidr="9.9.9.0/24", vlan="7") for k in ("mgmt", "storage", "station", "heartbeat", "bmc")},
              bootstrap="h1", ts_mode="ptp", ptp_domain="0", ptp_transport="L2", ptp_delay="P2P",
-             ptp_profile="default", ptp_nic="eno4", isolated_cpus="4-11", cpu_count="16", hugepage_size="1G",
+             ptp_profile="default", ptp_nic="eno4", reg_creds_path="/root/ceph-registry.json", isolated_cpus="4-11", cpu_count="16", hugepage_size="1G",
              fence_agent="fence_ipmilan", storage_mbps="1000", cyclictest_us="120", ssh_user="admin",
              ssh_key="~/.ssh/k", vault_password="testtest",
              vault=dict(rhsm_activation_key="k", rhsm_org_id="o", redhat_registry_username="u",

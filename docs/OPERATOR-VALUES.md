@@ -30,7 +30,7 @@ the stages.
 | per-node NIC names (`host_vars/`) | **only when nodes differ** — a homogeneous cluster leaves host_vars empty and `networking_defaults` (group scope) covers all nodes | `ens1f0`, … | `ip -br link` + `ethtool -i` on each node; see the networking role README's mapping guide |
 | `networks.*` / `bridges` (CIDRs, VLANs, bridge names) | always | CIDR / VLAN ids / bridge names | site network plan; heartbeat must be its own network (VLAN on the storage bond is supported but shares physical fate with storage — networking README "Heartbeat modes" + tradeoff note) |
 | `time_sync.*` | always | `mode: ptp` for substations | PTP NIC must be dedicated (no bridge/bond/macvtap); grandmaster details from the site's timing engineer |
-| `ceph.bootstrap_node` | 3+ nodes | ONE `vpac_nodes` hostname | **not a label** — every orchestrator command is delegated to this host |
+| `ceph.bootstrap_node` | 3+ nodes | ONE `vpac_nodes` hostname | **not a label** — every orchestrator command is delegated to this host. The `cephadm` binary exists ONLY here: day-2 consequences include `rm-cluster` cleaning only this node's own devices (other nodes need the manual residue path — see TROUBLESHOOTING) and the registry credentials file living here |
 | `ceph.osd_devices` | 3+ nodes | per-hostname list of `/dev/disk/by-id/...` | see the red box below |
 | `ceph.pools` | 3+ nodes | list of `{name, type, pg_num}` | defaults fit the reference layout |
 | `ceph.libvirt_secret_uuid` | never (leave `null`) | — | derived automatically from the cluster FSID; pin only to match a pre-existing secret, then never change |
