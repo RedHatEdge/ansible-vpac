@@ -1,0 +1,211 @@
+---
+# Operational playbook — in-place Ceph major-version upgrade (e.g. RHCS 7 → 9).
+#
+# WHY THIS EXISTS: hand-typing a fleet storage upgrade is exactly the class of
+# operation this project exists to replace. This playbook is a faithful
+# transcription of the hardware-validated manual procedure in
+# docs/UPGRADE-RHCS-7-TO-9.md, with the preconditions enforced instead of
+# remembered. Read that document first — it carries the findings behind every
+# gate below.
+#
+# ⚠ LABEL — NOT YET SELF-VALIDATED: the underlying command sequence drove two
+# real hardware upgrades; this playbook was written from that validated
+# transcript but has not itself driven one yet. The label comes off the first
+# time it does.
+#
+# The gates, and the field findings behind them:
+#
+#   GATE 1 — no running VMs anywhere. cephadm's fact gathering runs
+#   `sysctl -a`; reading vm.stat_refresh schedules work on EVERY CPU, and a
+#   vCPU pinned to an isolated RT CPU never yields — the call parks in
+#   D-state forever and wedges cephadm on that node. Field-observed: upgrade
+#   frozen at 1/28 daemons for ~52 minutes until the guest was suspended.
+#
+#   GATE 2 — HEALTH_OK and every daemon on ONE version. Never upgrade a
+#   degraded or already-mixed cluster.
+#
+#   Auto-pause is expected behavior, not an error: an unreachable node sets
+#   is_paused + UPGRADE_OFFLINE_HOST. This playbook stops loudly and tells
+#   you to fix reachability and `ceph orch upgrade resume` by hand (then
+#   watch with the doc's commands) — it does not guess at recovery.
+#
+#   Pre-pull is a DESIGN IMPROVEMENT this playbook adds, not something the
+#   validated runs did (they went in cold and completed 28 daemons in ~10
+#   minutes on 1 GbE). It takes the ~1.3 GB first pull off the critical
+#   path; failure to pre-pull is a warning, never fatal.
+#
+# Usage:
+#   ansible-playbook -i inventory/<site> playbooks/op-ceph-upgrade.yml \
+#     -e i_want_a_ceph_upgrade=yes \
+#     -e ceph_upgrade_target_image=registry.redhat.io/rhceph/rhceph-9-rhel9:latest
+#
+# Pin the tag (e.g. :20.2.1) rather than :latest where you can — also a
+# labelled improvement over the validated run. Optional overrides:
+#   -e ceph_upgrade_prepull=false          # skip the per-node image pre-pull
+#   -e ceph_upgrade_poll_retries=240       # poll count (default 240)
+#   -e ceph_upgrade_poll_delay=30          # seconds between polls (default 30)
+#
+# AFTER a successful run: update the inventory's three Ceph pins
+# (ceph.release, the rhceph tools repo in rhsm_repos, container_images.ceph).
+# NOTHING compares the contract to the running cluster — see the doc.
+
+- name: "Preconditions — consent, cluster health, single source version"
+  hosts: "{{ groups['vpac_cluster'] | first }}"
+  gather_facts: false
+  tasks:
+    - name: "Assert explicit confirmation"
+      ansible.builtin.assert:
+        that: (i_want_a_ceph_upgrade | default('')) == 'yes'
+        fail_msg: >-
+          This playbook upgrades every Ceph daemon on the cluster in place.
+          Read docs/UPGRADE-RHCS-7-TO-9.md, then re-run with
+          -e i_want_a_ceph_upgrade=yes.
+
+    - name: "Assert a target image was given"
+      ansible.builtin.assert:
+        that: (ceph_upgrade_target_image | default('')) | length > 0
+        fail_msg: >-
+          Pass the target image explicitly, e.g.
+          -e ceph_upgrade_target_image=registry.redhat.io/rhceph/rhceph-9-rhel9:latest
+          (air-gapped sites: the local registry's copy of the same image).
+          Pinning a version tag instead of :latest is recommended.
+
+    - name: "Assert a Ceph cluster is deployed here"
+      ansible.builtin.stat:
+        path: /etc/ceph/ceph.conf
+      register: _up_conf
+      failed_when: not _up_conf.stat.exists
+
+    - name: "Assert HEALTH_OK before starting"
+      ansible.builtin.command: /usr/bin/ceph health
+      register: _up_health
+      changed_when: false
+      failed_when: "'HEALTH_OK' not in _up_health.stdout"
+
+    - name: "Read running daemon versions"
+      ansible.builtin.command: /usr/bin/ceph versions --format json
+      register: _up_versions
+      changed_when: false
+
+    - name: "Assert every daemon is on ONE source version"
+      ansible.builtin.assert:
+        that: (_up_versions.stdout | from_json).overall.keys() | list | length == 1
+        fail_msg: >-
+          `ceph versions` shows more than one version running:
+          {{ (_up_versions.stdout | from_json).overall.keys() | list | join(' / ') }}.
+          The cluster is mid-upgrade or inconsistent — resolve that first
+          (a paused upgrade resumes with `ceph orch upgrade resume`).
+
+    - name: "Record the source version for the completion check"
+      ansible.builtin.set_fact:
+        _up_source_version: >-
+          {{ (_up_versions.stdout | from_json).overall.keys() | list | first }}
+
+    - name: "Assert the orchestrator is actually loaded (not just enabled)"
+      ansible.builtin.command: /usr/bin/ceph orch status
+      register: _up_orch
+      changed_when: false
+      failed_when: _up_orch.rc != 0 or 'Module not found' in (_up_orch.stdout + _up_orch.stderr)
+
+- name: "Per-node gates — no running VMs, optional image pre-pull"
+  hosts: vpac_cluster
+  gather_facts: false
+  tasks:
+    - name: "List running libvirt domains"
+      ansible.builtin.command: virsh list --name
+      register: _up_vms
+      changed_when: false
+      failed_when: false
+
+    - name: "Assert NO VM is running on this node"
+      ansible.builtin.assert:
+        that: (_up_vms.stdout_lines | reject('equalto', '') | list | length) == 0
+        fail_msg: >-
+          Running VM(s) on {{ inventory_hostname }}:
+          {{ _up_vms.stdout_lines | reject('equalto', '') | list | join(', ') }}.
+          A vCPU pinned to an isolated CPU deadlocks cephadm's fact gathering
+          (sysctl vm.stat_refresh schedules work on every CPU; the pinned CPU
+          never yields — field-observed as an upgrade frozen at 1/28 for ~52
+          minutes). Shut all VMs down first: `pcs resource disable <vm>` for
+          Pacemaker-managed VMs, `virsh shutdown` for standalone ones.
+
+    # DESIGN IMPROVEMENT, not validated-run behavior: the validated upgrade
+    # pulled cold and was fine. Pre-pulling only moves the ~1.3 GB first
+    # pull off the critical path, so failure here must never block.
+    - name: "Pre-pull the target image (best-effort)"
+      ansible.builtin.command: "podman pull {{ ceph_upgrade_target_image }}"
+      register: _up_prepull
+      changed_when: _up_prepull.rc == 0
+      failed_when: false
+      when: ceph_upgrade_prepull | default(true) | bool
+
+    - name: "Note a failed pre-pull (upgrade will pull cold — the validated run did exactly that)"
+      ansible.builtin.debug:
+        msg: >-
+          Pre-pull failed on {{ inventory_hostname }}
+          (rc={{ _up_prepull.rc }}): {{ _up_prepull.stderr | default('') | trim }}.
+          Proceeding — cephadm pulls with its own registry credentials during
+          the upgrade; this only lengthens the per-node step.
+      when:
+        - ceph_upgrade_prepull | default(true) | bool
+        - _up_prepull.rc != 0
+
+- name: "Start, watch, verify"
+  hosts: "{{ groups['vpac_cluster'] | first }}"
+  gather_facts: false
+  tasks:
+    - name: "Start the upgrade"
+      ansible.builtin.command: >-
+        /usr/bin/ceph orch upgrade start --image {{ ceph_upgrade_target_image }}
+      changed_when: true
+
+    - name: "Poll upgrade status until finished or paused"
+      ansible.builtin.command: /usr/bin/ceph orch upgrade status --format json
+      register: _up_status
+      changed_when: false
+      until: >-
+        not (_up_status.stdout | from_json).in_progress
+        or ((_up_status.stdout | from_json).is_paused | default(false))
+      retries: "{{ ceph_upgrade_poll_retries | default(240) | int }}"
+      delay: "{{ ceph_upgrade_poll_delay | default(30) | int }}"
+
+    - name: "Stop loudly if the upgrade auto-paused"
+      ansible.builtin.assert:
+        that: not ((_up_status.stdout | from_json).is_paused | default(false))
+        fail_msg: >-
+          The upgrade AUTO-PAUSED — expected cephadm behavior when a node
+          goes unreachable mid-upgrade (health will show UPGRADE_OFFLINE_HOST).
+          Nothing is broken yet: restore the node's reachability, run
+          `ceph orch upgrade resume`, and watch with `ceph orch upgrade status`
+          + `ceph -s` per docs/UPGRADE-RHCS-7-TO-9.md. If `ceph orch status`
+          ever answers "Module not found" while the module shows enabled, a
+          mixed-version mgr failover hit the cache trap — `ceph mgr fail`
+          promotes the upgraded standby and the orchestrator returns.
+
+    - name: "Verify every daemon converged on ONE new version"
+      ansible.builtin.command: /usr/bin/ceph versions --format json
+      register: _up_final
+      changed_when: false
+      failed_when: >-
+        (_up_final.stdout | from_json).overall.keys() | list | length != 1
+        or (_up_final.stdout | from_json).overall.keys() | list | first == _up_source_version
+
+    - name: "Wait for final HEALTH_OK"
+      ansible.builtin.command: /usr/bin/ceph health
+      register: _up_health2
+      changed_when: false
+      until: "'HEALTH_OK' in _up_health2.stdout"
+      retries: 60
+      delay: 10
+
+    - name: "Done — now update the contract"
+      ansible.builtin.debug:
+        msg: >-
+          Upgrade complete:
+          {{ _up_source_version }} → {{ (_up_final.stdout | from_json).overall.keys() | list | first }},
+          HEALTH_OK. Your inventory still declares the OLD release — nothing
+          checks the contract against the running cluster, so update all
+          three pins NOW (ceph.release, the rhceph tools repo in rhsm_repos,
+          container_images.ceph), then re-run preflight. Details:
+          docs/UPGRADE-RHCS-7-TO-9.md. Re-enable your VMs when ready
+          (`pcs resource enable <vm>`).

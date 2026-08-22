@@ -23,6 +23,8 @@ The `pacemaker_base`, `stonith`, and `vm_deploy` roles install three things you 
 | `op-pacemaker-recover.yml` | Documented cold-start recovery: stop stack on every node, clear stale CIB shutdown attributes, start in order, clean up failcounts | When a cluster hangs in a partial state and `pcs cluster start --all` won't fix it |
 | `op-stonith-fence-test.yml` | Confirms each fence device works by actually firing it. **Power-cycles the target VM.** Requires `-e fence_target=<node> -e i_have_drained_vms=yes` | First-deploy validation against real BMCs; never on a node hosting live workloads |
 | `op-vm-undefine.yml` | Cleanly removes a VM Pacemaker resource AND undefines the libvirt domain on every node | Decommissioning a VM permanently |
+| `op-rolling-reboot.yml` | Safe rolling reboot, one node at a time: Pacemaker standby, Ceph noout/norebalance, real readiness gates (never ping), RT-kernel + PTP re-lock checks. Requires `-e i_want_a_rolling_reboot=yes` | After `rt_tuning` stages a kernel, or any maintenance needing full-cluster reboots |
+| `op-ceph-upgrade.yml` | In-place Ceph major-version upgrade with every precondition from [`UPGRADE-RHCS-7-TO-9.md`](UPGRADE-RHCS-7-TO-9.md) enforced: consent, HEALTH_OK, single source version, orchestrator loaded, **no running VMs** (pinned-vCPU deadlock), then start/poll/verify. Requires `-e i_want_a_ceph_upgrade=yes -e ceph_upgrade_target_image=<image>` | Moving a cluster to a new RHCS major release (e.g. 7 → 9 before RHCS 7 EOS 2026-12-12) |
 
 ```bash
 # Examples:

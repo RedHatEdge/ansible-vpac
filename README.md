@@ -39,6 +39,7 @@ ansible-playbook -i inventory/<your-site> site.yml --tags validate --ask-vault-p
 | Run the deployment one stage at a time | [`docs/DEPLOYMENT-RUNBOOK.md`](docs/DEPLOYMENT-RUNBOOK.md) |
 | Build a single node by hand, no Ansible at all | [`docs/single-node-manual/`](docs/single-node-manual/README.md) |
 | Operate the cluster day-2 / fix a problem | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) · [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) |
+| Upgrade Ceph to a new major release in place | [`docs/UPGRADE-RHCS-7-TO-9.md`](docs/UPGRADE-RHCS-7-TO-9.md) |
 
 ## What this deploys
 
@@ -230,7 +231,9 @@ ansible-vpac/
 │   ├── 75-stonith.yml
 │   ├── 80-vm-deploy.yml
 │   ├── 90-validate.yml
-│   ├── op-pacemaker-recover.yml          # ↓ operator helpers — invoked by hand, not by site.yml
+│   ├── op-ceph-upgrade.yml               # ↓ operator helpers — invoked by hand, not by site.yml
+│   ├── op-pacemaker-recover.yml
+│   ├── op-rolling-reboot.yml
 │   ├── op-stonith-fence-test.yml
 │   └── op-vm-undefine.yml
 ├── roles/
@@ -290,6 +293,7 @@ ansible-vpac/
 - **[docs/single-node-manual/](docs/single-node-manual/README.md)** — by-hand, no-Ansible deployment of a single RHEL 9 host running an ABB SSC600SW IED; documents what the playbooks do under the hood and serves the single-node topology (connected + air-gapped callouts)
 - **[docs/IMAGE-BUILDER.md](docs/IMAGE-BUILDER.md)** — how the ISO-minting tooling container works; both `builder_iso_mint` and `cluster_iso_mint` documented
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — day-2 operations (planned reboot, node replacement, VM migration)
+- **[docs/UPGRADE-RHCS-7-TO-9.md](docs/UPGRADE-RHCS-7-TO-9.md)** — in-place Ceph major-version upgrade, hardware-validated; includes `op-ceph-upgrade.yml`
 - **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — common failure modes and recovery
 - **[docs/HARDWARE-BOM.md](docs/HARDWARE-BOM.md)** — reference hardware and BIOS/iDRAC settings
 
