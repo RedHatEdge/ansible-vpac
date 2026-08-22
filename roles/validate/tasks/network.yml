@@ -8,19 +8,25 @@
 - name: "validate-network"
   block:
 
-    - name: "Read default ipv4 route table"
-      ansible.builtin.command: ip -4 route show
+    # Scoped to the interfaces the deployment manages, via the SAME task
+    # file stage 20 uses — libvirt's NAT bridge (virbr0) sits linkdown by
+    # design whenever no guest is attached, and the old unscoped substring
+    # check flagged it on a healthy cluster (field-hit false positive).
+    # Two roles were checking one condition with different logic; now
+    # there is one implementation.
+    - name: "List interfaces carrying a linkdown route"
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip route show | awk '/linkdown/ { for (i=1;i<=NF;i++) if ($i=="dev") print $(i+1) }' | sort -u
       changed_when: false
-      register: _vn_routes
+      register: _vn_linkdown_devs
 
-    - name: "Assert no linkdown routes (NetworkManager leftover)"
-      ansible.builtin.assert:
-        that:
-          - "'linkdown' not in _vn_routes.stdout"
-        fail_msg: >-
-          Found `linkdown` routes — a NIC went down and NM left the
-          stale route. Cluster traffic on that path will silently fail.
-          {{ _vn_routes.stdout }}
+    - name: "Scope-check linkdown routes against managed interfaces (stage-20 logic)"
+      ansible.builtin.include_role:
+        name: networking
+        tasks_from: assert_linkdown_scope
+      vars:
+        _linkdown_devs: "{{ _vn_linkdown_devs.stdout_lines | default([]) }}"
 
     - name: "Resolve storage interface for this host"
       ansible.builtin.set_fact:

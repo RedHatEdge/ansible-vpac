@@ -14,15 +14,20 @@
         src: /proc/meminfo
       register: _vm_meminfo
 
-    - name: "Parse meminfo into a dict"
+    # Extract only the fields this check consumes. The previous
+    # parse-everything-into-a-dict version crashed on every host: inside a
+    # block scalar, '\n' reaches Jinja as backslash-n, so the split never
+    # happened, the whole file stayed one element, and dict() blew up
+    # ("element #0 has length 1"). (?m) + literal-space patterns avoid the
+    # backslash-escaping ambiguity entirely.
+    - name: "Extract HugePages_Total and MemAvailable"
       ansible.builtin.set_fact:
-        _vm_mi: >-
-          {{ dict(
-               (_vm_meminfo.content | b64decode).split('\n')
-               | select('match', '^[A-Za-z(_)]+: ')
-               | map('regex_replace', '^([A-Za-z(_)]+):\\s+([0-9]+).*$', '\\1=\\2')
-               | map('split', '=')
-            ) }}
+        _vm_hp_total: >-
+          {{ _vm_meminfo.content | b64decode
+             | regex_search('(?m)^HugePages_Total: +([0-9]+)', '\1') | first }}
+        _vm_mem_avail_kb: >-
+          {{ _vm_meminfo.content | b64decode
+             | regex_search('(?m)^MemAvailable: +([0-9]+)', '\1') | first }}
 
     # MIRROR of rt_tuning/defaults derivation — keep in sync. The old
     # fallback chain fell through to an explicit-null override (|int -> 0)
@@ -46,9 +51,9 @@
     - name: "Assert HugePages_Total matches inventory budget"
       ansible.builtin.assert:
         that:
-          - (_vm_mi['HugePages_Total'] | int) == (_val_hp_expected | int)
+          - (_vm_hp_total | int) == (_val_hp_expected | int)
         fail_msg: >-
-          HugePages_Total = {{ _vm_mi['HugePages_Total'] }}, expected
+          HugePages_Total = {{ _vm_hp_total }}, expected
           {{ _val_hp_expected }} — either the post-stage-50 reboot has not
           happened, or the hugepage sources drifted
           (dual-source-of-truth bug class).
@@ -59,10 +64,10 @@
     - name: "Assert MemAvailable above floor"
       ansible.builtin.assert:
         that:
-          - (_vm_mi['MemAvailable'] | int) >=
+          - (_vm_mem_avail_kb | int) >=
             (validate_mem_available_min_gib | int * 1024 * 1024)
         fail_msg: >-
-          MemAvailable = {{ (_vm_mi['MemAvailable'] | int) // 1024 }} MiB,
+          MemAvailable = {{ (_vm_mem_avail_kb | int) // 1024 }} MiB,
           below {{ validate_mem_available_min_gib }} GiB floor
 
     - name: "Read swap counters (5s sample)"
@@ -86,8 +91,8 @@
         validate_findings: >-
           {{ validate_findings | default([]) +
              [{'check': 'memory', 'status': 'ok',
-               'msg': 'HugePages_Total=' ~ _vm_mi['HugePages_Total'] ~
-                      ', MemAvailable=' ~ ((_vm_mi['MemAvailable'] | int) // 1024) ~ 'MiB'}] }}
+               'msg': 'HugePages_Total=' ~ _vm_hp_total ~
+                      ', MemAvailable=' ~ ((_vm_mem_avail_kb | int) // 1024) ~ 'MiB'}] }}
 
   rescue:
     - name: "Record finding (fail)"

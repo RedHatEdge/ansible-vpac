@@ -129,15 +129,33 @@
       failed_when: false
       register: _vrs_ksm
 
-    - name: "Warn if KSM is enabled"
+    - name: "Probe KSM merged-page count"
+      ansible.builtin.slurp:
+        src: /sys/kernel/mm/ksm/pages_sharing
+      failed_when: false
+      register: _vrs_ksm_sharing
+
+    # Kernel ABI: run=0 stop-but-keep-merged-pages, 1 actively merging,
+    # 2 stop-AND-unmerge — so 2 is MORE disabled than 0, and the old
+    # `run == 0` assert flagged the safest value as "enabled" (field-hit
+    # false positive on all three nodes). The jitter condition is active
+    # merging or pages currently merged; assert on that.
+    - name: "Warn if KSM is merging or holds merged pages"
       ansible.builtin.assert:
         that:
           - _vrs_ksm.content is not defined or
-            (_vrs_ksm.content | b64decode | trim) == "0"
+            (_vrs_ksm.content | b64decode | trim) != "1"
+          - _vrs_ksm_sharing.content is not defined or
+            (_vrs_ksm_sharing.content | b64decode | trim) == "0"
         fail_msg: >-
-          KSM (Kernel Same-page Merging) is enabled
-          (/sys/kernel/mm/ksm/run = {{ _vrs_ksm.content | b64decode | trim }})
-          — known source of RT jitter
+          KSM (Kernel Same-page Merging) is active
+          (/sys/kernel/mm/ksm/run = {{ _vrs_ksm.content | b64decode | trim
+             if _vrs_ksm.content is defined else 'n/a' }},
+          pages_sharing = {{ _vrs_ksm_sharing.content | b64decode | trim
+             if _vrs_ksm_sharing.content is defined else 'n/a' }})
+          — known source of RT jitter. run=1 means actively merging;
+          nonzero pages_sharing means merged pages exist (run=0 keeps
+          them; run=2 would unmerge them).
 
     - name: "Record finding"
       ansible.builtin.set_fact:

@@ -78,10 +78,15 @@
       changed_when: false
       register: _vpc_stonith_prop
 
+    # pcs emits either "stonith-enabled: true" (older) or a header line
+    # plus "stonith-enabled=true" on a continuation line (newer). The old
+    # substring check handled only the first form and reported "not true"
+    # with the correct value INSIDE its own failure message (field-hit
+    # false positive). Regex accepts both forms wherever the value sits.
     - name: "Assert stonith-enabled=true"
       ansible.builtin.assert:
         that:
-          - "'stonith-enabled: true' in _vpc_stonith_prop.stdout"
+          - _vpc_stonith_prop.stdout is regex('stonith-enabled[=:] *true')
         fail_msg: >-
           stonith-enabled is not true:
           {{ _vpc_stonith_prop.stdout | trim }}.

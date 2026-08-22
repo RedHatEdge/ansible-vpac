@@ -149,13 +149,19 @@
       changed_when: false
       register: _vpt_sources
 
-    - name: "Assert at least one selected source (^*)"
+    # `^*` marks a selected NETWORK source; a selected reference clock
+    # (the PTP0 refclock in pure-PTP mode — this product's own default)
+    # prints as `#*`. The old check only accepted `^*` and failed the
+    # flagship configuration with the healthy refclock line quoted inside
+    # its own failure message (field-hit false positive).
+    - name: "Assert at least one selected source (^* network or #* refclock)"
       ansible.builtin.assert:
         that:
-          - "'^*' in _vpt_sources.stdout"
+          - "'^*' in _vpt_sources.stdout or '#*' in _vpt_sources.stdout"
         fail_msg: >-
-          chrony has no selected source (no ^* line) — every peer
-          is either Unreachable, falseticker, or rejected.
+          chrony has no selected source (no ^* network-source line and no
+          #* refclock line) — every source is Unreachable, falseticker,
+          or rejected.
           {{ _vpt_sources.stdout }}
 
     - name: "Record finding"

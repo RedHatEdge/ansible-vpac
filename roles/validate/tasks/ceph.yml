@@ -18,6 +18,17 @@
       ansible.builtin.set_fact:
         _vcph_s: "{{ _vcph_status.stdout | from_json }}"
 
+    # `ceph -s` JSON carries a SUMMARY monmap: num_mons, no mons list.
+    # The old code read .monmap.mons and detonated inside its own fail_msg
+    # — the diagnosis path broke exactly when the operator needed it
+    # (field-hit on a healthy cluster). Fallback covers payloads that do
+    # carry the list.
+    - name: "Derive mon count"
+      ansible.builtin.set_fact:
+        _vcph_mon_count: >-
+          {{ _vcph_s.monmap.num_mons
+             | default(_vcph_s.monmap.mons | default([]) | length) | int }}
+
     - name: "ceph health detail (for human-readable check codes)"
       ansible.builtin.command: ceph health detail
       become: true
@@ -51,9 +62,9 @@
     - name: "Assert quorum size matches mon count"
       ansible.builtin.assert:
         that:
-          - (_vcph_s.quorum | length) == (_vcph_s.monmap.mons | length)
+          - (_vcph_s.quorum | length) == (_vcph_mon_count | int)
         fail_msg: >-
-          ceph quorum is {{ _vcph_s.quorum | length }}/{{ _vcph_s.monmap.mons | length }}
+          ceph quorum is {{ _vcph_s.quorum | length }}/{{ _vcph_mon_count }}
 
     - name: "Assert all OSDs up + in"
       ansible.builtin.assert:
@@ -122,7 +133,7 @@
                'msg': 'health=' ~ _vcph_s.health.status ~ ', osds=' ~
                       _vcph_s.osdmap.num_up_osds ~ '/' ~ _vcph_s.osdmap.num_osds ~
                       ', mons=' ~ (_vcph_s.quorum | length) ~ '/' ~
-                      (_vcph_s.monmap.mons | length)}] }}
+                      _vcph_mon_count}] }}
 
   rescue:
     - name: "Record finding (fail)"
