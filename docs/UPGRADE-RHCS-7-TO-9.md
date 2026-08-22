@@ -58,7 +58,7 @@ ceph orch upgrade status    # "in_progress": true, progress counts up
 ceph -s                     # health + a progress bar during the upgrade
 ```
 
-cephadm upgrades one daemon at a time in a safe order (mgr daemons first, then mons, then OSDs and the rest). Measured: **28 daemons in ~10 minutes** — on a 1 GbE replication fabric, so treat it as a slow-network figure; the first pull per node is ~1.3 GB and dominates. A **per-node pre-pull** of the image before starting (another labelled design improvement — the validated run went in cold and was fine) takes that pull off the critical path.
+cephadm upgrades one daemon at a time in a safe order (mgr daemons first, then mons, then OSDs and the rest). Measured twice, on independent runs a day apart: **28 daemons in 10m05s and 10m06s** — same shape both times, steady daemon-by-daemon progress from the start, on a 1 GbE replication fabric. The first pull per node is ~1.3 GB (the image size); a **per-node pre-pull** before starting (another labelled design improvement — both validated runs went in cold with no measured pull penalty) takes that pull off the critical path on links where it would matter.
 
 **4. Confirm completion:**
 
@@ -108,7 +108,7 @@ Your realistic fallback is the one this project already gives you: the cluster's
 
 - Our layout: 3 nodes, 12 OSDs, ~22–28 daemons. Larger clusters take proportionally longer.
 - Synthetic file data under checksum manifests — not a live protection workload.
-- 1 GbE replication fabric — the ~10-minute figure is a slow-network result.
+- 1 GbE replication fabric — both ~10-minute measurements come from that fabric; faster networks are unmeasured.
 - Guests were **down** during the validated upgrade window (by design, per the goal).
 - Single unrestricted start; staged ordering unexplored.
 
