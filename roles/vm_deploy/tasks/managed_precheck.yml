@@ -24,6 +24,46 @@
   delegate_to: "{{ vpac_nodes[0].hostname }}"
   run_once: true
 
+# The XML dir is only SHARED because CephFS is mounted there — nothing
+# else makes it shared. Field incident: one node's mount was lost, the
+# write landed silently in the bare mountpoint directory on LOCAL disk
+# (identical bytes, so only the mtime exposed it), and the visible
+# symptom came much later and far away — the VirtualDomain agent
+# reporting "not installed (environment is invalid)" at start/failover,
+# which reads as a broken agent, not an unmounted filesystem. Assert the
+# mount on EVERY node: the writer needs it to write shared, every other
+# node needs it to read.
+- name: "Resolve whether the managed XML dir sits at or under the CephFS mount"
+  ansible.builtin.set_fact:
+    _vm_cephfs_mnt: "{{ (ceph.cephfs_mountpoint | default('/vms')) | regex_replace('/+$', '') }}"
+
+- name: "Scope the mount assert (a custom shared dir elsewhere is the operator's to guarantee)"
+  ansible.builtin.set_fact:
+    _vm_xml_dir_on_cephfs: >-
+      {{ (vm_deploy_managed_xml_dir | regex_replace('/+$', '')) == _vm_cephfs_mnt
+         or vm_deploy_managed_xml_dir.startswith(_vm_cephfs_mnt ~ '/') }}
+
+- name: "Probe whether the CephFS mountpoint is actually mounted"
+  ansible.builtin.command: "mountpoint -q {{ _vm_cephfs_mnt }}"
+  register: _vm_xml_mnt
+  changed_when: false
+  failed_when: false
+  when: _vm_xml_dir_on_cephfs | bool
+
+- name: "Assert the shared XML path is backed by the CephFS mount on this node"
+  ansible.builtin.assert:
+    that: _vm_xml_mnt.rc == 0
+    fail_msg: >-
+      {{ ceph.cephfs_mountpoint | default('/vms') }} is NOT a mountpoint
+      on {{ inventory_hostname }} — the CephFS share is not mounted here,
+      so the managed domain XML under
+      {{ vm_deploy_managed_xml_dir }} would be written to (or read from)
+      THIS NODE'S LOCAL DISK, invisible to every other node. Failover
+      then fails with the misleading VirtualDomain error "not installed
+      (environment is invalid)". Remount first (mount -a, or re-run the
+      stage 60 mount tasks), then re-run.
+  when: _vm_xml_dir_on_cephfs | bool
+
 - name: "Ensure shared XML directory exists on the bootstrap node"
   ansible.builtin.file:
     path: "{{ vm_deploy_managed_xml_dir }}"

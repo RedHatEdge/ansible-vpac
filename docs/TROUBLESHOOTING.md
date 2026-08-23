@@ -134,6 +134,8 @@ Common causes:
 
 3. NIC is a bond slave — PTP does not work reliably on bond slaves. Make the NIC standalone.
 
+4. `ptp4l` logs `timed out while polling for tx timestamp` and the port cycles LISTENING → FAULTY (reach drops to 0, `gmPresent false`). The driver's own log message suggests raising kworker priority while blaming a probable driver bug. Field-observed on an RT host; **hypothesis, not confirmed:** on RT hosts with isolated CPUs, kernel worker starvation is a plausible contributor — the same mechanism family as the cephadm fact-gathering deadlock documented in [`UPGRADE-RHCS-7-TO-9.md`](UPGRADE-RHCS-7-TO-9.md) (work queued to a CPU that never yields). Check `ethtool -T <nic>` still reports hardware timestamping, check what was running on the isolated CPUs when the fault began, and restart `timemaster` to re-initialize the port.
+
 ## PTP path delay reads `0.0` in P2P mode (red herring)
 
 `pmc -u -b 0 'GET CURRENT_DATA_SET'` shows `meanPathDelay 0.0` even on a healthy,
@@ -218,6 +220,10 @@ lspci -k -s <pci-address>   # Driver should be vfio-pci
 ```
 
 If the driver is not `vfio-pci`, the host grabbed the device. Re-apply the `virtualization` role (which configures `vfio-pci` via kernel cmdline or `/etc/modprobe.d/`) and reboot the node.
+
+## VirtualDomain start fails with `not installed (environment is invalid)`
+
+The error blames the agent or the XML; the usual cause is neither: **the shared filesystem holding the domain XML is not mounted on that node.** The Pacemaker resource reads `config=<cephfs-mountpoint>/<vm>.xml`; with the mount absent, the path is a bare local directory and the file is missing — or worse, a locally-written copy that other nodes cannot see (field case: identical bytes on local disk, exposed only by the mtime and by `mountpoint <dir>` saying "is not a mountpoint"). Check `mountpoint <cephfs-mountpoint>` on the failing node, remount (`mount -a`), move any stray local file aside, then `pcs resource cleanup <vm>` and enable. The deploy now asserts the mount on every node before writing, so a lost mount stops stage 80 with the node named instead of surfacing here.
 
 ## cyclictest tail latency above target
 
