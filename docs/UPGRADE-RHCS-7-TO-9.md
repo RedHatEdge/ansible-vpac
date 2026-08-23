@@ -91,6 +91,21 @@ ceph mgr fail    # promotes the standby (already-upgraded) mgr; orchestrator ret
 
 **`Buffer I/O error on dev rbdN` in the kernel log during the window.** A client RBD image stayed mapped while the OSDs under it restarted — the unmap precondition was skipped. Field-observed with no data damage, but treat any such lines as a prompt to check what held the mapping and to verify that consumer afterwards.
 
+## After the upgrade: verify PTP on every node — cluster health will not tell you
+
+Field-measured, and the worst-shaped defect this document knows about: after a maintenance sequence of reboots, teardown, and repeated upgrades, one node's PTP was silently dead for **four days while Ceph reported HEALTH_OK the entire time** — port FAULTY, `gmPresent false`, `tx_hwtstamp_skipped` climbing ~4/minute. Every environmental candidate was excluded by direct comparison (firmware, optics, link, switch port and PTP config, CPU load); the discriminator was **re-initialization**: the nodes whose ptp4l/NIC happened to get restarted during the maintenance were healthy, and the node that rode through everything untouched was the broken one. Which node gets lucky is chance — at another site it could be every node, and no cluster health check surfaces it. On a platform whose basis is sub-microsecond timing, run this check **on every node, every time**:
+
+```bash
+chronyc sources | grep PTP    # expect '#*' (selected) and reach 377
+pmc -u -b 0 -s /var/run/timemaster/ptp4l.0.socket 'GET TIME_STATUS_NP' | grep gmPresent   # expect true
+ethtool -S <ptp-nic> | grep tx_hwtstamp_skipped   # expect 0 — and sample TWICE:
+                                                  # a static non-zero is history, a RISING one is a live fault
+```
+
+**If any node fails: reboot that node** (`op-rolling-reboot.yml --limit <node>`). A link bounce is NOT sufficient — measured: carrier down/up did not trigger the driver's PTP reset and the fault continued; a full reboot cleared it completely (skip counter to zero, port back to SLAVE, nanosecond offsets).
+
+Stage 90's PTP check catches this state correctly (it accepts a selected refclock and fails a node with no selected source), so running the validate stage after an upgrade — `site.yml --tags validate` — surfaces it too. Use both: the three commands above are the two-minute per-node version.
+
 ## After the upgrade: update your inventory — nothing does this for you
 
 Your contract still declares RHCS 7 in three places, and **no check compares the contract against the running cluster version** — preflight's Ceph agreement assert verifies the three pins agree *with each other*, not with reality. A stale contract bites later in surprising ways (a replacement node would get RHCS 7 repos and tooling against a RHCS 9 cluster). Update all three pins together, now:

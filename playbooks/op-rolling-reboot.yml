@@ -77,9 +77,30 @@
       changed_when: false
       failed_when: false
 
+    # pcs can mis-report under CIB slowness: field case — `pcs node
+    # unstandby` succeeded but returned nonzero, so a plain command task
+    # told the operator a node was left in standby when it was not.
+    # Both standby steps therefore ignore the exit code and take their
+    # verdict from OBSERVED STATE (`pcs status nodes`), with retries.
+    # For standby the stakes are higher: a false "ok" would reboot a
+    # node still hosting resources.
     - name: "Standby this node in Pacemaker (resources migrate off; NOT cluster stop)"
       ansible.builtin.command: "pcs node standby {{ inventory_hostname }}"
       changed_when: true
+      failed_when: false
+      when: (_rr_pcmk.stdout | trim) == 'active'
+
+    - name: "Verify this node IS in standby (observed state, not exit code)"
+      ansible.builtin.command: pcs status nodes
+      register: _rr_standby_state
+      changed_when: false
+      until: >-
+        (_rr_standby_state.stdout_lines
+         | select('match', ' *Standby')
+         | map('split', ':') | map('last') | map('split') | flatten
+         | select('equalto', inventory_hostname) | list | length) > 0
+      retries: 6
+      delay: 5
       when: (_rr_pcmk.stdout | trim) == 'active'
 
     - name: "Reboot (SSH + boot-time verification — ping is NOT readiness)"
@@ -122,6 +143,20 @@
     - name: "Unstandby this node in Pacemaker"
       ansible.builtin.command: "pcs node unstandby {{ inventory_hostname }}"
       changed_when: true
+      failed_when: false
+      when: (_rr_pcmk.stdout | trim) == 'active'
+
+    - name: "Verify this node is NOT in standby (observed state, not exit code)"
+      ansible.builtin.command: pcs status nodes
+      register: _rr_unstandby_state
+      changed_when: false
+      until: >-
+        (_rr_unstandby_state.stdout_lines
+         | select('match', ' *Standby')
+         | map('split', ':') | map('last') | map('split') | flatten
+         | select('equalto', inventory_hostname) | list | length) == 0
+      retries: 6
+      delay: 5
       when: (_rr_pcmk.stdout | trim) == 'active'
 
 - name: "Clear flags + final health"
