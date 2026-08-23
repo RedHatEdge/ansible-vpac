@@ -845,6 +845,10 @@ validate:
   # Memory / journal
   mem_available_min_gib: 2
   journal_max_disk_gb: 4                 # silent killer above this
+  # Kernel-log check window (journalctl --since syntax). Bounded so the
+  # verdict reflects the stated window, not ring-buffer rotation. Widen
+  # after long maintenance windows ("-24h").
+  kernel_log_since: "-1h"
 
   # Network
   storage_nic_min_mbps: 10000

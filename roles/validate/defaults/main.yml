@@ -74,6 +74,13 @@ validate_iostat_await_max_ms: "{{ validate.iostat_await_max_ms | default(50) }}"
 # recovery). 4 GiB is the soft cap above which we warn the operator.
 validate_journal_max_disk_gb: "{{ validate.journal_max_disk_gb | default(4) }}"
 
+# Kernel-log window for the dmesg/journal check, in journalctl --since
+# syntax ("-1h", "-24h", or an absolute stamp). Bounded on purpose: an
+# unbounded ring-buffer grep gives verdicts that depend on how chatty
+# the kernel has been, not on cluster state. Widen it when validating
+# after a longer maintenance window.
+validate_kernel_log_since: "{{ validate.kernel_log_since | default('-1h') }}"
+
 # ----- Network --------------------------------------------------------
 # Storage NIC reported speed floor (Mbps). 10G is the published baseline
 # for the Ceph storage fabric. 0 disables the assertion.

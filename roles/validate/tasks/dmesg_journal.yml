@@ -6,8 +6,18 @@
 - name: "validate-dmesg-journal"
   block:
 
-    - name: "Read last 1000 dmesg lines"
-      ansible.builtin.command: dmesg --notime --time-format ctime
+    # Bounded window, deliberately. The old version grepped the WHOLE
+    # dmesg ring buffer, so its verdict depended on ring-buffer rotation,
+    # not cluster state: field-confirmed reporting day-old events as
+    # current problems, and flipping from 28 problems to zero in an hour
+    # with nothing fixed in between — a non-deterministic acceptance
+    # gate. journalctl -k with an explicit --since makes a pass mean "no
+    # kernel problems in the stated window", and the window is named in
+    # both verdicts.
+    - name: "Read kernel log for the check window"
+      ansible.builtin.command: >-
+        journalctl -k -q --no-pager
+        --since "{{ validate_kernel_log_since }}"
       become: true
       changed_when: false
       register: _vd_dmesg
@@ -19,12 +29,13 @@
              | select('search', '(rcu: INFO|hung_task|Out of memory|sd .* timing out|Buffer I/O error|EXT4-fs error)')
              | list }}
 
-    - name: "Assert no RCU stalls / hung tasks / OOM / I/O errors"
+    - name: "Assert no RCU stalls / hung tasks / OOM / I/O errors in the window"
       ansible.builtin.assert:
         that:
           - (_vd_problems | length) == 0
         fail_msg: >-
-          dmesg shows {{ _vd_problems | length }} kernel-level problems:
+          kernel log since {{ validate_kernel_log_since }} shows
+          {{ _vd_problems | length }} kernel-level problems:
           {{ _vd_problems[:5] }}{{ ' ...' if (_vd_problems | length) > 5 else '' }}
 
     - name: "journalctl --disk-usage"
@@ -75,7 +86,8 @@
         validate_findings: >-
           {{ validate_findings | default([]) +
              [{'check': 'dmesg_journal', 'status': 'ok',
-               'msg': 'no RCU/hung/OOM/I-O events; journal=' ~ _vd_jdu.stdout | trim ~
+               'msg': 'no RCU/hung/OOM/I-O events since ' ~ validate_kernel_log_since ~
+                      '; journal=' ~ _vd_jdu.stdout | trim ~
                       '; SELinux=' ~ _vd_selinux.stdout | trim}] }}
 
   rescue:

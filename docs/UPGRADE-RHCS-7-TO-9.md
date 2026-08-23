@@ -19,6 +19,8 @@ The goal of a major storage upgrade is that **the data on the cluster stays good
 
 Shut VMs down through Pacemaker if they are managed (`pcs resource disable <vm>` per VM), or `virsh shutdown` for standalone ones. Verify with `virsh list` on every node: no running domains.
 
+**Also unmap client-side RBD images for the window** (`rbd showmapped` on every node; `systemctl stop rbdmap` releases service-held mappings, `rbd unmap` the rest; re-enable after). Measured consequence of skipping this: a host-level RBD mapping (the sanlock-leases image) left mapped through a validated upgrade logged **28 `Buffer I/O error on dev rbdN` kernel events** while the OSDs restarted under it. The upgrade still completed and the data was fine — but those are real kernel-level I/O failures on a device something on the host may be using, and they are entirely avoidable.
+
 ## Preconditions
 
 Check every one of these before starting. `playbooks/op-ceph-upgrade.yml` (below) checks them for you.
@@ -27,8 +29,9 @@ Check every one of these before starting. `playbooks/op-ceph-upgrade.yml` (below
 2. **Every daemon is on the same source version** — `ceph versions` shows exactly one version overall.
 3. **All nodes are reachable.** An unreachable node auto-pauses the upgrade (see below).
 4. **No running VMs** (mechanism above).
-5. **The target image is reachable.** Connected sites: `registry.redhat.io/rhceph/rhceph-9-rhel9` (needs the registry login from deployment). Air-gapped sites: the RHCS 9 image must already be in the local registry under the same name the `container_images` contract uses.
-6. **A recent backup/snapshot posture you are comfortable with.** Downgrade does not exist (see "Rollback posture").
+5. **No mapped client RBD images** (`rbd showmapped` empty on every node — evidence above).
+6. **The target image is reachable.** Connected sites: `registry.redhat.io/rhceph/rhceph-9-rhel9` (needs the registry login from deployment). Air-gapped sites: the RHCS 9 image must already be in the local registry under the same name the `container_images` contract uses.
+7. **A recent backup/snapshot posture you are comfortable with.** Downgrade does not exist (see "Rollback posture").
 
 ## The procedure
 
@@ -85,6 +88,8 @@ ceph mgr fail    # promotes the standby (already-upgraded) mgr; orchestrator ret
 ```
 
 **The upgrade freezes at 1/N daemons on one node.** That is the pinned-VM deadlock from the top of this document — a guest is still running on that node. Shut it down or suspend it; the upgrade unblocks on its own.
+
+**`Buffer I/O error on dev rbdN` in the kernel log during the window.** A client RBD image stayed mapped while the OSDs under it restarted — the unmap precondition was skipped. Field-observed with no data damage, but treat any such lines as a prompt to check what held the mapping and to verify that consumer afterwards.
 
 ## After the upgrade: update your inventory — nothing does this for you
 

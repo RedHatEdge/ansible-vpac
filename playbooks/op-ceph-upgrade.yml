@@ -129,6 +129,29 @@
           minutes). Shut all VMs down first: `pcs resource disable <vm>` for
           Pacemaker-managed VMs, `virsh shutdown` for standalone ones.
 
+    # Gate born from a measured fault, not from the validated procedure:
+    # the validated run left a host-level RBD mapping (sanlock leases) in
+    # place and the kernel logged 28 "Buffer I/O error on dev rbd0"
+    # events while OSDs restarted under it. Data was fine; the errors are
+    # the evidence this gate prevents. Sysfs is the source of truth (a
+    # missing rbd module reads as zero mappings, which is correct).
+    - name: "Count kernel RBD mappings"
+      ansible.builtin.shell: ls /sys/bus/rbd/devices 2>/dev/null | wc -l
+      register: _up_rbd_maps
+      changed_when: false
+
+    - name: "Assert NO client RBD image is mapped on this node"
+      ansible.builtin.assert:
+        that: (_up_rbd_maps.stdout | trim | int) == 0
+        fail_msg: >-
+          {{ _up_rbd_maps.stdout | trim }} kernel RBD device(s) still
+          mapped on {{ inventory_hostname }} (see `rbd showmapped`).
+          OSD restarts under a mapped client image log kernel-level
+          Buffer I/O errors on it (field-measured: 28 during one
+          upgrade window). Unmap first — `systemctl stop rbdmap`
+          releases service-held mappings, `rbd unmap` the rest — and
+          re-enable after the upgrade.
+
     # DESIGN IMPROVEMENT, not validated-run behavior: the validated upgrade
     # pulled cold and was fine. Pre-pulling only moves the ~1.3 GB first
     # pull off the critical path, so failure here must never block.
