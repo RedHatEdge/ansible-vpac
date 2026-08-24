@@ -109,7 +109,7 @@ bond must trunk **both** VLAN 30 and 23.
 |---|---|---|
 | Bonding (mgmt/storage/station) | Two-member bonds for link redundancy | One-member bonds are fine (no second port to spare) |
 | Storage link | 10 GbE+ (`validate.storage_nic_min_mbps: 10000`) | Set `validate.storage_nic_min_mbps: 1000` — 1 GbE works, just slower Ceph recovery |
-| Heartbeat | Dedicated NIC preferred; shared-VLAN-on-storage-bond is supported and field-proven for 4-NIC nodes | Shared-VLAN-on-storage-bond, or omit entirely for a pre-cluster single-node bring-up |
+| Heartbeat | Dedicated NIC preferred; shared-VLAN-on-storage-bond is supported for 4-NIC nodes | Shared-VLAN-on-storage-bond, or omit entirely for a pre-cluster single-node bring-up |
 | PTP timestamping | HW-timestamping NIC required (`ethtool -T` shows a PHC) | `ptp_timesync_require_hw_timestamping: false` to run on a sw-only NIC |
 | BMC network | Physically separate | Can share the management switch, still its own subnet |
 

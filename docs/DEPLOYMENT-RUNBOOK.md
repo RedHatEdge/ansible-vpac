@@ -1,6 +1,6 @@
 # Deployment runbook — define, run, log
 
-A field-derived companion to the deployment guides, built from real hardware
+A practical companion to the deployment guides, built from real hardware
 validation runs of this repo. Three parts: **A** — define *your* environment,
 **B** — the exact commands per stage with post-stage validation, **C** — a
 site log template you append to as you run. Keep your filled copy with your
@@ -38,7 +38,7 @@ copying and renaming the inventory, the vault) with nothing assumed.
   Disconnect; equivalent on other BMCs). Leftover virtual CD/DVD and floppy
   devices from the install linger as `sr0`/`sda` block devices, then surface as
   rejected devices in `ceph orch device ls` and confuse storage audits.
-  Field-observed on two of three nodes after ISO-based installs.
+  Common after ISO-based installs.
 
 ## Part A — Define YOUR environment
 
@@ -148,7 +148,7 @@ Ops playbooks: `op-rolling-reboot.yml`, `op-pacemaker-recover.yml`,
 > warm reset** (looks like a second reboot — normal); PTP may show
 > FAULTY/LISTENING for up to a minute after boot and self-recovers to SLAVE.
 >
-> If you script this yourself instead, two field-proven traps: **ping is not
+> If you script this yourself instead, two traps: **ping is not
 > readiness** (a node answers ping seconds into boot, right before the warm
 > reset takes it down again — gate on SSH + boot time + `uname -r`), and
 > **never query Ceph health through the node you are rebooting** — always

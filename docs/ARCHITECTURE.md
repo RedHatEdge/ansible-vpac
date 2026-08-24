@@ -37,7 +37,7 @@ flowchart LR
 
   mgmt -. carries .-> mgmtN(["mgmt + libvirt mgmt + Cockpit"])
   storage -. carries .-> storageN(["Ceph public + cluster — L2-only"])
-  station -. carries .-> stationN(["IEC 61850 GOOSE/SV — VLAN trunk"])
+  station -. carries .-> stationN(["IEC 61850 MMS / HMI — VLAN trunk"])
   hb -. carries .-> hbN(["corosync ring ONLY"])
   ptp -. carries .-> ptpN(["ptp4l ONLY — no bridge / bond / macvtap"])
   bmc -. carries .-> bmcN(["STONITH (out-of-band)"])
@@ -51,14 +51,15 @@ flowchart LR
 |---|---|---|
 | Management | Ansible, SSH, libvirt mgmt | Bridge `br-mgmt`, reachable from the SA's workstation |
 | Storage | Ceph public + cluster | Dedicated bond, no bridge, no gateway (L2-only) |
-| Station bus | IEC 61850 GOOSE/SV | Bridge `br-station`, VLAN-trunked to relays / process bus |
+| Station bus | IEC 61850 MMS, engineering tools, relay HMI | Bridge `br-station`, VLAN-trunked to relays |
+| Process bus | IEC 61850 GOOSE / Sampled Values | **Dedicated NIC per relay, macvtap, no host IP** — must not share a port with the station bus |
 | Heartbeat | Corosync ring | **Dedicated NIC or VLAN**, not a bridge member — see below |
 | PTP | Time sync | **Dedicated NIC**, not a bridge member — see below |
 | BMC | STONITH | Usually a separate physical OOB network |
 
 ### Why heartbeat must not share the VM management bridge
 
-On a shared `br-mgmt`, any bridge churn from guest VMs (frequent restarts, mass `vnet*` creation) causes STP flapping and packet drops. Corosync heartbeats ride on the same bridge and start timing out. Once heartbeats are lost, Pacemaker splits the cluster. In one deployment this caused two corosync partition events 20 seconds apart and a permanent pacemaker shutdown on one node, with a VM running simultaneously on two nodes against the same CephFS image.
+On a shared `br-mgmt`, any bridge churn from guest VMs (frequent restarts, mass `vnet*` creation) causes STP flapping and packet drops. Corosync heartbeats ride on the same bridge and start timing out. Once heartbeats are lost, Pacemaker splits the cluster. The end state is the dangerous one: the same VM running on two nodes at once against the same CephFS image.
 
 Mitigation: corosync runs on a **dedicated network** (physical NIC or VLAN with its own bridge) that does not carry VM libvirt traffic.
 

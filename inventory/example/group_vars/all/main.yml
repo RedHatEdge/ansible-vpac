@@ -239,7 +239,10 @@ networks:
     gateway: null                        # typically no gateway (L2-only)
     vlan: 10
 
-  # Station bus: IEC 61850 GOOSE/SV, relay-to-process traffic. Often L2 trunk.
+  # Station bus: IEC 61850 MMS, engineering tools, relay web HMI. Often L2 trunk.
+  # NOT the process bus: GOOSE/Sampled Values belong on a dedicated NIC attached
+  # to the relay by macvtap (vm_catalog `host_dev`), with no host IP. Combining
+  # station and process bus on one port is not a supported relay configuration.
   station:
     cidr: "10.0.20.0/24"
     gateway: null
@@ -455,7 +458,7 @@ rt_tuning:
   # Managed-IRQ pinning: interfaces whose kernel-managed IRQs must be kept
   # OFF the isolated RT cores (the process-bus and other RT-path NICs).
   # A VM start re-spreads managed IRQs across all CPUs without this
-  # (field-diagnosed 3.5 ms latency spike). Empty list = installed no-op.
+  # (observed as a multi-millisecond latency spike). Empty list = installed no-op.
   pin_irq_interfaces: []                 # e.g. ["ens2f0", "ens2f1"]
   cpu_governor: "performance"
   sched_rt_runtime_us: -1                # -1 disables throttling for RT tasks

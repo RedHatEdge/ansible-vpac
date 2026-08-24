@@ -15,7 +15,9 @@ The goal of a major storage upgrade is that **the data on the cluster stays good
 
 **Shut down all VMs before starting.** Not just as caution — there is a specific mechanism:
 
-> **`cephadm` deadlocks against isolated CPUs running a pinned VM.** During upgrades cephadm gathers host facts, which runs `sysctl -a`; reading `vm.stat_refresh` makes the kernel schedule work on **every** CPU (`schedule_on_each_cpu`). On an RT host, a vCPU pinned to an isolated CPU never yields, so that call blocks in uninterruptible D-state forever — wedging cephadm on that node. Field-observed: the upgrade froze at 1/28 daemons for ~52 minutes, only on the node running a pinned guest, and unblocked the moment the guest was suspended. With guests down, the same upgrade completed without incident.
+> **`cephadm` deadlocks against isolated CPUs running a real-time guest. This is an upstream defect, not a misconfiguration.** cephadm collects host facts by running `sysctl -a`, which reads every key in the tree — including `vm.stat_refresh`. Reading that key makes the kernel schedule a work item on **every** CPU (`schedule_on_each_cpu`) and wait for all of them. A `SCHED_FIFO` vCPU thread occupying an isolated CPU is not preempted by the kernel's normal-priority worker, so the work item never runs and the read blocks in uninterruptible D-state until the guest stops. The process cannot be killed. An ordinary `SCHED_OTHER` workload on an isolated CPU does **not** trigger this.
+>
+> **It is not limited to upgrades.** The orchestrator's routine refresh cycle reaches the same call, so an affected node accumulates unkillable processes and sits in `CEPHADM_REFRESH_FAILED` during normal operation. Shutting guests down for the upgrade window avoids it *during the upgrade*; it is not a cure. See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 
 Shut VMs down through Pacemaker if they are managed (`pcs resource disable <vm>` per VM), or `virsh shutdown` for standalone ones. Verify with `virsh list` on every node: no running domains.
 
@@ -81,7 +83,7 @@ The run was a single unrestricted `upgrade start`. Staged upgrades (`--daemon-ty
 ceph orch upgrade resume
 ```
 
-**The orchestrator can go dead after a mgr failover mid-upgrade — while looking enabled.** Mixed-version mgr cache is not backward-readable: if the active mgr fails over to a not-yet-upgraded mgr, cephadm can crash reading state the newer mgr wrote (`DaemonDescription: __init__() got an unexpected keyword argument ...`). The trap: `ceph mgr module ls` still shows cephadm **"on"** while `ceph orch status` returns **"Module not found"** — enabled but not loaded, which reads as healthy if you only check the first. Remedy, field-proven:
+**The orchestrator can go dead after a mgr failover mid-upgrade — while looking enabled.** Mixed-version mgr cache is not backward-readable: if the active mgr fails over to a not-yet-upgraded mgr, cephadm can crash reading state the newer mgr wrote (`DaemonDescription: __init__() got an unexpected keyword argument ...`). The trap: `ceph mgr module ls` still shows cephadm **"on"** while `ceph orch status` returns **"Module not found"** — enabled but not loaded, which reads as healthy if you only check the first. Remedy, proven:
 
 ```bash
 ceph mgr fail    # promotes the standby (already-upgraded) mgr; orchestrator returns immediately
@@ -89,11 +91,15 @@ ceph mgr fail    # promotes the standby (already-upgraded) mgr; orchestrator ret
 
 **The upgrade freezes at 1/N daemons on one node.** That is the pinned-VM deadlock from the top of this document — a guest is still running on that node. Shut it down or suspend it; the upgrade unblocks on its own.
 
-**`Buffer I/O error on dev rbdN` in the kernel log during the window.** A client RBD image stayed mapped while the OSDs under it restarted — the unmap precondition was skipped. Field-observed with no data damage, but treat any such lines as a prompt to check what held the mapping and to verify that consumer afterwards.
+**`Buffer I/O error on dev rbdN` in the kernel log during the window.** A client RBD image stayed mapped while the OSDs under it restarted — the unmap precondition was skipped. Treat any such lines as a prompt to check what held the mapping and to verify that consumer afterwards.
 
 ## After the upgrade: verify PTP on every node — cluster health will not tell you
 
-Field-measured, and the worst-shaped defect this document knows about: after a maintenance sequence of reboots, teardown, and repeated upgrades, one node's PTP was silently dead for **four days while Ceph reported HEALTH_OK the entire time** — port FAULTY, `gmPresent false`, `tx_hwtstamp_skipped` climbing ~4/minute. Every environmental candidate was excluded by direct comparison (firmware, optics, link, switch port and PTP config, CPU load); the discriminator was **re-initialization**: the nodes whose ptp4l/NIC happened to get restarted during the maintenance were healthy, and the node that rode through everything untouched was the broken one. Which node gets lucky is chance — at another site it could be every node, and no cluster health check surfaces it. On a platform whose basis is sub-microsecond timing, run this check **on every node, every time**:
+Cluster health does not cover time synchronization. A node can lose PTP during a maintenance window and remain in that state indefinitely while Ceph continues to report `HEALTH_OK` — the port shows FAULTY with `gmPresent false` and `ethtool -S <nic>` shows `tx_hwtstamp_skipped` climbing. No cluster health check surfaces this.
+
+The trigger is a missed re-initialization: a node whose `ptp4l` or NIC is restarted during the maintenance recovers, while a node that rides through untouched may not. Which nodes are affected therefore depends on which daemons happened to restart, and can include all of them.
+
+On a platform whose basis is sub-microsecond timing, run this check **on every node, after every maintenance window**:
 
 ```bash
 chronyc sources | grep PTP    # expect '#*' (selected) and reach 377

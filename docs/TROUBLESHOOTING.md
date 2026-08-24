@@ -27,8 +27,8 @@ ethtool -S <bridge>
 
 If RX drops are high (tens of thousands+) and you see a VM restart/thrash loop in `journalctl -u libvirtd`, the root cause is corosync sharing a bridge with VM management traffic. Long-term fix: move corosync to a dedicated heartbeat NIC (the `heartbeat_nic` variable). This is the `ARCHITECTURE.md` correct topology and the playbooks enforce it on new deployments.
 
-**Third check: is the heartbeat link's PHYSICAL layer dirty?** Field-diagnosed
-cause with a deceptive signature: repeated corosync membership churn (dozens of
+**Third check: is the heartbeat link's PHYSICAL layer dirty?** A cause with a
+deceptive signature: repeated corosync membership churn (dozens of
 membership changes per hour, thousands of KNET link events, TOTEM retransmits),
 `pacemaker-controld` crashes, and CIB operations landing minutes late (which
 surfaces as `pcs resource create` timeouts on an apparently healthy cluster) —
@@ -45,18 +45,17 @@ cages entirely, and 1000BASE-T switch ports may offer no fixed-speed option
 at all (1000BASE-T mandates autonegotiation) — neither knob can fix a
 transcoding module.
 
-**Reading the switch counters — field-measured reference numbers:**
+**Reading the switch counters — reference numbers:**
 
 - **Only `fragments` discriminates.** `undersizes` and `jabbers` are noise —
-  in the measured incident they were proportionally HIGHER on the known-clean
-  control port. An operator chasing those counters will conclude the link is
+  they can read proportionally HIGHER on a known-clean control port. An operator chasing those counters will conclude the link is
   fine. Ignore them; watch `fragments`.
-- Normalize per GB transmitted, not per time. Measured on a same-switch,
-  same-NIC, same-firmware controlled pair differing only in module:
+- Normalize per GB transmitted, not per time. On a same-switch, same-NIC,
+  same-firmware pair differing only in module:
   **~2.6 fragments/GB (native-rate module) vs ~22 (rate-adapting module)** at
   light traffic — roughly 8× — and **~170–185 fragments/GB** on affected
-  links under sustained multi-stream load. Even near-idle, the dirty link
-  drifted at ~1.3 fragments/min.
+  links under sustained multi-stream load. Even near-idle, a dirty link
+  drifts at roughly 1.3 fragments/min.
 - Second, blunter metric: **throughput collapse** — affected 1 Gb links
   sustained only ~130–145 Mbit/s in a multi-stream iperf3 ring. A genuine
   fix must lift this materially, not merely reduce fragments.
@@ -134,7 +133,7 @@ Common causes:
 
 3. NIC is a bond slave — PTP does not work reliably on bond slaves. Make the NIC standalone.
 
-4. `ptp4l` logs `timed out while polling for tx timestamp` and the port cycles LISTENING → FAULTY (reach 0, `gmPresent false`, `ethtool -S <nic>` shows `tx_hwtstamp_skipped` **climbing**). Field-diagnosed cause: **the NIC's PTP block was never re-initialized across a major maintenance sequence** (reboots, cluster teardown, repeated Ceph upgrades around a node that stayed up throughout). In the diagnosed case every other candidate was excluded by direct three-way comparison — firmware, optics, link, switch port/PTP config all identical to healthy peers, and **kworker starvation on isolated CPUs was excluded by measurement** (the node with busy isolated CPUs was a healthy one), despite the driver's own log message suggesting kworker priority. **Fix: reboot the node. A link bounce is NOT sufficient** — measured: carrier down/up did not trigger the driver's PTP reset and the fault continued; the reboot cleared it fully. See the post-upgrade verification step in [`UPGRADE-RHCS-7-TO-9.md`](UPGRADE-RHCS-7-TO-9.md) — this state hides behind HEALTH_OK indefinitely.
+4. `ptp4l` logs `timed out while polling for tx timestamp` and the port cycles LISTENING → FAULTY (reach 0, `gmPresent false`, `ethtool -S <nic>` shows `tx_hwtstamp_skipped` **climbing**). Cause: **the NIC's PTP block was not re-initialized across a maintenance sequence** — reboots, cluster teardown or repeated upgrades around a node that stayed up throughout. Before concluding this, confirm firmware, optics, link and switch port/PTP config match a healthy peer. Note that the driver's log message suggests raising kworker priority; CPU load on isolated cores is **not** the cause here and raising priority does not fix it. **Fix: reboot the node. A link bounce is not sufficient** — carrier down/up does not trigger the driver's PTP reset. See the post-upgrade verification step in [`UPGRADE-RHCS-7-TO-9.md`](UPGRADE-RHCS-7-TO-9.md) — this state hides behind HEALTH_OK indefinitely.
 
 ## PTP path delay reads `0.0` in P2P mode (red herring)
 
@@ -235,6 +234,48 @@ The error blames the agent or the XML; the usual cause is neither: **the shared 
 4. **Other RT tasks**: `ps -eLo pid,tid,class,rtprio,ni,pri,psr,comm | awk '$4 > 0'` on the isolated CPUs. Unexpected RT tasks starve the VM.
 5. **Power Profile / BIOS**: on Dell hardware, iDRAC should have Power Profile set to "Performance per Watt Optimized (DAPC)" or similar RT-friendly profile, and C-states disabled. Vendor-specific; see `HARDWARE-BOM.md`.
 
+## `CEPHADM_REFRESH_FAILED` with unkillable `sysctl` processes
+
+**Symptom.** A node sits in `HEALTH_WARN` with `CEPHADM_REFRESH_FAILED`:
+
+```
+"cephadm gather-facts" timed out on <node>
+"cephadm ceph-volume -- inventory" timed out on <node>
+```
+
+`ps` shows `sysctl -a` processes in uninterruptible (`D`) state that cannot be
+killed — one more per orchestrator refresh cycle — alongside hung-task messages
+in `dmesg`. Storage itself is healthy: OSDs up, PGs `active+clean`.
+
+**Cause — an upstream cephadm defect, not a fault in your configuration.**
+cephadm collects host facts by running `sysctl -a`, reading the entire sysctl
+tree to obtain a small number of values. That tree includes `vm.stat_refresh`,
+whose read handler schedules a work item on **every** CPU and waits for all of
+them. A `SCHED_FIFO` guest vCPU occupying an isolated CPU is not preempted by
+the kernel's normal-priority worker, so the work item never runs and the read
+never returns.
+
+This is the intended Virtual Protection configuration — real-time guests pinned
+to isolated cores — so any node running a protection VM is exposed.
+
+**Confirm it.** On the affected node, the single key cephadm actually needs
+still reads instantly even while the whole-tree reads are wedged:
+
+```bash
+sysctl -n net.ipv4.ip_nonlocal_bind    # returns in milliseconds
+```
+
+If that succeeds while `sysctl -a` hangs, this is the defect and not a
+system-wide stall.
+
+**Recovery.** The wedged processes cannot be killed and clear only on reboot.
+Stopping or suspending the real-time guests frees the isolated CPUs, lets the
+queued work items run, and allows in-flight reads to complete.
+
+**Scope.** An ordinary (`SCHED_OTHER`) workload on an isolated CPU does not
+trigger this — the precondition is a real-time priority thread. The fault occurs
+in normal operation, not only during upgrades.
+
 ## Ceph health degraded after a node reboot
 
 Normal after a short outage — OSDs on the rebooting node come back and catch up. `ceph -s` should return to HEALTH_OK within minutes.
@@ -265,9 +306,9 @@ lsblk                                          # OSD devices bare
 
 Clean each non-bootstrap node in this order: `systemctl stop 'ceph-*'` → `podman rm -fa` → `dmsetup remove` each `ceph--*` mapping → `wipefs -a` + `sgdisk --zap-all` each OSD device (by-id paths — double-check none is the OS disk).
 
-**⚠ ORDER MATTERS: remove client-side artifacts BEFORE destroying the cluster.** Kernel RBD mappings (`rbd showmapped`, or `ls /sys/bus/rbd/devices`) and CephFS mounts are CLIENT state that outlives the cluster — and once the cluster's OSDs are gone they become **reboot-only**: `rbd unmap` (force included) hangs against a dead cluster, any read of the device parks in uninterruptible D-state (`kill -9` cannot touch it), and everything that enumerates block devices — including `ceph-volume activate` on the NEXT deployment — blocks on it forever. Field-diagnosed: one stale lockspace mapping from a destroyed cluster silently broke every OSD activation of the replacement cluster on all three nodes, and only a rolling reboot cleared it. The teardown order is therefore: **stop and disable `rbdmap.service` FIRST — its `ExecStop` runs `rbdmap unmap-all`, releasing the devices it owns (a direct `rbd unmap` against a service-held mapping fails EBUSY in ~300 ms; that EBUSY is EXPECTED there, not a stuck artifact — field-timed on a live cluster). Then `rbd unmap` any REMAINING mappings (hand-mapped images the service does not own), then clear `/etc/ceph/rbdmap` (entries plus an enabled service resurrect the dead mapping on the next boot) → `virsh secret-undefine` the cluster's libvirt cephx secret on every node (libvirt enforces uniqueness on the secret's USAGE NAME, so a stale secret blocks the next cluster's define — and the roles' FSID-derived UUID means the replacement can never win a name squat) → `umount` CephFS + remove fstab lines → THEN destroy the cluster.** Field-measured on a live cluster: unmap-path ~315 ms and umount ~30 ms per node, versus indefinite D-state hangs (reboot-only) when attempted after the cluster is destroyed. Reversing that order converts removable state into a reboot.
+**⚠ ORDER MATTERS: remove client-side artifacts BEFORE destroying the cluster.** Kernel RBD mappings (`rbd showmapped`, or `ls /sys/bus/rbd/devices`) and CephFS mounts are CLIENT state that outlives the cluster — and once the cluster's OSDs are gone they become **reboot-only**: `rbd unmap` (force included) hangs against a dead cluster, any read of the device parks in uninterruptible D-state (`kill -9` cannot touch it), and everything that enumerates block devices — including `ceph-volume activate` on the NEXT deployment — blocks on it forever. One stale lockspace mapping from a destroyed cluster silently broke every OSD activation of the replacement cluster on all three nodes, and only a rolling reboot cleared it. The teardown order is therefore: **stop and disable `rbdmap.service` FIRST — its `ExecStop` runs `rbdmap unmap-all`, releasing the devices it owns (a direct `rbd unmap` against a service-held mapping fails EBUSY in ~300 ms; that EBUSY is EXPECTED there, not a stuck artifact). Then `rbd unmap` any REMAINING mappings (hand-mapped images the service does not own), then clear `/etc/ceph/rbdmap` (entries plus an enabled service resurrect the dead mapping on the next boot) → `virsh secret-undefine` the cluster's libvirt cephx secret on every node (libvirt enforces uniqueness on the secret's USAGE NAME, so a stale secret blocks the next cluster's define — and the roles' FSID-derived UUID means the replacement can never win a name squat) → `umount` CephFS + remove fstab lines → THEN destroy the cluster.** Typical timings: unmap-path ~315 ms and umount ~30 ms per node, versus indefinite D-state hangs (reboot-only) when attempted after the cluster is destroyed. Reversing that order converts removable state into a reboot.
 
-**If the cluster being removed is WEDGED (orchestrator stuck, deploys abandoned): do not lead with `rm-cluster` at all.** `cephadm rm-cluster` depends on the same podman/ceph-volume path that is already jammed — field-measured, it ran 32 minutes against a wedged cluster with zero state change, while the same command had removed a healthy cluster in ~2. The first step of any teardown-after-failure is to kill orphaned `ceph-volume`, `podman run`, and `conmon` processes left by the failed deploy (they hold device locks and can hang even `podman ps`), then go straight to the manual per-node path above, which depends on nothing being healthy.
+**If the cluster being removed is WEDGED (orchestrator stuck, deploys abandoned): do not lead with `rm-cluster` at all.** `cephadm rm-cluster` depends on the same podman/ceph-volume path that is already jammed — it can run for 30+ minutes against a wedged cluster with zero state change, while the same command had removed a healthy cluster in ~2. The first step of any teardown-after-failure is to kill orphaned `ceph-volume`, `podman run`, and `conmon` processes left by the failed deploy (they hold device locks and can hang even `podman ps`), then go straight to the manual per-node path above, which depends on nothing being healthy.
 
 **A CephFS mount and its fstab entry survive cluster removal.** Neither `rm-cluster` nor the manual path unmounts a CephFS mount or removes its `_netdev` fstab line — a mount pointing at a destroyed cluster's fsid persists on every node, collides with a redeploy that mounts the same path (the roles now refuse loudly when they detect it), and is a boot-time hazard. On each node: `umount -l <mountpoint>` (lazy — a dead-cluster cephfs mount can block a normal umount), then remove the matching `/etc/fstab` line (back the file up first). The tell is the fsid in the mount source not matching the current cluster's.
 

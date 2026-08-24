@@ -136,5 +136,5 @@ The working pattern:
    `op-stonith-fence-test.yml`).
 
 Full step-by-step walkthroughs: `docs/DEPLOYMENT-CONNECTED.md` and
-`docs/DEPLOYMENT-AIRGAPPED.md`. Field-derived per-stage commands, post-stage
+`docs/DEPLOYMENT-AIRGAPPED.md`. Per-stage commands, post-stage
 validation checks, and a site-log template: `docs/DEPLOYMENT-RUNBOOK.md`.

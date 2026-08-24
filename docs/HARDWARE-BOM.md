@@ -20,9 +20,10 @@ Minimum five logical networks. Practical layout for identical hardware:
 | 2 × 10/25 GbE | Station bus bond | Trunked for multiple VLANs |
 | 1 × 1 GbE | Heartbeat | Standalone — no bond, no bridge |
 | 1 × 1 GbE | PTP | Standalone — no bond, no bridge, no macvtap |
+| 1 × 1/10 GbE **per relay** | Process bus (GOOSE / Sampled Values) | Dedicated, attached to the relay by macvtap, **no host IP**. Add a second port per relay if the relay terminates PRP itself (two independent LANs). Not required for hosts that run no protection relay. |
 | 1 × OOB | BMC / IPMI | Physically separate network |
 
-At sites where NICs are constrained, heartbeat and PTP can be VLAN-isolated on a shared NIC **only if** the shared NIC is not a bridge member. The playbook will not allow PTP on a bridge. (Heartbeat over a VLAN on the storage bond is a supported, field-proven layout for 4-NIC nodes — see the networking role's *Heartbeat modes*.)
+**The process bus must not share a port with the station bus.** At sites where NICs are constrained, heartbeat may ride a VLAN on an existing bond (below); PTP and process bus stay dedicated. The playbook will not allow PTP on a bridge. (Heartbeat over a VLAN on the storage bond is a supported layout for 4-NIC nodes — see the networking role's *Heartbeat modes*.)
 
 > **Switch caveat — Advantech EKI-8528-4XFL at 1 GbE fibre.** Firmware **1.00.04 flaps 1000BASE-X links** continuously (multiple NIC families affected, idle links included); **firmware ≥ 1.00.06 (r610) fixes it** — the fix is not enumerated in the vendor release notes. Config survives the upgrade (~80–105 s downtime; previous image stays in the backup slot). If 1 G fibre links flap behind these switches, upgrade firmware **before** suspecting NICs. See TROUBLESHOOTING.md, "Storage / heartbeat 1 GbE fibre links flap."
 >
