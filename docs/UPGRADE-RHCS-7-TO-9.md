@@ -122,6 +122,31 @@ Your contract still declares RHCS 7 in three places, and **no check compares the
 
 Then run preflight — it should pass clean at 9.
 
+## Update the host-level `cephadm` package
+
+`ceph orch upgrade` replaces the **containers**. It does not touch the `cephadm`
+**RPM** installed on each host, and enabling a new tools repo does not disable
+the old one — repo enablement is additive. Left alone, the nodes keep running a
+Reef `cephadm` binary against a Tentacle cluster, and the repo that would update
+it still points at the previous release.
+
+On **every** node, once the cluster reports a single version at 9:
+
+```bash
+sudo subscription-manager repos \
+  --enable=rhceph-9-tools-for-rhel-9-x86_64-rpms \
+  --disable=rhceph-7-tools-for-rhel-9-x86_64-rpms
+sudo dnf -y update cephadm
+cephadm version        # should match the cluster's major version
+rpm -q cephadm
+```
+
+Air-gapped sites: mirror the RHCS 9 tools repo to the builder first, then run the
+same `dnf update`.
+
+> Not part of the validated runs — those upgraded the containers only, which is
+> how the drift was found. Recommended, and safe to run after the fact.
+
 ## Rollback posture — stated honestly
 
 - **Downgrade is not a thing.** Ceph does not support downgrading to an older release. This is upstream-documented behavior, not our finding. The moment daemons run the new version, forward is the only direction.

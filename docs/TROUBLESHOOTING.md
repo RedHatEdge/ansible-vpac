@@ -218,7 +218,56 @@ virsh nodedev-list | grep <pci-address>
 lspci -k -s <pci-address>   # Driver should be vfio-pci
 ```
 
-If the driver is not `vfio-pci`, the host grabbed the device. Re-apply the `virtualization` role (which configures `vfio-pci` via kernel cmdline or `/etc/modprobe.d/`) and reboot the node.
+If the driver is not `vfio-pci`, the host grabbed the device. Binding a device to
+`vfio-pci` is **not automated by any role** — do it manually on the node.
+
+> ### ⚠ Bind by PCI address, never by vendor:device ID
+>
+> On a multi-port card **every port shares one vendor:device ID**. The common
+> `options vfio-pci ids=<vendor>:<device>` recipe therefore binds **every port on
+> the card**, not the one you meant. On a node whose management, storage,
+> heartbeat and PTP interfaces are all functions of the same adapter, that takes
+> the entire node off the network at the next boot and leaves out-of-band
+> access as the only way back in. Bind the single PCI address instead.
+
+```bash
+# 1. Find the PCI address of the port — not its ID
+ethtool -i <nic>            # bus-info: is the PCI address
+lspci -nn -s <pci-address>  # confirm it is the device you intend
+
+# 2. Bind that one device, by address. driverctl ships in RHEL 9 AppStream.
+sudo dnf install -y driverctl
+sudo driverctl set-override 0000:00:00.0 vfio-pci    # address from step 1
+sudo driverctl list-overrides                        # verify
+
+# 3. Confirm
+lspci -k -s 0000:00:00.0    # Kernel driver in use: vfio-pci
+
+# undo
+sudo driverctl unset-override 0000:00:00.0
+```
+
+`driverctl` binds the single address, persists the override through its own
+systemd unit, and needs no initramfs regeneration and no reboot.
+
+If you would rather add no package, the kernel interface underneath it does the
+same thing, at the cost of writing your own persistence:
+
+```bash
+PCI=0000:00:00.0
+echo vfio-pci | sudo tee /sys/bus/pci/devices/$PCI/driver_override
+echo $PCI     | sudo tee /sys/bus/pci/devices/$PCI/driver/unbind
+echo $PCI     | sudo tee /sys/bus/pci/drivers_probe
+```
+
+`driver_override` set this way does **not** survive a reboot — use `driverctl`,
+or add a unit that re-applies it before `libvirtd` starts.
+
+IOMMU is already enabled by the `rt_tuning` role (`intel_iommu=on`, `iommu=pt` on
+the RT kernel entries), so no cmdline change is needed for that. If the device
+shares an IOMMU group with others, every device in the group must be bound or the
+guest will fail to start — check with
+`ls /sys/bus/pci/devices/$PCI/iommu_group/devices/`.
 
 ## VirtualDomain start fails with `not installed (environment is invalid)`
 
