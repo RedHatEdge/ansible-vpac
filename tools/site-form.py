@@ -451,7 +451,7 @@ def form_page(errors=None, notice=None):
         node_block += ('<div class="node"><h4>%s</h4>'
           '<label>Hostname (SHORT name — the DNS domain from step 1 is appended automatically)</label><input name="n%d_host" required>'
           '<div class="hint">on the node: <code>hostname -s</code>. NO dots — an FQDN here would double the domain in /etc/hosts</div>'
-          '<label>Management IP</label><input name="n%d_mgmt" required>'
+          '<label>Management IP</label><input name="n%d_mgmt" required oninput="gates()">'
           '<div class="hint">the address you SSH to today</div>'
           '<label>Storage IP</label><input name="n%d_storage" required>'
           '<label>Station IP</label><input name="n%d_station" required>'
@@ -464,11 +464,19 @@ def form_page(errors=None, notice=None):
           '<label>BMC username</label><input name="n%d_bmc_user" value="root">'
           '<label>BMC password (goes to vault)</label><input type="password" name="n%d_bmc_pw">'
           '<label>NIC names (comma-sep)</label><input name="n%d_nics" placeholder="eno1,eno2,eno3,eno4">'
-          '<div class="hint">on the node: <code>ip -br link</code></div>'
+          '<div class="hint">use the Fetch button below, or on the node: '
+          '<code>for d in /sys/class/net/*; do [ -e "$d/device" ] &amp;&amp; basename $d; done</code> &mdash; '
+          'physical ports only. <code>ip -br link</code> also works but ONLY before the networking stage runs; '
+          'after it, that command also lists bonds, VLANs and bridges.</div>'
           '<label>OSD disks — one /dev/disk/by-id/ path per line</label><textarea rows="4" name="n%d_disks"></textarea>'
           '<div class="hint">by-id ONLY — kernel names like /dev/sdb or /dev/nvme0n1 reorder across boots, the storage stage WIPES what it is handed, and a swapped name can destroy the OS disk. List them: <code>ls -l /dev/disk/by-id/</code></div>'
           '<div class="hint">on the node: <code>ls -l /dev/disk/by-id/ | grep -v part</code> — these disks are WIPED</div>'
-          '</div>') % ((label,) + (i,) * 11)
+          '<button type="button" id="fetchbtn%d" onclick="fetchNode(%d)">Fetch NICs + disks from this node</button>'
+          '<div class="hint">needs the SSH key and this node&rsquo;s management IP, and the node to be installed already. '
+          'Fills the NIC list; for disks it shows what it found and you tick the ones to use &mdash; nothing is ticked for you, '
+          'and the disk carrying / or /boot is excluded and cannot be selected.</div>'
+          '<div class="hint" id="fetch%d"></div>'
+          '</div>') % ((label,) + (i,) * 14)
     nets = ""
     defaults = dict(mgmt=("10.0.0.0/24", ""), storage=("10.0.10.0/24", "10"), station=("10.0.20.0/24", "20"),
                     heartbeat=("10.0.30.0/24", "30"), bmc=("10.0.100.0/24", ""))
@@ -488,12 +496,18 @@ def form_page(errors=None, notice=None):
 <div class="hint"><b>Recommended: a NEW dedicated key</b> — not your personal one. It has no
 passphrase (unattended automation breaks on one), it can be rotated without touching anyone's
 identity, and it can be handed to a colleague.</div>
-<button type="button" onclick="guard(this,'keymsg',()=>makeKey())">Create a dedicated key for this site</button>
+<label>Use a key already in your ~/.ssh</label>
+<select id="keypick" onchange="pickKey()"><option value="">— loading —</option></select>
+<div class="hint" id="keypickmsg">Pick one you have ALREADY copied to these nodes with <code>ssh-copy-id</code>.</div>
+<label>&hellip; or create a new dedicated key &mdash; name it (blank = named after the site)</label>
+<input id="keyname" placeholder="vpac-site1">
+<button type="button" onclick="guard(this,'keymsg',()=>makeKey())">Create this key</button>
 <span id="keymsg" class="hint"></span>
-<label>Key path (filled by the button, or point at an existing key)</label>
-<input name="ssh_key" id="sshkey" value="">
+<label>Key path in use (set by either choice above; you can also type a path)</label>
+<input name="ssh_key" id="sshkey" value="" oninput="gates()">
 <div id="copyid" class="hint"></div>
-<button type="button" onclick="guard(this,'sshtest',()=>testSsh())">Test connectivity to all three nodes</button>
+<button type="button" id="testbtn" onclick="guard(this,'sshtest',()=>testSsh())">Test connectivity to all three nodes</button>
+<div id="testwhy" class="hint"></div>
 <div id="sshtest" class="hint"></div></fieldset>
 <fieldset><legend>2. Mode</legend>
 <label>Deployment mode</label><select name="mode" id="modesel"><option>connected</option><option>airgapped</option></select>
@@ -586,7 +600,8 @@ document.getElementById('lscpu').addEventListener('input',e=>{const m=e.target.v
 if(m)document.getElementById('cpucount').value=m[1];});
 function fd(){const o=new URLSearchParams();['site_name','ssh_user'].forEach(k=>o.set(k,document.querySelector(`[name=${k}]`).value));
 [1,2,3].forEach(i=>o.set('ip'+i,document.querySelector(`[name=n${i}_mgmt]`).value));
-o.set('key',document.getElementById('sshkey').value);return o;}
+o.set('key',document.getElementById('sshkey').value);
+const kn=document.getElementById('keyname');if(kn)o.set('keyname',kn.value||'');return o;}
 async function makeKey(forceNew){const o=fd();if(forceNew)o.set('force_new','1');
 const j=await jfetch('/makekey',o);
 if(j.exists){document.getElementById('keymsg').innerHTML=
@@ -596,16 +611,78 @@ if(j.exists){document.getElementById('keymsg').innerHTML=
  `<button type="button" onclick="guard(this,'keymsg',()=>makeKey(true))">CREATE A NEW ONE (${j.next.split('/').pop()})</button>`;
  return;}
 document.getElementById('keymsg').textContent=j.msg||'';
-if(j.path){document.getElementById('sshkey').value=j.path;
+if(j.path){document.getElementById('sshkey').value=j.path;loadKeys();gates();
 const u=document.querySelector('[name=ssh_user]').value||'admin';
 const ips=[1,2,3].map(i=>document.querySelector(`[name=n${i}_mgmt]`).value).filter(x=>x);
 document.getElementById('copyid').innerHTML='<b>Now copy it to each node (each asks for the admin password once):</b><br>'+
  ips.map(ip=>`<code>ssh-copy-id -i ${j.path}.pub ${u}@${ip}</code>`).join('<br>');}}
-function reuseKey(p){document.getElementById('sshkey').value=p;
+function reuseKey(p){document.getElementById('sshkey').value=p;gates();
 document.getElementById('keymsg').textContent='reusing '+p+' — make sure this key was already copied (ssh-copy-id) to THESE nodes';}
 async function testSsh(){const el=document.getElementById('sshtest');el.textContent='testing…';
 const j=await jfetch('/testssh',fd());
 el.innerHTML=j.results.map(x=>`${x.ip}: <b style="color:${x.ok?'#080':'#c00'}">${x.ok?'OK — key + passwordless sudo work':'FAILED — '+x.err}</b>`).join('<br>');}
+function fetchNode(i){
+const el=document.getElementById('fetch'+i);
+const ip=(document.querySelector(`[name=n${i}_mgmt]`).value||'').trim();
+const key=(document.getElementById('sshkey').value||'').trim();
+if(!ip){el.innerHTML='<b style="color:#c00">enter the management IP for this node first</b>';return;}
+if(!key){el.innerHTML='<b style="color:#c00">set the SSH key path in step 1 first</b>';return;}
+el.textContent='fetching from '+ip+' ...';
+const p=new URLSearchParams();
+p.set('key',key);
+p.set('ssh_user',document.querySelector('[name=ssh_user]').value||'admin');
+p.set('ip',ip);
+fetch('/fetchnode',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()})
+.then(r=>r.json()).then(j=>{
+if(!j.ok){el.innerHTML='<b style="color:#c00">fetch failed: '+j.err+'</b><br>Fill the NIC and disk fields by hand. This button is a convenience, not a requirement.';return;}
+document.querySelector(`[name=n${i}_nics]`).value=j.nics.join(',');
+let h='<b>NIC list filled from the node:</b> '+j.nics.join(', ')+'<br><br><b>Disks found. TICK the ones to use as OSDs:</b><br>';
+let any=false;
+j.disks.forEach(d=>{
+ if(d.excluded){
+  h+=`<div style="color:#c00">EXCLUDED &mdash; ${d.name} (${d.size} ${d.model}): carries / or /boot, so it is the OS disk</div>`;
+ }else{
+  any=true;
+  h+=`<label style="font-weight:400"><input type="checkbox" class="dsk${i}" value="${d.byid}"> <b>${d.name}</b> ${d.size} ${d.model}</label><div class="hint" style="margin:0 0 .3em 1.6em">${d.byid}</div>`;
+ }});
+if(!any){h+='<div style="color:#c00">no candidate disks found beyond the OS disk</div>';}
+else{h+=`<button type="button" onclick="addDisks(${i})">Put ticked disks into the OSD list above</button>`;}
+el.innerHTML=h;});}
+function addDisks(i){
+const sel=[].slice.call(document.querySelectorAll('.dsk'+i+':checked')).map(x=>x.value);
+const ta=document.querySelector(`[name=n${i}_disks]`);
+if(!sel.length){ta.value='';return;}
+ta.value=sel.join(String.fromCharCode(10));}
+function gates(){
+const key=(document.getElementById('sshkey').value||'').trim();
+const ips=[1,2,3].map(i=>{const e=document.querySelector(`[name=n${i}_mgmt]`);return e?(e.value||'').trim():'';});
+const tb=document.getElementById('testbtn');const why=document.getElementById('testwhy');
+const miss=[];
+if(!key)miss.push('an SSH key chosen or created above');
+if(!ips.some(x=>x))miss.push('at least one node Management IP, in step 3 below');
+if(tb)tb.disabled=miss.length>0;
+if(why)why.innerHTML=miss.length?('<b>Not yet:</b> this needs '+miss.join(', and ')+'. Testing reaches out to the nodes, so it needs to know where they are.'):'<b>Ready.</b> This checks the key and passwordless sudo on every node you have entered.';
+[1,2,3].forEach(i=>{const b=document.getElementById('fetchbtn'+i);if(!b)return;
+b.disabled=!(key&&ips[i-1]);
+b.title=b.disabled?'Needs the SSH key and this node Management IP first':'';});}
+function loadKeys(){
+fetch('/listkeys',{method:'POST',body:''}).then(r=>r.json()).then(j=>{
+const sel=document.getElementById('keypick');if(!sel)return;
+sel.innerHTML='';
+const first=document.createElement('option');first.value='';
+first.textContent=j.keys.length?'-- choose an existing key --':('no usable keypairs found in '+j.dir);
+sel.appendChild(first);
+j.keys.forEach(k=>{const o=document.createElement('option');o.value=k.path;
+o.textContent=k.name+(k.comment?(' -- '+k.comment):'')+(k.locked?'   [has a passphrase: unattended runs will stall]':'');
+if(k.locked)o.disabled=true;sel.appendChild(o);});
+gates();});}
+function pickKey(){const v=document.getElementById('keypick').value;
+const m=document.getElementById('keypickmsg');
+if(v){document.getElementById('sshkey').value=v;
+m.innerHTML='Using <code>'+v+'</code>. This key must ALREADY be installed on the nodes. If it is not, create a new one below and copy it.';}
+else{m.innerHTML='Pick one you have ALREADY copied to these nodes with <code>ssh-copy-id</code>.';}
+gates();}
+loadKeys();gates();
 </script></body></html>""" % (node_block, nets, BUILD_STAMP)).replace("%TZSEL%", tz_select_html())
     return h
 
@@ -639,6 +716,58 @@ example's defaults), and — air-gapped sites — the builder ISO section
 (contract §13).</p></div></body></html>""" % (
         "".join("<li><code>%s</code></li>" % x for x in files), f["site_name"])
 
+# Read-only facts collected over the SSH path /testssh has already proven.
+# Piped to `sh -s` on stdin rather than passed as an argument, so there is no
+# shell quoting boundary between here and the node.
+#
+# NICs: filtered on /sys/class/net/*/device so it returns PHYSICAL ports only.
+# `ip -br link` was the documented hint and is correct ONLY on a fresh node —
+# after the networking stage it also returns bonds, VLAN interfaces and bridges.
+#
+# Disks: every whole disk, with the disk(s) carrying / or /boot marked
+# excluded. The exclusion is DERIVED live (findmnt -> lsblk -s), never
+# pattern-matched on model strings, because this list feeds a field whose
+# contents get WIPED.
+FETCH_SH = r"""
+for d in /sys/class/net/*; do
+  [ -e "$d/device" ] || continue
+  echo "NIC	${d##*/}"
+done
+
+excl=""
+for mp in / /boot /boot/efi; do
+  # --nofsroot is REQUIRED: on btrfs, findmnt returns /dev/sda3[/root] and the
+  # [subvol] suffix makes lsblk reject it, so the exclusion silently matches
+  # nothing and the OS disk gets offered as an OSD candidate.
+  src=`findmnt -no SOURCE --nofsroot "$mp" 2>/dev/null`
+  [ -n "$src" ] || continue
+  # -r (raw) is REQUIRED: without it lsblk -s draws tree characters and the
+  # name comes back as "\u2514\u2500sda", which never matches a real disk name.
+  for n in `lsblk -nsro NAME,TYPE "$src" 2>/dev/null | awk '$2=="disk"{print $1}'`; do
+    excl="$excl $n "
+  done
+done
+
+lsblk -dPno NAME,TYPE,SIZE,MODEL | while read -r line; do
+  eval "$line"
+  [ "$TYPE" = disk ] || continue
+  byid=""
+  for l in /dev/disk/by-id/*; do
+    [ -e "$l" ] || continue
+    case "$l" in *-part*) continue ;; esac
+    t=`readlink -f "$l"`
+    [ "$t" = "/dev/$NAME" ] || continue
+    case "$l" in
+      */nvme-eui.*|*/wwn-*) [ -n "$byid" ] || byid="$l" ;;
+      *) byid="$l" ;;
+    esac
+  done
+  e=no
+  case " $excl " in *" $NAME "*) e=yes ;; esac
+  echo "DISK	$NAME	$SIZE	$MODEL	$byid	$e"
+done
+"""
+
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _send(self, html, code=200):
@@ -652,12 +781,38 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+        if self.path == "/listkeys":
+            d = os.path.expanduser("~/.ssh")
+            skip = {"known_hosts", "known_hosts.old", "config", "authorized_keys", "environment"}
+            out = []
+            if os.path.isdir(d):
+                for fn in sorted(os.listdir(d)):
+                    full = os.path.join(d, fn)
+                    if fn.endswith(".pub") or fn in skip or not os.path.isfile(full):
+                        continue
+                    if not os.path.exists(full + ".pub"):
+                        continue          # no matching .pub => not a usable keypair
+                    # A passphrase-protected key stalls unattended Ansible at a prompt,
+                    # so say so here rather than let it fail mid-deploy.
+                    locked = subprocess.run(["ssh-keygen", "-y", "-P", "", "-f", full],
+                                            capture_output=True, text=True).returncode != 0
+                    comment = ""
+                    try:
+                        parts = open(full + ".pub").read().strip().split(" ", 2)
+                        comment = parts[2] if len(parts) > 2 else ""
+                    except Exception:
+                        pass
+                    out.append(dict(path=full, name=fn, locked=locked, comment=comment))
+            return self._json(dict(keys=out, dir=d))
         if self.path == "/makekey":
             d = urllib.parse.parse_qs(body); site = d.get("site_name", [""])[0].strip()
             if not valid_site(site):
                 return self._json(dict(path="", msg="fix the site name first (lowercase letters/"
                                        "digits/dash) — the key is named after it"))
-            path = os.path.expanduser("~/.ssh/vpac-%s" % site)
+            nm = (d.get("keyname", [""])[0] or "").strip()
+            if nm and not re.match(r"^[A-Za-z0-9._-]{1,64}$", nm):
+                return self._json(dict(path="", msg="key name: letters, digits, dot, dash, underscore only"))
+            path = os.path.expanduser("~/.ssh/%s" % (nm or ("vpac-%s" % site)))
             if os.path.exists(path) and not d.get("force_new"):
                 import datetime
                 created = datetime.date.fromtimestamp(os.path.getmtime(path)).isoformat()
@@ -688,6 +843,29 @@ class H(http.server.BaseHTTPRequestHandler):
                 out.append(dict(ip=ip, ok=r.returncode == 0,
                                 err=(r.stderr.strip().splitlines() or ["no route / auth failed"])[-1] if r.returncode else ""))
             return self._json(dict(results=out))
+        if self.path == "/fetchnode":
+            d = urllib.parse.parse_qs(body)
+            key = os.path.expanduser(d.get("key", [""])[0])
+            user = d.get("ssh_user", ["admin"])[0] or "admin"
+            ip = d.get("ip", [""])[0].strip()
+            if not ip:
+                return self._json(dict(ok=False, err="no management IP entered for this node yet"))
+            r = subprocess.run(["ssh", "-i", key, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                                "-o", "StrictHostKeyChecking=accept-new",
+                                "%s@%s" % (user, ip), "sh", "-s"],
+                               input=FETCH_SH, capture_output=True, text=True)
+            if r.returncode != 0:
+                return self._json(dict(ok=False, err=(r.stderr.strip().splitlines()
+                                                      or ["unreachable, or the key does not work yet"])[-1]))
+            nics, disks = [], []
+            for line in r.stdout.splitlines():
+                p = line.split("\t")
+                if p[0] == "NIC" and len(p) >= 2:
+                    nics.append(p[1])
+                elif p[0] == "DISK" and len(p) >= 6 and p[4]:
+                    disks.append(dict(name=p[1], size=p[2], model=p[3].strip(),
+                                      byid=p[4], excluded=(p[5] == "yes")))
+            return self._json(dict(ok=True, nics=nics, disks=disks))
         f = parse(body)
         errs = validate(f)
         if errs: return self._send(form_page(errors=errs), 400)
