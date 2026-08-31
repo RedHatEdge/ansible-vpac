@@ -640,7 +640,7 @@ let h='<b>NIC list filled from the node:</b> '+j.nics.join(', ')+'<br><br><b>Dis
 let any=false;
 j.disks.forEach(d=>{
  if(d.excluded){
-  h+=`<div style="color:#c00">EXCLUDED &mdash; ${d.name} (${d.size} ${d.model}): carries / or /boot, so it is the OS disk</div>`;
+  h+=`<div style="color:#c00">EXCLUDED &mdash; ${d.name} (${d.size} ${d.model}): ${d.why||'not usable as an OSD'}</div>`;
  }else{
   any=true;
   h+=`<label style="font-weight:400"><input type="checkbox" class="dsk${i}" value="${d.byid}"> <b>${d.name}</b> ${d.size} ${d.model}</label><div class="hint" style="margin:0 0 .3em 1.6em">${d.byid}</div>`;
@@ -752,19 +752,27 @@ lsblk -dPno NAME,TYPE,SIZE,MODEL | while read -r line; do
   eval "$line"
   [ "$TYPE" = disk ] || continue
   byid=""
+  fallback=""
   for l in /dev/disk/by-id/*; do
     [ -e "$l" ] || continue
     case "$l" in *-part*) continue ;; esac
     t=`readlink -f "$l"`
     [ "$t" = "/dev/$NAME" ] || continue
+    # First match wins, so the canonical name beats its numbered alias
+    # (…_1 sorts after …). eui/wwn forms are only a fallback: they are
+    # correct but carry no model or serial a human can check.
     case "$l" in
-      */nvme-eui.*|*/wwn-*) [ -n "$byid" ] || byid="$l" ;;
-      *) byid="$l" ;;
+      */nvme-eui.*|*/wwn-*) [ -n "$fallback" ] || fallback="$l" ;;
+      *) [ -n "$byid" ] || byid="$l" ;;
     esac
   done
-  e=no
-  case " $excl " in *" $NAME "*) e=yes ;; esac
-  echo "DISK	$NAME	$SIZE	$MODEL	$byid	$e"
+  [ -n "$byid" ] || byid="$fallback"
+  e=no; why=""
+  case " $excl " in *" $NAME "*) e=yes; why="carries / or /boot, so it is the OS disk" ;; esac
+  if [ "$e" = no ] && [ "$SIZE" = 0B ]; then
+    e=yes; why="reports 0 B - empty removable or virtual-media slot, not storage"
+  fi
+  echo "DISK	$NAME	$SIZE	$MODEL	$byid	$e	$why"
 done
 """
 
@@ -864,7 +872,8 @@ class H(http.server.BaseHTTPRequestHandler):
                     nics.append(p[1])
                 elif p[0] == "DISK" and len(p) >= 6 and p[4]:
                     disks.append(dict(name=p[1], size=p[2], model=p[3].strip(),
-                                      byid=p[4], excluded=(p[5] == "yes")))
+                                      byid=p[4], excluded=(p[5] == "yes"),
+                                      why=(p[6] if len(p) > 6 else "")))
             return self._json(dict(ok=True, nics=nics, disks=disks))
         f = parse(body)
         errs = validate(f)
