@@ -647,6 +647,20 @@ vm_catalog: []
 # (ABB SSC600), a VPR (NovaTech Orion), a Windows workstation, a Windows HMI.
 #
 #
+# CPU GEOMETRY — applies to EVERY entry, and the two examples below follow it.
+# pinned_cpus AND emulator_cpus must BOTH fall inside rt_tuning.isolated_cpus.
+# Vendor test criteria for the relay workload require the emulator pin to sit
+# on isolated cores, not housekeeping cores, so emulator_cpus is part of the
+# isolated allocation and must be sized into it. Keep emulator_cpus distinct
+# from that VM's own pinned_cpus, and never let two VMs on the SAME host draw
+# cores from either list.
+#
+# Know before choosing: for RT profiles the emulator and iothread threads are
+# rendered at FIFO priority, and a FIFO thread fully occupying an isolated CPU
+# blocks reads of vm.stat_refresh — which cephadm performs during gather-facts.
+# See docs/TROUBLESHOOTING.md, "CEPHADM_REFRESH_FAILED with unkillable sysctl
+# processes".
+#
 #   # Example relay VM (ABB SSC600 pattern). RBD-backed via the libvirt cephx
 #   # secret defined by ceph_expand; participates in the sanlock lockspace via
 #   # lease_offset. NIC attaches to the libvirt virtual network "station-bus"
@@ -687,7 +701,7 @@ vm_catalog: []
 #     allowed_hosts: ["site1-node-a", "site1-node-b"]
 #     vcpus: 2
 #     pinned_cpus: [10, 11]
-#     emulator_cpus: [2, 3]
+#     emulator_cpus: [8, 9]        # inside isolated_cpus; node-b, so no clash with ssc600-01
 #     memory_gb: 2
 #     hugepages: true
 #     rt_priority: 40
