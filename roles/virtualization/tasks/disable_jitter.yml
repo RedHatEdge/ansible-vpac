@@ -15,11 +15,29 @@
     state: stopped
     enabled: false
   loop:
-    - irqbalance
     - ksm
     - ksmtuned
   failed_when: false
   register: _virt_jitter
+
+# irqbalance is masked, not merely disabled. Stock RHEL ships it ENABLED, so
+# `disabled` is a state something has to keep putting the host back into: a
+# package reinstall or a `systemctl preset` re-enables a disabled unit, and
+# cannot re-enable a masked one. It is also the most consequential of these —
+# it re-spreads device IRQs across all CPUs and will place a busy NIC queue on
+# an isolated RT core, which isolate_managed_irq=Y does not prevent (that only
+# holds at device probe time).
+#
+# Consequence to know: converting a node to a NON-RT role later requires
+# `systemctl unmask irqbalance`. That is deliberate — it should take an
+# explicit act, not a package update.
+- name: "Stop and mask irqbalance"
+  ansible.builtin.systemd_service:
+    name: irqbalance
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
 
 # tuned-ppd (the desktop power-slider shim) silently flips the tuned
 # profile back to `balanced` when a GUI stack is present — observed on a

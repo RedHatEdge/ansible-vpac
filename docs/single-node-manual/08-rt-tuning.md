@@ -115,10 +115,19 @@ Isolating the cores is not enough on its own. Two runtime sources can still land
 `irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory. None are useful here. Disable each one that is present (on a minimal install `ksm`/`ksmtuned` may not exist — disable them individually so a missing unit does not abort the others):
 
 ```bash
-for svc in irqbalance ksm ksmtuned; do
+for svc in ksm ksmtuned; do
   sudo systemctl disable --now "$svc" 2>/dev/null || true
 done
-systemctl is-active irqbalance    # expect: inactive
+
+# irqbalance is MASKED, not just disabled. RHEL ships it enabled, so a package
+# reinstall or `systemctl preset` puts a merely-disabled unit back. Masking
+# survives both. (To convert this host to a non-RT role later:
+# `sudo systemctl unmask irqbalance`.)
+sudo systemctl disable --now irqbalance
+sudo systemctl mask irqbalance
+
+systemctl is-active  irqbalance    # expect: inactive
+systemctl is-enabled irqbalance    # expect: masked
 ```
 
 ### Pin the process-bus NIC IRQs to the housekeeping cores
