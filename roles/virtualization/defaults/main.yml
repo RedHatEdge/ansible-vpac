@@ -87,3 +87,9 @@ virtualization_qemu_hook_kvm_pit_priority: 1
 # Triggers `dracut -f` so the options land in initramfs; takes effect
 # at next reboot. See tasks/modprobe.yml for the values and rationale.
 virtualization_write_modprobe: true
+
+# Stop and mask the desktop network services a GUI install brings with it
+# (avahi, cups, ModemManager, wpa_supplicant — including their socket and
+# path units). No-op on a minimal/server install, which does not have them.
+# Set false only if a site genuinely needs one of these on a cluster node.
+virtualization_disable_desktop_services: true

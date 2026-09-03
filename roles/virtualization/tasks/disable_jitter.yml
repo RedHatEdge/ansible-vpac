@@ -33,3 +33,43 @@
     enabled: false
     masked: true
   failed_when: false
+
+# Desktop network services that a "Server with GUI" or "Workstation" install
+# drags in. These are not merely idle overhead on a protection host:
+#
+#   avahi-daemon — joins the mDNS multicast group on EVERY interface, which
+#                  includes the relay's process-bus macvtap devices, putting
+#                  host-originated multicast on the Sampled-Values LANs
+#   cups         — print scheduler; cups-browsed additionally browses the
+#                  network for printers
+#   ModemManager — probes serial devices on appearance
+#   wpa_supplicant — wireless supplicant; nothing on a substation host needs it
+#
+# ⚠ The SOCKET and PATH units matter as much as the services. Disabling
+# cups.service alone leaves cups.socket and cups.path armed, and the next
+# connection starts it again; the same is true of avahi-daemon.socket. They
+# are listed first so activation is removed before the service is stopped.
+#
+# Masked, not merely disabled, for the same reason as tuned-ppd: a later
+# package install or dependency pull must not silently bring them back.
+# Minimal/server installs do not carry these units, so this is a no-op there.
+#
+# The structural fix remains a minimal or server (no GUI) install — this is
+# remediation for a host that already has one.
+- name: "Stop and mask desktop network services (GUI installs only)"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - avahi-daemon.socket
+    - cups.socket
+    - cups.path
+    - avahi-daemon.service
+    - cups.service
+    - cups-browsed.service
+    - ModemManager.service
+    - wpa_supplicant.service
+  failed_when: false
+  when: virtualization_disable_desktop_services | bool

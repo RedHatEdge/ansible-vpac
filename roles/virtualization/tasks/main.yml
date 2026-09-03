@@ -25,7 +25,7 @@
   ansible.builtin.import_tasks: tuned_profile.yml
   tags: [virt, virt-tuned]
 
-- name: "Disable jitter-causing services (irqbalance, ksm, ksmtuned)"
+- name: "Disable jitter-causing and desktop network services"
   ansible.builtin.import_tasks: disable_jitter.yml
   when: virtualization_disable_jitter_services | bool
   tags: [virt, virt-jitter]
