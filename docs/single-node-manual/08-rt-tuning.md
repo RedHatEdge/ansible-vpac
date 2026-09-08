@@ -136,6 +136,11 @@ systemctl is-enabled irqbalance    # expect: masked
 
 Pin the process-bus interfaces' IRQs back onto the housekeeping cores (the non-isolated set — e.g. `0-9` when isolated is `10-15`). Substitute the real interface names:
 
+> This pins to the whole housekeeping range, which is enough to get the interrupts out of the
+> isolated block. [Step 09](09-prepare-ssc600-bundle.md) then narrows each process-bus NIC to a
+> **specific** housekeeping core — one per NIC — so that under PRP the two LANs do not contend
+> for the same CPU. Run both: this is the coarse guarantee, step 09 is the placement.
+
 ```bash
 HK=0-9                       # housekeeping cores = all cores minus the isolated set
 for nic in ens2f0 ens2f1; do # the process-bus (and any other RT-path) NICs

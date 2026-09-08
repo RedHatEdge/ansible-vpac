@@ -96,29 +96,46 @@ pqos -R || true
 pqos -e "llc:0=0x1ff;llc:1=0xe00"     # class 0 (non-RT) vs class 1 (RT)
 pqos -a "llc:1=${RT_CORES}"           # assign RT cores to the RT cache class
 
-NICS="ens2f0 ens2f1" # CHANGE FOR YOUR PTP & Process Bus NICs in use (blank space separated list)
-# CPUMASK targets the core that services these NICs' IRQs. 0x200 = core 9,
-# the top HOUSEKEEPING core in this example (isolated set is 10-15: emulator
-# pin on 10-11, vCPUs on 12-15). Adjust to your topology.
-CPUMASK="200"       # <-- YOUR hex mask from the step-06 layout table
+# One entry per RT-path NIC, as "<interface>:<hex CPU mask>".
+#
+# The mask is a HOUSEKEEPING core — outside the isolated block (step 06). An
+# isolated core runs nohz_full/rcu_nocbs and is configured for uninterrupted
+# execution; an interrupt landing there forces the tick back on and defeats the
+# isolation rather than benefiting from it.
+#
+# Give each process-bus NIC ITS OWN core. Under PRP both LANs carry Sampled
+# Values at the same time, so sharing one core makes them contend under exactly
+# the load that matters.
+#
+# In this 16-core example the isolated set is 10-15 (emulator 10-11, vCPUs
+# 12-15), so 8 and 9 are the top two housekeeping cores:
+#   core 8 -> mask 100      core 9 -> mask 200
+# Derive yours: printf '%x\n' $((1 << CORE))
+NIC_IRQ_MAP="ens2f0:100 ens2f1:200"   # <-- YOUR NICs and masks from step 06
 
 # Process bus / networking
 echo "Configuring network card interrupts and threads"
-for nic in $NICS
+for entry in $NIC_IRQ_MAP
 do
+	nic="${entry%%:*}"
+	mask="${entry##*:}"
+	[ -e "/sys/class/net/$nic" ] || { echo "skip $nic (absent)"; continue; }
+	echo "Configuring $nic -> IRQ mask 0x$mask"
+
 	echo "Disabling NIC power management"
 	ethtool --set-eee $nic eee off || echo "EEE off failed or not supported on $nic"
 	ethtool --change $nic wol d || echo "WoL disable failed or not supported on $nic"
 	echo on > /sys/class/net/$nic/power/control 2>/dev/null \
 	  || echo "runtime PM control not available on $nic"
-	IRQS=$(grep $nic /proc/interrupts | cut -d':' -f1 || true)
+
+	IRQS=$(grep "$nic" /proc/interrupts | cut -d':' -f1 || true)
 	for irq in $IRQS
 	do
-	echo $CPUMASK | tee /proc/irq/$irq/smp_affinity
+	echo $mask | tee /proc/irq/$irq/smp_affinity
 	tasks=$(ps axo pid,command | grep -e "irq/$irq-" | grep -v grep | awk '{print $1}')
 	for pid in $tasks
 	do
-	  taskset -p "0x$CPUMASK" $pid
+	  taskset -p "0x$mask" $pid
 	done
 	done
 done
