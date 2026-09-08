@@ -98,10 +98,14 @@ pqos -a "llc:1=${RT_CORES}"           # assign RT cores to the RT cache class
 
 # One entry per RT-path NIC, as "<interface>:<hex CPU mask>".
 #
-# The mask is a HOUSEKEEPING core — outside the isolated block (step 06). An
-# isolated core runs nohz_full/rcu_nocbs and is configured for uninterrupted
-# execution; an interrupt landing there forces the tick back on and defeats the
-# isolation rather than benefiting from it.
+# The mask is a core of this NIC's OWN — the vendor manual requires the process-bus
+# interrupts be isolated to their own CPU core, meaning not shared with other work
+# and never on an emulator or vCPU core.
+#
+# This guide's default is a HOUSEKEEPING core, matching the vendor manual's own
+# kernel-command-line example (isolcpus=4-15 with irqaffinity=0-3). If your site
+# places it inside the isolated block instead, keep that core out of nohz_full and
+# rcu_nocbs — see the note in step 06.
 #
 # Give each process-bus NIC ITS OWN core. Under PRP both LANs carry Sampled
 # Values at the same time, so sharing one core makes them contend under exactly

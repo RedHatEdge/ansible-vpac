@@ -71,7 +71,8 @@ Within that block, assign in this order:
    0 … (N-7)     HOUSEKEEPING        host OS, storage, your shell, and ALL device
                                      interrupts including the process-bus NICs
    ---- isolated block below this line ----
-   N-6           spare               headroom; leave it empty
+   N-6           spare               headroom; leave it empty (see the note on
+                                     placing an interrupt core here instead)
    N-5, N-4      emulator + iothread
    N-3 … N-1  +  the 4th vCPU        relay vCPUs 0-3
 ```
@@ -96,13 +97,22 @@ Worked on two different parts, to show the indices are *not* portable:
 > it the protected cache partition lets that activity evict the protection cores' cache lines. On
 > the 16-core part the vCPUs are 12–15 and `RT_CORES` is 13–15.
 
-> **Process-bus interrupts belong on housekeeping cores.** Do not place them inside the isolated
-> block. `irqaffinity=` exists to steer device interrupts away from isolated CPUs, and the
-> `realtime` tuned profile bans irqbalance from them for the same reason — an isolated core is
-> configured for uninterrupted execution, so `nohz_full` disables its timer tick and `rcu_nocbs`
-> moves its RCU callbacks elsewhere. An interrupt arriving there forces the tick back on and
-> generates the work that isolation was set up to remove. A busy NIC queue on such a core defeats
-> the isolation rather than benefiting from it.
+> **The requirement is a core of their own.** The relay vendor's engineering manual states that
+> *"the interrupts and interrupt handlers must be isolated to their own CPU core"*. The part that is
+> not open to interpretation is **dedicated** — the process-bus interrupts must not share a CPU with
+> other work, and must never sit on an emulator or vCPU core.
+>
+> **Whether that core sits inside the `isolcpus` block is a site decision, and the default here is
+> housekeeping.** The vendor manual's own worked kernel command line pairs `isolcpus=4-15` with
+> `irqaffinity=0-3`, placing interrupts on housekeeping cores, and that is what this guide follows.
+>
+> ⚠ **If you place the interrupt core inside the isolated block, keep it out of `nohz_full` and
+> `rcu_nocbs`.** Those parameters take their own CPU lists, independent of `isolcpus`. A core in
+> `nohz_full` is configured for uninterrupted execution — its timer tick is disabled and its RCU
+> callbacks are offloaded — so an interrupt arriving there forces the tick back on and generates
+> the work the isolation exists to remove. An isolated *and* tickless core is the worst placement
+> for a busy NIC queue. Confirm the intended arrangement with the relay vendor before departing
+> from the default.
 
 > **With two process-bus NICs (PRP), give each its own housekeeping core.** Both LANs carry Sampled
 > Values at the same time, so a single shared interrupt core makes them contend under exactly the
