@@ -25,14 +25,123 @@ sudo virsh net-list --all
 
 It is parameterized by a variables file declaring which CPUs to isolate. Isolate the cores the VM will be pinned to plus the emulator cores, and leave the low-numbered cores for the host (housekeeping, interrupts, the OS).
 
-Decide the core split. Inspect the topology:
+## Plan your core layout
+
+**Every value in the rest of this guide is derived from your CPU's core count.** The examples
+below use a 16-core part; a 24-core part produces different numbers everywhere. Work through this
+section once, write your numbers in the table at the end, and use *those* — do not copy the
+example indices.
+
+### 1. Read your topology
 
 ```bash
-lscpu
-lscpu -e        # per-CPU listing: core, socket, online state
+lscpu | grep -E '^CPU\(s\)|^Core|^Thread|^Socket|^Model name|^L3'
+lscpu -e            # per-CPU listing: core, socket, online state
 ```
 
-Select a contiguous block of physical cores at the **high end** for the VM. For example, on a host giving the SSC600SW four vCPUs plus two emulator threads, isolate six cores and reserve the top of them. The exact indices depend on the CPU — a 16-core part and a 24-core part do not use the same indices. In all cases, isolate the VM's pinned cores and emulator cores, and reserve at least the first one or two cores for the host.
+Three things to confirm before going further:
+
+| Field | Required | Why |
+|---|---|---|
+| `Thread(s) per core` | **1** | Hyper-threading must be off (step 01). If this reads 2, stop and disable it in BIOS — a sibling thread shares the physical core with a pinned vCPU and the isolation is not real. |
+| `Socket(s)` | 1 preferred | On a two-socket host every isolated core must be on the *same* socket as the guest's memory (step 10 `<numatune>`), or you pay a cross-socket penalty on every access. |
+| `CPU(s)` | your total | Call this **N**. With HT off, CPU numbers 0…N−1 are physical cores. |
+
+### 2. Count what the workload needs
+
+The SSC600SW reference profile requires **six cores**:
+
+| Role | Cores | Purpose |
+|---|---|---|
+| Relay vCPUs | 4 | The guest's virtual CPUs. vCPU 0 runs the relay's OS and WebHMI; vCPUs 1–3 run protection. |
+| Emulator / iothread | 1–2 | QEMU's own threads and guest I/O. Must not share with a vCPU. |
+| Process-bus IRQs | 1 | Services the process-bus NIC interrupts. See the note on placement below. |
+
+Everything else is **housekeeping**: the host OS, all other device interrupts, your SSH session,
+monitoring, and the storage stack. Leave it a real share — **at least 4 cores, and more on a
+larger part.** A host starved of housekeeping cores produces latency spikes that look like
+isolation failures.
+
+### 3. Allocate from the top down
+
+Take the isolated block from the **high-numbered end** and leave the low numbers to the host.
+Within that block, assign in this order:
+
+```
+   0 … (N-7)     housekeeping        host OS, other IRQs, storage, your shell
+   N-6           process-bus IRQs    (or a housekeeping core — see below)
+   N-5, N-4      emulator + iothread
+   N-3 … N-1  +  the 4th vCPU        relay vCPUs 0-3
+```
+
+Worked on two different parts, to show the indices are *not* portable:
+
+| | 16-core part | 24-core part |
+|---|---|---|
+| Total cores (N) | 16 | 24 |
+| Housekeeping | **0–9** | **0–11** |
+| Isolated block | **10–15** | **18–23** |
+| &nbsp;&nbsp;emulator + iothread | 10–11 | 18–19 |
+| &nbsp;&nbsp;relay vCPUs 0–3 | 12, 13, 14, 15 | 20, 21, 22, 23 |
+| &nbsp;&nbsp;RT cache class (`RT_CORES`) | **13–15** | **21–23** |
+| Process-bus IRQ core | 9 | 12 or 17 |
+
+> **`RT_CORES` is the vCPUs *minus vCPU 0*.** The relay's first vCPU runs its OS and WebHMI; giving
+> it the protected cache partition lets that activity evict the protection cores' cache lines. On
+> the 16-core part the vCPUs are 12–15 and `RT_CORES` is 13–15.
+
+> **Where the process-bus IRQ core goes is a site decision.** Putting it on a *housekeeping* core
+> keeps interrupt handling entirely away from the guest; putting it on a spare *isolated* core gives
+> the interrupts a CPU with no other work on it. Both are in use in the field. What matters is that
+> it is **not** an emulator or vCPU core, and that with two process-bus NICs (PRP) you consider
+> giving each its own core rather than sharing one — under load both LANs carry Sampled Values
+> simultaneously.
+
+### 4. Derive the values that follow from it
+
+Four later steps need this layout expressed in different forms. Compute them now:
+
+```bash
+# Set these to YOUR numbers from the table above, then the rest is derived.
+ISOLATED="10-15"          # step 06 (this step) + step 08
+VCPUS="12 13 14 15"       # step 10 <vcpupin>
+EMULATOR="10-11"          # step 10 <emulatorpin>
+RT_CORES="13-15"          # step 09 cache class (vCPUs minus vCPU 0)
+IRQ_CORE=9                # step 09 process-bus IRQ core
+
+# CPUMASK for step 09 is a HEX BITMASK, not a core number:
+printf 'CPUMASK="%x"\n' $((1 << IRQ_CORE))       # core 9  -> 200
+                                                  # core 12 -> 1000
+                                                  # core 17 -> 20000
+
+# L3 cache ways, for the step 09 pqos masks:
+lscpu | grep -i '^L3'                             # total L3, e.g. 22 MiB
+cat /sys/fs/resctrl/info/L3/cbm_mask              # bit count = number of ways
+```
+
+**The cache mask is a fraction of the L3, not a quantity of it.** MiB per way = L3 total ÷ ways.
+The relay requires **at least 6 MiB**, so ways needed = 6 ÷ MiB-per-way, rounded up:
+
+| Part | L3 | Ways | MiB/way | Ways for 6 MiB | RT mask | Gives |
+|---|---|---|---|---|---|---|
+| 22 MiB / 11-way | 22 | 11 | 2.00 | 3 | `0x700` | 6.00 MiB |
+| 45 MiB / 12-way | 45 | 12 | 3.75 | 2 | `0xc00` | 7.50 MiB |
+
+A mask copied from another machine can land **below** the floor with nothing to report it — the
+partition is applied successfully, it is simply too small. Compute it for the part in front of you.
+
+### 5. Write it down
+
+Fill this in and keep it beside you for steps 08, 09, 10 and 12 — all four must agree:
+
+```
+  My CPU: ____________________  cores N = ____  L3 = ____ MiB / ____ ways
+
+  housekeeping    0 - ____        RT_CORES        ____ - ____
+  isolated     ____ - ____        IRQ core        ____  -> CPUMASK ______
+  emulator     ____ - ____        RT cache mask   0x______  = ____ MiB
+  vCPUs 0-3    ____________       non-RT mask     0x______
+```
 
 Set the isolated set in the tuned variables file (replace the range with the chosen cores):
 

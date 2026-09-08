@@ -69,6 +69,11 @@ The virtiofs `<source dir>` in the domain XML (step 10) must point at the same d
 
 ## The host real-time setup script (cache + IRQ affinity)
 
+> **Every core number and mask in this script comes from the layout you worked out in
+> [step 06](06-virtualization.md#plan-your-core-layout).** The values shown are for the
+> guide's 16-core example. Substitute yours — a different CPU produces different numbers in
+> every line below.
+
 The SSC600 reference applies an L3 cache partition and IRQ affinity for the relay's cores at boot, using `pqos`. This is optional but recommended on Intel CAT-capable hardware; it prevents other host workloads from evicting the relay's cache lines.
 
 ```bash
@@ -82,7 +87,7 @@ set -euo pipefail
 # the RT cache class. SSC600 vCPU 0 (host core 12 here) runs the relay's
 # OS/WebHMI and is excluded; vCPUs 1-3 (host cores 13-15) run protection.
 # Keep consistent with the <vcpupin> cores in the domain XML (step 10).
-RT_CORES="13-15"
+RT_CORES="13-15"    # <-- YOUR value from the step-06 layout table, not this one
 
 # Reset, then carve L3: give housekeeping cores one cache mask and the RT
 # cores an exclusive mask. The masks are CPU-specific (the number of cache
@@ -95,7 +100,7 @@ NICS="ens2f0 ens2f1" # CHANGE FOR YOUR PTP & Process Bus NICs in use (blank spac
 # CPUMASK targets the core that services these NICs' IRQs. 0x200 = core 9,
 # the top HOUSEKEEPING core in this example (isolated set is 10-15: emulator
 # pin on 10-11, vCPUs on 12-15). Adjust to your topology.
-CPUMASK="200"
+CPUMASK="200"       # <-- YOUR hex mask from the step-06 layout table
 
 # Process bus / networking
 echo "Configuring network card interrupts and threads"

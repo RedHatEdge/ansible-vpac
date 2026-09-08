@@ -1,5 +1,10 @@
 # 10 — Define the SSC600SW domain
 
+> **The `<vcpupin>` and `<emulatorpin>` cores below must match the layout from
+> [step 06](06-virtualization.md#plan-your-core-layout)** — the same cores you isolated,
+> and the same ones step 09 assigns the cache class to. The XML shown uses the guide's
+> 16-core example; substitute your own numbers.
+
 This step defines the libvirt domain XML that applies the host tuning to the relay VM. Each element is documented in the comments.
 
 This is the **single-node** domain: a **local file-backed disk** (no Ceph RBD), **no sanlock lease** (no cluster), and **virtio** disk and NICs (the SSC600 guest kernel includes virtio drivers). The three-node automated path adds RBD, leases, and Pacemaker to this same structure.
