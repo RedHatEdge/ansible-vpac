@@ -1,0 +1,107 @@
+---
+# Disable swap, persistently.
+#
+# A swapped-out page faulted back in during a protection event costs
+# milliseconds — orders of magnitude beyond the latency budget. Guest memory
+# is already locked and hugepage-backed so the relay itself cannot be swapped,
+# but host-side swapping still produces kswapd activity and disk I/O on a host
+# whose determinism depends on neither.
+#
+# Four things have to be undone, and missing any one of them lets swap return:
+#   1. the running swap devices          -> swapoff
+#   2. the fstab entries systemd reads   -> comment them out
+#   3. the generated .swap units         -> gone once fstab is clean
+#   4. resume= on the kernel cmdline     -> points at the same device
+#
+# Nodes installed from this project's ISO never create swap in the first place
+# (`autopart --noswap`), so on those this whole file is a no-op. It exists for
+# hosts installed by other means.
+
+- name: "Check whether any swap is active"
+  ansible.builtin.command: swapon --show=NAME --noheadings
+  register: _hb_swap_active
+  changed_when: false
+  failed_when: false
+
+# swapoff has to write every swapped page back to RAM, so on a host with swap
+# in use it can take minutes. Async with a generous timeout rather than an
+# unbounded block, and it fails loudly rather than hanging the play.
+- name: "Disable active swap"
+  ansible.builtin.command: swapoff -a
+  register: _hb_swapoff
+  changed_when: true
+  async: 600
+  poll: 10
+  when: _hb_swap_active.stdout | trim | length > 0
+
+- name: "Comment swap entries out of /etc/fstab"
+  ansible.builtin.replace:
+    path: /etc/fstab
+    # A swap line is: <device> <mountpoint> swap <opts> <dump> <pass>.
+    # Already-commented lines start with # and do not match, so re-runs are
+    # no-ops.
+    regexp: '^(\s*[^#\s]\S*\s+\S+\s+swap\s+.*)$'
+    replace: '# \1    # disabled by ansible-vpac'
+    backup: true
+  register: _hb_fstab
+
+- name: "Reload systemd so the generated .swap units are dropped"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _hb_fstab.changed
+
+# systemd generates .swap units from fstab, so a clean fstab removes them.
+# Mask anything that survives — a unit defined outside fstab, or a leftover
+# enabled unit — so a package or preset cannot bring it back.
+- name: "Find any surviving swap units"
+  ansible.builtin.shell: >-
+    systemctl list-unit-files --type=swap --no-legend --no-pager
+    | awk '$2 != "masked" {print $1}'
+  register: _hb_swap_units
+  changed_when: false
+  failed_when: false
+
+- name: "Mask surviving swap units"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    masked: true
+  loop: "{{ _hb_swap_units.stdout_lines | default([]) | select | list }}"
+  when: _hb_swap_units.stdout_lines | default([]) | length > 0
+
+# resume= names the hibernation device, which anaconda sets to the swap volume
+# it just created. Left behind, the initramfs probes a device that is no longer
+# in service — it recovers, but it delays boot and leaves the configuration
+# contradicting itself.
+- name: "Read the kernel command line"
+  ansible.builtin.slurp:
+    src: /proc/cmdline
+  register: _hb_cmdline
+
+- name: "Remove resume= from every installed kernel"
+  ansible.builtin.command: grubby --update-kernel=ALL --remove-args=resume
+  register: _hb_grubby
+  changed_when: true
+  when: "'resume=' in (_hb_cmdline.content | b64decode)"
+
+- name: "Remove resume= from /etc/default/grub so future kernels do not inherit it"
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: '\s*resume=\S+'
+    replace: ''
+    backup: true
+  register: _hb_grubdefault
+  failed_when: false
+
+- name: "Rebuild the initramfs for the running kernel"
+  ansible.builtin.command: dracut -f
+  changed_when: true
+  when: _hb_grubby.changed | default(false)
+
+- name: "Report swap state"
+  ansible.builtin.debug:
+    msg: >-
+      swap: {{ 'was active, now disabled' if _hb_swap_active.stdout | trim | length > 0
+               else 'was already inactive' }}.
+      fstab {{ 'updated' if _hb_fstab.changed else 'already clean' }};
+      resume= {{ 'removed (reboot to confirm)' if _hb_grubby.changed | default(false)
+                 else 'not present' }}.

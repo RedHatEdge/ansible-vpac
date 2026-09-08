@@ -3,6 +3,11 @@
   ansible.builtin.import_tasks: selinux.yml
   tags: [baseline, baseline-selinux]
 
+- name: "Swap disabled (RT determinism)"
+  ansible.builtin.import_tasks: swap.yml
+  when: host_baseline_disable_swap | bool
+  tags: [baseline, baseline-swap]
+
 - name: "Timezone"
   ansible.builtin.import_tasks: timezone.yml
   tags: [baseline, baseline-timezone]

@@ -860,6 +860,10 @@ validate:
   ceph_warn_allowlist: []
 
   # Memory / journal
+  # Fail if swap is configured at all, not just if it is being used. Nodes
+  # built from this project's ISO have none; this catches hosts installed by
+  # other means.
+  require_no_swap: true
   mem_available_min_gib: 2
   journal_max_disk_gb: 4                 # silent killer above this
   # Kernel-log check window (journalctl --since syntax). Bounded so the

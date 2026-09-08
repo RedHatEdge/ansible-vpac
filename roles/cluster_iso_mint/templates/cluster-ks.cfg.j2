@@ -60,7 +60,11 @@ ignoredisk --only-use={{ cluster_iso_os_disk }}
 zerombr
 clearpart --all --initlabel --drives={{ cluster_iso_os_disk }}
 bootloader --location=mbr --boot-drive={{ cluster_iso_os_disk }}
-autopart --type=lvm
+# --noswap: no swap volume is created at all. A protection host must not
+# swap, and not creating the volume avoids the whole remediation chain --
+# no fstab entry, no generated .swap unit, and no resume= added to the
+# bootloader pointing at it.
+autopart --type=lvm --noswap
 
 rootpw --lock
 

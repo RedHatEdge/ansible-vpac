@@ -70,6 +70,23 @@
           MemAvailable = {{ (_vm_mem_avail_kb | int) // 1024 }} MiB,
           below {{ validate_mem_available_min_gib }} GiB floor
 
+    - name: "Assert swap is not merely idle but absent"
+      ansible.builtin.assert:
+        that:
+          - (_vm_meminfo.content | b64decode
+             | regex_search('SwapTotal:\\s+(\\d+)', '\\1') | first | int) == 0
+        fail_msg: >-
+          swap is configured and available
+          ({{ (_vm_meminfo.content | b64decode
+               | regex_search('SwapTotal:\\s+(\\d+)', '\\1') | first | int) // 1024 }} MiB).
+          The activity check below only catches swapping that has already
+          happened; armed-but-idle swap passes it and can still page a
+          latency-critical process out under pressure. Disable it
+          persistently: stage 10 does this when
+          host_baseline_disable_swap is true.
+        success_msg: "no swap configured"
+      when: validate_require_no_swap | bool
+
     - name: "Read swap counters (5s sample)"
       ansible.builtin.shell: vmstat 1 2 | tail -1 | awk '{print $7" "$8}'
       args:

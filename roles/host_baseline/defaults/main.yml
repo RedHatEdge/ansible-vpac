@@ -62,3 +62,19 @@ host_baseline_skip_repo: false
 # Skipped automatically on satellite and local_mirror paths since rhc
 # pushes telemetry to console.redhat.com (unreachable from air-gapped sites).
 host_baseline_enable_insights: false
+
+# Disable swap and keep it disabled. A page faulted back in during a
+# protection event costs milliseconds, far beyond the latency budget, and
+# host-side swapping produces kswapd activity and disk I/O on a host whose
+# determinism depends on neither.
+#
+# Nodes installed from this project's ISO have no swap to begin with
+# (`autopart --noswap`), so this is a no-op there and remediation for hosts
+# installed by other means.
+#
+# Trade-off, stated because it is a real one: with no swap, memory exhaustion
+# reaches the OOM killer instead of degrading. On a correctly sized protection
+# host that never happens, and a swapped page during a fault is worse than a
+# terminated non-critical process. Set false only if a site has sized its
+# hosts to need swap.
+host_baseline_disable_swap: true

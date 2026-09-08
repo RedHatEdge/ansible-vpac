@@ -98,3 +98,8 @@ validate_pacemaker_require_stonith: "{{ validate.pacemaker_require_stonith | def
 validate_summary_dir: >-
   {{ validate.summary_dir | default(lookup('env', 'HOME') ~ '/vpac-validate-reports') }}
 validate_summary_become: "{{ validate.summary_become | default(false) }}"
+
+# Require swap to be absent, not merely unused. The si/so activity check
+# passes on a host with swap armed and idle, which is the state a default
+# install leaves behind.
+validate_require_no_swap: "{{ validate.require_no_swap | default(true) }}"
