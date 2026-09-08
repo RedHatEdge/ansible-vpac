@@ -14,7 +14,27 @@ cat /proc/cmdline | tr ' ' '\n' | grep -E 'isolcpus|nohz_full|rcu_nocbs|hugepage
 cat /sys/kernel/debug/sched/rt_runtime_us 2>/dev/null || sysctl kernel.sched_rt_runtime_us  # -1
 ```
 
-All six isolated cores (`10-15` in the example) should be absent from the general scheduler. The four vCPU cores (`RT_CORES`, `12-15`) should appear in the RT cache class (`pqos -s`).
+All six isolated cores (`10-15` in the example) should be absent from the general scheduler.
+
+The **RT cache class** should contain `RT_CORES` — the relay's *protection* cores only. In the
+step-09 example that is **`13-15`** (three cores): SSC600 vCPU 0, on host core 12, runs the relay's
+OS/WebHMI and is deliberately excluded so its activity cannot evict the protection cores' cache
+lines. Confirm with `pqos -s`; the RT class must not list core 12.
+
+Check the partition is large enough **for this CPU**, not by copying a mask. A cache bitmask is a
+fraction of the L3, not a quantity of it, so the same mask is a different number of MiB on every
+part:
+
+```bash
+lscpu | grep -i '^L3'                     # total L3
+cat /sys/fs/resctrl/info/L3/cbm_mask      # bit count = number of ways
+pqos -s                                   # current masks and core assignment
+```
+
+MiB per way = L3 total ÷ ways. Multiply by the set bits in the RT mask; the relay's vendor
+requirement is **at least 6 MiB**. On a 22 MiB / 11-way part a way is 2 MiB, so 3 ways gives
+exactly 6 MiB; on a 45 MiB / 12-way part a way is 3.75 MiB and 2 ways already clears it. A mask
+carried over from another machine can silently land below the floor.
 
 ## Latency
 
