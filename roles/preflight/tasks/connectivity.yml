@@ -18,16 +18,27 @@
       - ansible_facts['distribution'] in ["RedHat", "CentOS", "Rocky", "AlmaLinux"]
     fail_msg: "Preflight expects RHEL 9.x or a compatible rebuild; found {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
 
-- name: "Assert RHEL major version"
+- name: "Assert RHEL major version is supported"
   ansible.builtin.assert:
-    that: ansible_facts['distribution_major_version'] | int == preflight_required_rhel_major
-    fail_msg: "RHEL {{ preflight_required_rhel_major }}.x required; found {{ ansible_facts['distribution_version'] }}"
+    that: ansible_facts['distribution_major_version'] in preflight_supported_rhel
+    fail_msg: >-
+      RHEL {{ preflight_supported_rhel | dict2items
+              | map(attribute='key') | zip(preflight_supported_rhel | dict2items | map(attribute='value'))
+              | map('join', '.') | join('+ or ') }}+ required;
+      found {{ ansible_facts['distribution_version'] }}
 
-- name: "Assert RHEL minor version floor"
+- name: "Assert RHEL minor version floor for this major"
   ansible.builtin.assert:
-    that: (ansible_facts['distribution_version'].split('.')[1] | int) >= preflight_required_rhel_minor_min
-    fail_msg: "RHEL 9.{{ preflight_required_rhel_minor_min }} or newer required; found {{ ansible_facts['distribution_version'] }}"
-  when: "'.' in ansible_facts['distribution_version']"
+    that: >-
+      (ansible_facts['distribution_version'].split('.')[1] | int)
+      >= preflight_supported_rhel[ansible_facts['distribution_major_version']]
+    fail_msg: >-
+      RHEL {{ ansible_facts['distribution_major_version'] }}.{{
+        preflight_supported_rhel[ansible_facts['distribution_major_version']] }}
+      or newer required; found {{ ansible_facts['distribution_version'] }}
+  when:
+    - "'.' in ansible_facts['distribution_version']"
+    - ansible_facts['distribution_major_version'] in preflight_supported_rhel
 
 - name: "Check free space on / and /var"
   ansible.builtin.set_fact:

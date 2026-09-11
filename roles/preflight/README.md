@@ -27,8 +27,9 @@ Inventory + host validation. Runs before any stage that mutates a target node. F
 Defaults in `defaults/main.yml`. Tune with care:
 
 - `preflight_warn_only: false` — set `true` to turn all failures into warnings (for initial lab bring-up; never in production)
-- `preflight_required_rhel_major: 9`
-- `preflight_required_rhel_minor_min: 6` — reject anything older
+- `preflight_supported_rhel: {"9": 7, "10": 2}` — supported RHEL majors mapped to the
+  minimum minor for each. A major that is not a key is rejected; a minor below the floor
+  for its major is rejected. Defaults to RHEL 9.7+ or 10.2+.
 - `preflight_min_root_gb: 20` — minimum free space on `/`
 - `preflight_min_var_gb: 40` — minimum free space on `/var` (libvirt images, Ceph)
 - `preflight_max_clock_skew_s: 30` — reject cluster if nodes drift more than this

@@ -4,9 +4,12 @@
 # Turn failures into warnings. Useful during lab bring-up; never in production.
 preflight_warn_only: false
 
-# RHEL version bounds
-preflight_required_rhel_major: 9
-preflight_required_rhel_minor_min: 6
+# RHEL version bounds. Each supported major maps to the minimum minor for that
+# major; a major that is not a key here is rejected. Keys are strings so they
+# compare directly against ansible_facts['distribution_major_version'].
+preflight_supported_rhel:
+  "9": 7
+  "10": 2
 
 # Disk space minimums (GB)
 preflight_min_root_gb: 20
