@@ -141,6 +141,18 @@ including the encrypted vault (steps 3 and 4 collapse into one):
 python3 tools/site-form.py     # then open http://127.0.0.1:8765
 ```
 
+![The site form — the Site, Mode and Nodes sections](images/site-form.png)
+
+*Site, Mode, and the per-node grid. Below these: networks, timing, real-time
+tuning, secrets, and thresholds.*
+
+Every field says where to get its value, and the grey hint under it is a
+command you run on the node itself. **Fetch NICs + disks from this node**
+reads the real interface and disk inventory over SSH and fills the lists for
+you, so you tick what you want rather than typing device paths. Nothing is
+written until you submit, and if anything is inconsistent it refuses and
+tells you which field.
+
 Fill it top to bottom; on success it prints the exact preflight command —
 skip straight to Step 5. The rest of this step is the **by-hand path**: the
 fallback, and the reference for exactly what the form writes.
