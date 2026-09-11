@@ -2,7 +2,7 @@
 
 ## What a vPAC cluster is
 
-A Virtual Protection Architecture Cluster (vPAC) is a 3-node RHEL 9 cluster of three identical servers that hosts utility protection and automation workloads as virtual machines with real-time tuning and shared storage. The proven reference protection workload is the **ABB SSC600** VM (the result of a Red Hat × ABB partnership); other vendors' protection / RTAC / RTU / VPR / PMU applications and Windows engineering workstations with PCI NIC passthrough run on the same platform alongside it.
+A Virtual Protection Architecture Cluster (vPAC) is a 3-node RHEL cluster of three identical servers that hosts utility protection and automation workloads as virtual machines with real-time tuning and shared storage. The proven reference protection workload is the **ABB SSC600** VM (the result of a Red Hat × ABB partnership); other vendors' protection / RTAC / RTU / VPR / PMU applications and Windows engineering workstations with PCI NIC passthrough run on the same platform alongside it.
 
 This cluster pattern replaces a rack of single-purpose hardware relay panels with a single HA platform that can host multiple vendors' protection software side-by-side, migrate workloads between nodes for maintenance, and recover from a node failure in seconds. It implements the [vPAC Alliance](https://vpacalliance.com/) software-defined substation vision; the architectural pattern itself is documented at [github.com/RedHatEdge/virtual-protection](https://github.com/RedHatEdge/virtual-protection).
 
@@ -10,7 +10,7 @@ This cluster pattern replaces a rack of single-purpose hardware relay panels wit
 
 | Layer | Technology | Role |
 |---|---|---|
-| Operating system | RHEL 9 (9.6+; validated on 9.7/9.8) | Base platform, real-time tuning, kernel-rt from NFV repo |
+| Operating system | RHEL 9.7+ or 10.2+ | Base platform, real-time tuning, kernel-rt from NFV repo |
 | Hypervisor | KVM + libvirt | VM lifecycle, CPU pinning, hugepages, sanlock leases |
 | Shared storage | Red Hat Ceph Storage 9 (`cephadm`) — CephFS + RBD | CephFS for VM disks; RBD pool backs the sanlock lockspace |
 | Cluster manager | Pacemaker + Corosync (RHEL HA add-on) | VM placement, failover, quorum |

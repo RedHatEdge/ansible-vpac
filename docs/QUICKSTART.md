@@ -30,11 +30,10 @@ machine is loaded once and the servers install from it. If you are unsure:
 labs and proofs-of-concept are usually connected; production substations are
 usually air-gapped. Everything below Step 3 is the same for both.
 
-**Get RHEL:** download the RHEL 9 DVD ISO from
+**Get RHEL:** download the RHEL DVD ISO from
 [access.redhat.com/downloads](https://access.redhat.com/downloads/content/rhel)
-— this needs a Red Hat account login (creating one is free). Use any current
-RHEL 9 minor release, 9.6 or newer — this project is field-validated on 9.7
-and 9.8; preflight checks the version for you. Install it on each of the
+— this needs a Red Hat account login (creating one is free). Use **RHEL 9.7 or
+newer, or RHEL 10.2 or newer**; preflight checks the version for you. Install it on each of the
 three servers with the **Server (no GUI)** base environment, create the same
 admin user on each, and note each server's management IP.
 

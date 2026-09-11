@@ -26,7 +26,7 @@ copying and renaming the inventory, the vault) with nothing assumed.
   (`ansible.cfg` sets `become=True`). Setup + the no-prompt test:
   QUICKSTART.md step 2. The key path is set once in `hosts.yml`
   (`ansible_ssh_private_key_file`).
-- RHEL 9 (9.6 or newer; field-validated on 9.7 and 9.8) installed on the nodes (connected mode); for the air-gapped path
+- RHEL 9.7+ or 10.2+ installed on the nodes (connected mode); for the air-gapped path
   the builder/ISO workflow installs them — see `docs/DEPLOYMENT-AIRGAPPED.md`.
 - Connected mode: RHSM activation key + org, and `registry.redhat.io` pull
   credentials (**terms-based registry service account** — see

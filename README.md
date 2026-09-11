@@ -1,6 +1,6 @@
 # ansible-vpac
 
-Ansible for deploying a Red Hat Edge **Virtual Protection Architecture Cluster (vPAC)** — a 3-node RHEL 9 cluster combining KVM virtualization, Ceph storage, Pacemaker HA, and PTP time synchronization, designed to host real-time utility protection workloads (IEC 61850 relays, RTAC/RTU applications, Windows engineering workstations with passthrough). The proven reference protection workload is the **ABB SSC600SW** VM — Red Hat's partnership with ABB is the validated end-to-end play for this pattern.
+Ansible for deploying a Red Hat Edge **Virtual Protection Architecture Cluster (vPAC)** — a 3-node RHEL cluster combining KVM virtualization, Ceph storage, Pacemaker HA, and PTP time synchronization, designed to host real-time utility protection workloads (IEC 61850 relays, RTAC/RTU applications, Windows engineering workstations with passthrough). The proven reference protection workload is the **ABB SSC600SW** VM — Red Hat's partnership with ABB is the validated end-to-end play for this pattern.
 
 The architecture pattern this implements aligns with the [vPAC Alliance](https://vpacalliance.com/) software-defined substation vision and is documented at [github.com/RedHatEdge/virtual-protection](https://github.com/RedHatEdge/virtual-protection).
 
@@ -51,7 +51,7 @@ ansible-playbook -i inventory/<your-site> site.yml --tags validate --ask-vault-p
 
 ## What this deploys
 
-A RHEL 9 cluster (3 nodes by default; single-node variant on the roadmap) with:
+A RHEL cluster (3 nodes by default; single-node variant on the roadmap) with:
 
 - **Libvirt/KVM** with isolated CPUs, hugepages, and per-VM RT tuning
 - **Ceph** (cephadm) providing CephFS for shared VM storage
@@ -66,7 +66,7 @@ Both are first-class. Pick the one that matches your environment; the playbooks 
 | Path | When to use | How |
 |---|---|---|
 | **Air-gapped** | Utility POCs, substations, any site without outbound internet | `00-mint-builder-iso.yml` → `01-build-builder.yml` → `00b-mint-cluster-isos.yml` → `site.yml`. Four playbooks run from your workstation, four boot-from-ISO events at the target hardware. Produces a builder that serves a local RPM mirror + container registry with Red Hat Ceph Storage images mirrored, plus per-node installer ISOs for the cluster. `site.yml` pulls everything from the builder — cluster nodes never reach outbound internet. |
-| **Connected** | Lab, greenfield, any site with outbound internet | Install stock RHEL 9 (9.6 or newer; field-validated on 9.7 and 9.8) on the nodes yourself (USB, PXE, Satellite, whatever). `site.yml` pulls from RHSM and `registry.redhat.io`. No builder host required. |
+| **Connected** | Lab, greenfield, any site with outbound internet | Install stock RHEL 9.7+ or 10.2+ on the nodes yourself (USB, PXE, Satellite, whatever). `site.yml` pulls from RHSM and `registry.redhat.io`. No builder host required. |
 
 Which path the playbooks use is controlled by one question in the site form (the inventory variable `deployment_mode: airgapped | connected`) — the form then only asks the questions that apply to your path.
 
@@ -81,7 +81,7 @@ Building a **single node by hand** (no Ansible), with the ABB SSC600SW IED as th
 
 **Cluster hardware** (both paths):
 
-- 3 × RHEL 9 hosts, **9.6 or newer** (field-validated on 9.7 and 9.8; preflight checks the version for you), with virtualization-capable CPUs (Xeon Scalable or equivalent)
+- 3 × RHEL hosts, **9.7 or newer, or 10.2 or newer** (preflight checks the version for you), with virtualization-capable CPUs (Xeon Scalable or equivalent)
 - BMCs (iDRAC, IPMI) reachable from the cluster network for STONITH
 - Dedicated NIC per node for PTP (must not be in any bridge)
 - Dedicated NIC/VLAN for Ceph storage traffic
@@ -101,7 +101,7 @@ Building a **single node by hand** (no Ansible), with the ABB SSC600SW IED as th
 **Air-gapped path extras:**
 
 - A builder machine (physical server, NUC, laptop, VM — anything with ~50 GB disk) that can reach outbound HTTPS for *one* run of `01-build-builder.yml`, then go offline
-- A stock RHEL 9 DVD ISO downloaded from [access.redhat.com](https://access.redhat.com/downloads/content/rhel) (~13 GB)
+- A stock RHEL DVD ISO downloaded from [access.redhat.com](https://access.redhat.com/downloads/content/rhel) (~13 GB)
 - **RHSM activation key + org ID** for the cluster's entitlements — create at [access.redhat.com/management/activation_keys](https://access.redhat.com/management/activation_keys)
 - **Red Hat registry service account** for pulling RHCS container images — create at [access.redhat.com/terms-based-registry](https://access.redhat.com/terms-based-registry/) (this is a different system from the IAM/API service accounts at `console.redhat.com/iam`, which don't authenticate to `registry.redhat.io`)
 - `podman` or `docker` on your workstation (for the ISO-minting tooling container — works on Bazzite, Fedora, RHEL, macOS, Windows with Docker Desktop)
@@ -120,7 +120,7 @@ pip install --user -r requirements.txt
 #    is the fallback; docs/OPERATOR-VALUES.md documents every value.)
 python3 tools/site-form.py        # answer the questions at http://127.0.0.1:8765
 
-# 3. Install stock RHEL 9 (9.6+) on your 3 cluster nodes by any method you like.
+# 3. Install stock RHEL 9.7+ or 10.2+ on your 3 cluster nodes by any method you like.
 
 # 4. Preflight, deploy, validate.
 ansible-playbook -i inventory/mysite site.yml --tags preflight --ask-vault-pass
@@ -298,7 +298,7 @@ ansible-vpac/
 - **[docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md)** — one-minute picker for choosing between connected and air-gapped
 - **[docs/DEPLOYMENT-CONNECTED.md](docs/DEPLOYMENT-CONNECTED.md)** — step-by-step for internet-connected deployments
 - **[docs/DEPLOYMENT-AIRGAPPED.md](docs/DEPLOYMENT-AIRGAPPED.md)** — step-by-step for air-gapped utility POCs
-- **[docs/single-node-manual/](docs/single-node-manual/README.md)** — by-hand, no-Ansible deployment of a single RHEL 9 host running an ABB SSC600SW IED; documents what the playbooks do under the hood and serves the single-node topology (connected + air-gapped callouts)
+- **[docs/single-node-manual/](docs/single-node-manual/README.md)** — by-hand, no-Ansible deployment of a single RHEL host running an ABB SSC600SW IED; documents what the playbooks do under the hood and serves the single-node topology (connected + air-gapped callouts)
 - **[docs/IMAGE-BUILDER.md](docs/IMAGE-BUILDER.md)** — how the ISO-minting tooling container works; both `builder_iso_mint` and `cluster_iso_mint` documented
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — day-2 operations (planned reboot, node replacement, VM migration)
 - **[docs/UPGRADE-RHCS-7-TO-9.md](docs/UPGRADE-RHCS-7-TO-9.md)** — in-place Ceph major-version upgrade, hardware-validated; includes `op-ceph-upgrade.yml`
