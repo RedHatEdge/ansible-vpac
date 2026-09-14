@@ -37,17 +37,24 @@ newer, or RHEL 10.2 or newer**; preflight checks the version for you. Install it
 three servers with the **Server (no GUI)** base environment, create the same
 admin user on each, and note each server's management IP.
 
-**Subscriptions — what you actually need (ask for this list by name):**
-a subscription covering **RHEL 9 + High Availability + NFV (real-time
-kernel) + Red Hat Ceph Storage**. (The CodeReady Builder repo is also
-used; it comes with base RHEL and needs no extra entitlement.) Asking for "RHEL" alone
-gets you a subscription that fails mid-deployment when the HA or real-time
-repositories turn out to be missing. Where to get it:
+**Repositories this deployment needs.** The nodes must be able to install from:
 
-- **Lab / evaluation:** the free [Red Hat Developer subscription]
-  (https://developers.redhat.com/register) covers individual
-  development/testing use — enough to build this cluster in a lab.
-- **Production:** give your Red Hat account team the entitlement list above.
+| Repository | Provides |
+|---|---|
+| BaseOS, AppStream | The operating system |
+| CodeReady Builder | Build dependencies (comes with base RHEL) |
+| NFV | `kernel-rt`, the real-time kernel |
+| High Availability | Pacemaker and corosync (three-node topology) |
+| Red Hat Ceph Storage tools | Ceph (three-node topology) |
+
+**Talk to your Red Hat account team about the subscriptions that provide these**, for
+lab and production alike. Red Hat Ceph Storage and the RHEL Add-Ons are separate
+products — bring this table to that conversation, because a plain RHEL subscription
+leaves the deployment to fail partway through when the real-time, HA, or Ceph
+repositories turn out not to be there.
+
+Preflight checks every repository up front so a missing one is caught before any
+change is made to a node.
 
 Then create an **activation key** (console.redhat.com → Inventory → System
 Configuration → Activation keys) and note the **org ID** shown on the same

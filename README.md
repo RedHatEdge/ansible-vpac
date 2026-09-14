@@ -96,7 +96,7 @@ Building a **single node by hand** (no Ansible), with the ABB SSC600SW IED as th
 **Connected path extras:**
 
 - Active RHEL subscription (RHSM or Satellite) reachable from the cluster nodes
-- Red Hat Ceph Storage entitlement (the `rhceph-9-tools-for-rhel-9-x86_64-rpms` repo enabled via your subscription)
+- Access to Red Hat Ceph Storage content (the `rhceph-9-tools-for-rhel-9-x86_64-rpms` repository) — a separate product from RHEL; speak to your Red Hat account team
 
 **Air-gapped path extras:**
 

@@ -10,7 +10,9 @@ You need:
 
 - 3 × RHEL 9 hosts (9.7+ or 10.2+), freshly installed, reachable via SSH with passwordless sudo
 - BMC credentials (iDRAC or IPMI) for each node, IPMI-over-LAN enabled in the BMC
-- Active RHEL subscription (activation key + org ID) or a Satellite you can reach, with these repo entitlements:
+- An activation key + org ID (or a Satellite you can reach) whose subscriptions give the nodes
+  access to every repository below. The RHEL Add-Ons and Red Hat Ceph Storage are separate
+  products from RHEL — confirm coverage with your Red Hat account team before you start:
   - `rhel-9-for-x86_64-{baseos,appstream,highavailability}-rpms` — base + HA add-on
   - `rhel-9-for-x86_64-nfv-rpms` — `kernel-rt` for `rt_tuning`
   - `codeready-builder-for-rhel-9-x86_64-rpms` (CRB) — `libvirt-daemon-plugin-sanlock` (sanlock-on-RBD chain)

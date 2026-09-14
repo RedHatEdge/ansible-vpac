@@ -53,7 +53,7 @@ You need:
   - ~30 GB free disk space (the minted ISOs are ~13 GB each)
   - An SSH keypair (`~/.ssh/id_ed25519` by default)
 - **A stock RHEL 9.x DVD ISO** downloaded from [access.redhat.com](https://access.redhat.com/downloads/content/rhel) (the full DVD — ~13 GB; the boot-only ISO won't work)
-- **An RHSM activation key + org ID** — create one at [access.redhat.com → Subscriptions → Activation Keys](https://access.redhat.com/management/activation_keys) with a subscription that includes RHEL 9 + Red Hat Ceph Storage entitlements
+- **An RHSM activation key + org ID** — create one at [access.redhat.com → Subscriptions → Activation Keys](https://access.redhat.com/management/activation_keys) whose subscriptions give the builder access to both the RHEL and the Red Hat Ceph Storage repositories. These are separate products — confirm coverage with your Red Hat account team
 - **A Red Hat registry service account** — create at [access.redhat.com/terms-based-registry](https://access.redhat.com/terms-based-registry/); save the username (shape `<org-id>|<token-name>`) + password, you'll paste them into the vault below. (Not the same as the IAM/API service accounts at `console.redhat.com/iam` — those don't authenticate to `registry.redhat.io`.)
 - **A builder machine** (physical server, NUC, laptop, VM — anything that accepts boot media and has ≥50 GB disk for the RPM mirror + container registry data)
 - **3 × target cluster servers** (BMCs reachable, hard disks empty, IPMI-over-LAN enabled)
