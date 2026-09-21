@@ -259,10 +259,38 @@ If `virsh define` rejects the XML, review the error. Common causes are a pin to 
 
 ## Create the Qemu-hook for emulator-pins on isolated cores
 
+libvirt executes only the single script at `/etc/libvirt/hooks/qemu`, so writing this file replaces
+anything already at that path. If the host already carries a hook supplied with the workload, that
+hook may set the CPU affinity or scheduling policy its guest depends on. Check before overwriting,
+and reproduce any such behaviour in the script below.
+
+First, detect any hook already at that path and preserve it. Run this on its own before continuing.
+
 ```bash
 # create hooks directory if it does not exist yet
 sudo mkdir -p /etc/libvirt/hooks/
-# create hook file
+
+# if a hook is already present, show what it does and keep a timestamped copy
+if [ -f /etc/libvirt/hooks/qemu ]; then
+    grep -nE 'chrt|taskset|numactl|renice|cgroup|sched' /etc/libvirt/hooks/qemu
+    sudo cp -a /etc/libvirt/hooks/qemu \
+        "/etc/libvirt/hooks/qemu.bak.$(date +%Y-%m-%d@%H:%M:%S)"
+fi
+```
+
+If that printed nothing, no hook is present, or the one present does no scheduling or affinity work.
+Continue.
+
+If it printed any lines, a hook is already installed and it sets CPU affinity or scheduling policy
+for a guest. Reproduce that behaviour in the script below before continuing — libvirt runs only this
+one file, so writing it removes what is there now. There are two exceptions: a hook carrying the
+`#libvirt qemu hook script for ssc600` header used below is this step from an earlier run, and one
+carrying `# Managed by ansible-vpac` was written by the `virtualization` role. Replacing either is
+expected.
+
+Then write the hook.
+
+```bash
 sudo tee /etc/libvirt/hooks/qemu >/dev/null <<'EOF'
 #!/bin/env bash
 #libvirt qemu hook script for ssc600

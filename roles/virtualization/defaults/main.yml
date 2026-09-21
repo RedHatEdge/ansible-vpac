@@ -76,6 +76,11 @@ virtualization_lock_manager: "none"
 # pinned to the emulator core set and raised to SCHED_FIFO. Empty list
 # leaves the hook installed but a no-op (safe default for non-vendor VMs).
 # Patterns are bash globs, e.g. ["ssc600*", "vpr*", "win-server*"].
+# Overwrite an existing /etc/libvirt/hooks/qemu that this role did not
+# write. libvirt runs only that one script, so the default refuses rather
+# than silently removing a vendor-supplied hook. A backup is kept regardless.
+virtualization_qemu_hook_replace_foreign: false
+
 virtualization_qemu_hook_vm_patterns: []
 virtualization_qemu_hook_vhost_priority: 1
 virtualization_qemu_hook_kvm_pit_priority: 1

@@ -3,6 +3,11 @@
 # operator populates virtualization_qemu_hook_vm_patterns with VM-name
 # patterns to match (e.g. ["ssc600*", "vpr*"]). libvirtd executes the
 # hook on every VM lifecycle event; the script filters internally.
+#
+# libvirt executes exactly one script at /etc/libvirt/hooks/qemu, so
+# writing ours removes whatever was there. A workload vendor may ship its
+# own hook at that path to pin the threads its guest depends on. Refuse to
+# overwrite a hook this role did not write unless told to.
 
 - name: "Ensure /etc/libvirt/hooks directory exists"
   ansible.builtin.file:
@@ -12,6 +17,46 @@
     group: root
     mode: "0755"
 
+- name: "Look for an existing libvirt qemu hook"
+  ansible.builtin.stat:
+    path: /etc/libvirt/hooks/qemu
+  register: virtualization_qemu_hook_existing
+
+- name: "Read the existing libvirt qemu hook"
+  ansible.builtin.slurp:
+    src: /etc/libvirt/hooks/qemu
+  register: virtualization_qemu_hook_existing_content
+  when: virtualization_qemu_hook_existing.stat.exists
+
+- name: "Refuse to replace a libvirt qemu hook this role did not write"
+  ansible.builtin.assert:
+    that:
+      - "'Managed by ansible-vpac' in (virtualization_qemu_hook_existing_content.content | b64decode)"
+    fail_msg: >-
+      /etc/libvirt/hooks/qemu already exists and was not written by this role.
+      libvirt runs only that one script, so replacing it would remove
+      everything the existing hook does — including any CPU affinity or
+      scheduling policy a vendor guest relies on. Note that this role's hook
+      does nothing at all while virtualization_qemu_hook_vm_patterns is empty,
+      so overwriting here can leave the host with no hook behaviour whatsoever.
+      Inspect what the existing hook does before deciding:
+      `grep -nE 'chrt|taskset|numactl|renice|cgroup|sched'
+      /etc/libvirt/hooks/qemu` (and cat it for the whole script). No output
+      means it does no scheduling or affinity work. A hook whose header reads
+      `#libvirt qemu hook script for ssc600` is the one this project's
+      by-hand guide installs; if it is unmodified, overriding it is expected.
+      If it sets CPU affinity or
+      scheduling policy for a guest, that behaviour has to be reproduced
+      through virtualization_qemu_hook_* or in qemu.hook.j2 before you
+      override it. Then either merge it, or set
+      virtualization_qemu_hook_replace_foreign=true to overwrite. A backup is
+      kept either way, beside the original as
+      /etc/libvirt/hooks/qemu.<pid>.<YYYY-MM-DD@HH:MM:SS>~
+    success_msg: "Existing qemu hook is managed by this role; safe to re-render."
+  when:
+    - virtualization_qemu_hook_existing.stat.exists
+    - not virtualization_qemu_hook_replace_foreign | bool
+
 - name: "Render libvirt qemu hook"
   ansible.builtin.template:
     src: qemu.hook.j2
@@ -19,4 +64,5 @@
     owner: root
     group: root
     mode: "0755"
+    backup: true
   notify: "restart libvirtd"
