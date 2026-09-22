@@ -72,6 +72,11 @@ qpid=$(pgrep -f 'guest=ssc600-01,')
 for tid in $(pgrep "vhost-$qpid"); do
   echo "vhost $tid -> $(taskset -pc "$tid" | grep -o '[0-9,-]*$') $(chrt -p "$tid" | tail -1)"
 done
+# expect: each on the emulator cores, SCHED_RR priority 1 (set by the step-10 hook)
+
+# 4. The RDMA driver must not be bound — while it is, NIC channel changes are
+#    silently refused (step 08):
+lsmod | grep -w irdma                 # no output
 ```
 
 Cross-check the IRQ affinities against `cat /sys/devices/system/cpu/isolated`: any device IRQ whose effective affinity falls inside the isolated set will inject jitter into the relay and must be re-pinned to a housekeeping core (step 08).
@@ -130,6 +135,20 @@ ip -br addr show ens2f0                     # process-bus NIC: UP, still NO host
 ```
 
 In the PRP variant (steps 01/05/10): `domiflist` shows **two** `direct` interfaces on two different physical NICs, and both process-bus NICs must show UP with no host IP.
+
+Confirm the host network stack is keeping up under load. `time_squeeze` counts softirq runs that hit
+their budget with frames still queued; on the process-bus IRQ cores it should be 0 and stay 0. If it
+climbs there, the receive budget is the limit and that is the knob to look at — if it does not, no
+budget setting will change anything:
+
+```bash
+# columns are hex: processed, dropped, time_squeeze — one row per CPU
+awk '{printf "cpu%-3d processed %-12d dropped %-6d time_squeeze %d\n", NR-1,
+      strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}' /proc/net/softnet_stat
+```
+
+And read the macvtap drop counter as a **delta**, not a total — the boot-window discard makes the
+absolute number meaningless (step 10, "If the process-bus interfaces show RX errors or drops").
 
 Confirmation of the GOOSE/SV path is performed from the protection side (PCM600 or the relay's diagnostics showing receipt of subscribed GOOSE and Sampled Values) rather than from RHEL; the frames do not surface to the host by design.
 

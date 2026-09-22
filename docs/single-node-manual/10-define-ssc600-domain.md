@@ -174,7 +174,6 @@ Save as `~/ssc600-01.xml`:
     <interface type='direct' trustGuestRxFilters='yes'>
       <source dev='ens2f1' mode='bridge'/>
       <model type='virtio'/>
-      <driver name='vhost' queues='4'/>
     </interface>
     -->
 
@@ -227,12 +226,25 @@ Save as `~/ssc600-01.xml`:
 
 ## If the process-bus interfaces show RX errors or drops
 
-Sampled Values is high-rate L2 multicast (≈4000–4800 frames/s per stream). Under load, a single-queue macvtap is the usual source of `rx_dropped` / `rx_fifo` / `overrun` counts. Mitigations, in order:
+Sampled Values is high-rate L2 multicast (≈4000–4800 frames/s per stream). **Before acting on a
+counter, establish whether it is still moving.** A macvtap's `rx_dropped` accumulates several
+million frames at every guest boot — the relay discards Sampled Values for roughly the first 40 s,
+until its driver starts consuming — and then stops. A large but static count is that boot window,
+not ongoing loss, and tuning against it changes nothing. Sample the counter twice under load:
+
+```bash
+DEV=$(sudo virsh domiflist ssc600-01 | awk '/direct/{print $1}' | head -1)   # the macvtap device
+ip -s link show "$DEV" | awk '/RX:/{getline; print $4}'; sleep 60
+ip -s link show "$DEV" | awk '/RX:/{getline; print $4}'
+```
+
+Equal numbers mean the drops are the boot window; nothing below applies. If the count is climbing,
+diagnose which counter first — it points at the cause — then work down the mitigations:
 
 1. **Use `mode='bridge'`, not `mode='vepa'`.** VEPA forces all guest frames out to the adjacent switch and depends on it doing reflective relay (802.1Qbg hairpin); most switches don't, which drops frames. The XML above already specifies bridge mode.
-2. **Enable virtio multiqueue** — `<driver name='vhost' queues='N'/>` on the interface (N up to the vCPU count). Confirm the guest brings the queues online.
+2. **Keep NIC IRQs and vhost-net threads off the isolated cores.** If either lands on an isolated core you get RX drops and RT jitter from the same cause — verify per step 12.
 3. **Raise the NIC ring buffers** on the host: `sudo ethtool -G <nic> rx 4096`. (A ring/queue change re-spreads the NIC's managed IRQs — re-run the IRQ pinning afterward; see steps 08/09.)
-4. **Keep NIC IRQs and vhost-net threads off the isolated cores.** If either lands on an isolated core you get RX drops and RT jitter from the same cause — verify per step 12.
+4. **Virtio multiqueue** — `<driver name='vhost' queues='N'/>` on the interface (N up to the vCPU count) — only if the guest supports it: inside the VM, `ethtool -l` on the process-bus interface must show a `Combined` maximum above 1, or the host-side change does nothing. Applying it costs a relay restart, so confirm the guest's capability first. Each extra queue adds a vhost thread that must fit on the emulator cores (step 11).
 
 Diagnose which counter is incrementing first — it points at the cause:
 
@@ -365,5 +377,10 @@ sudo chmod +x /etc/libvirt/hooks/qemu
 ```
 
 > The `systemctl restart vpac-ssc600-setup.service` line is this guide's addition to the vendor hook: a VM start (re)creates the macvtap and can re-spread the NIC's managed IRQs onto isolated cores, so the affinity from step 09 is re-asserted on every start. The rest of the hook is the vendor's as shipped.
+>
+> `chrt -p 1` with no policy flag sets **SCHED_RR** at priority 1 — `chrt`'s default policy — so the
+> vhost and `kvm-pit` threads run RR 1, not FIFO. Step 11's manual fallback and step 12's check
+> match that. (The `ansible-vpac` `virtualization` role sets SCHED_FIFO 1 for the same threads; the
+> two paths differ in policy, not priority.)
 
 Continue to [11 — Start and license](11-start-and-license.md).

@@ -1,6 +1,6 @@
 # Single-node manual deployment
 
-This guide builds a **single-node Virtual Protection host** on Red Hat Enterprise Linux 9 or 10 **by hand** — no Ansible, no playbooks. Each command is run directly, on one machine, producing a real-time-tuned KVM host running an **ABB SSC600SW** protection relay as a virtual machine.
+This guide builds a **single-node Virtual Protection host** on Red Hat Enterprise Linux 9.7 or later, or 10.2 or later, **by hand** — no Ansible, no playbooks. Each command is run directly, on one machine, producing a real-time-tuned KVM host running an **ABB SSC600SW** protection relay as a virtual machine.
 
 Its purposes:
 
@@ -12,7 +12,7 @@ Its purposes:
 
 ```
                           ┌──────────────────────────────────────────┐
-                          │  RHEL 9 host (real-time tuned)           │
+                          │  RHEL 9.7+/10.2+ host (real-time tuned)  │
                           │                                          │
    station bus  ──bridge──┤  ┌────────────────────────────────┐      │
                           │  │  ABB SSC600SW VM               │      │

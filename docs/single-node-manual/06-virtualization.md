@@ -70,12 +70,13 @@ Within that block, assign in this order:
 ```
    0 … (N-7)     HOUSEKEEPING        host OS, storage, your shell, and ALL device
                                      interrupts including the process-bus NICs
-   ---- isolated block below this line ----
-   N-6           spare               headroom; leave it empty (see the note on
-                                     placing an interrupt core here instead)
-   N-5, N-4      emulator + iothread
-   N-3 … N-1  +  the 4th vCPU        relay vCPUs 0-3
+   ---- isolated block (six cores) below this line ----
+   N-6, N-5      emulator + iothread
+   N-4 … N-1     relay vCPUs 0-3
 ```
+
+A larger part can widen the isolated block by one core between the housekeeping range and the
+emulator pair; leave that core out of every pin so it stays empty as headroom.
 
 Pick the process-bus IRQ core(s) from the **top of the housekeeping range** — the highest-numbered
 cores that are still outside the isolated block. They are furthest from core 0, which carries the

@@ -104,6 +104,49 @@ done
 
 **Fix:** re-pin those IRQs to the housekeeping cores and make it persistent so it re-applies after the tuned profile and any NIC change (step 08, "Pin the process-bus NIC IRQs to the housekeeping cores").
 
+## NIC channel or queue changes have no effect — `ethtool -L` fails, tuned's `netdev_queue_count` is ignored
+
+**Cause:** the `irdma` RDMA driver is bound to the port. Intel `ice`/`i40e` ports expose an RDMA
+auxiliary device and RHEL autoloads `irdma` onto it; while bound, the port refuses channel changes
+and logs `Cannot change channels when RDMA is active` in `dmesg` — nothing else reports it, so tuned
+appears to have applied a queue count that never took.
+
+**Diagnose:**
+
+```bash
+lsmod | grep -w irdma                       # bound if present
+ls /sys/class/infiniband/                   # one device per affected port
+sudo dmesg | grep -i 'RDMA is active'
+ethtool -l <nic>                            # "Combined" current vs what was configured
+```
+
+**Fix:** blacklist the driver (step 08, "Keep the RDMA driver off the NICs") and reboot. Then confirm
+`ethtool -l` reports the intended queue count.
+
+## PTP port goes FAULTY after maintenance and does not recover
+
+**Cause:** a driver reload, firmware update, or reconfiguration of the PTP NIC re-initialises its
+hardware clock. `ptp4l` can remain in `FAULTY` or `LISTENING` afterwards, and the system clock then
+free-runs on chrony's last estimate. Service-level checks stay green throughout, because
+`timemaster` and `chronyd` are still running; only the port state shows the loss.
+
+**Diagnose:**
+
+```bash
+sudo pmc -u -b 0 'GET PORT_DATA_SET' -i ens2f1 | grep portState   # must be SLAVE
+chronyc tracking                                                  # Reference ID should be the PTP source
+cat /home/libvirt-local/ptp/ptp_status                            # what the relay is being told
+```
+
+**Fix:** restart the PTP stack and re-verify lock (step 07, "Verify lock"):
+
+```bash
+sudo systemctl restart timemaster      # or ptp4l + phc2sys on the Option B path
+```
+
+Add the `portState` check to the routine after **any** maintenance that touches the PTP NIC or its
+driver, including kernel and firmware updates.
+
 ## `pqos` reports nothing / cache partition has no effect
 
 **Cause:** `/sys/fs/resctrl` is not mounted. `pqos -e`/`-a` have no effect without it.

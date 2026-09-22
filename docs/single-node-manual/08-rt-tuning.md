@@ -154,7 +154,28 @@ grep -E 'ens2f0|ens2f1' /proc/interrupts | awk '{print $1}'   # note the IRQ num
 cat /proc/irq/<irq>/effective_affinity_list                   # must be within 0-9
 ```
 
-Make it persistent so it survives reboots and re-applies after the tuned profile settles (a small `systemd` oneshot that runs the loop above, ordered `After=network-online.target tuned.service`).
+Persistence comes from step 09: `vpac-ssc600-setup.service` re-applies the per-NIC placement at every boot and, through the step-10 hook, on every VM start. The loop above is the immediate one-time application — do not write a second unit for it.
+
+### Keep the RDMA driver off the NICs
+
+Intel `ice` (E810) and `i40e` (X710) ports register an RDMA auxiliary device at probe, and RHEL
+autoloads `irdma` onto it. While `irdma` is bound, the port **refuses every channel change** — tuned's
+`netdev_queue_count`, and any `ethtool -L` — logging only `Cannot change channels when RDMA is
+active` in `dmesg`. Nothing else reports the refusal, so the queue layout is whatever the driver
+chose at probe rather than what was configured. Nothing on a protection host uses RDMA. Blacklist
+the driver and stop it loading as a dependency:
+
+```bash
+sudo tee /etc/modprobe.d/vpac-no-rdma.conf >/dev/null <<'EOF'
+# RDMA is unused on a protection host. While irdma is bound to an ice/i40e
+# port the port refuses channel changes (ethtool -L, tuned netdev_queue_count).
+blacklist irdma
+install irdma /bin/false
+EOF
+sudo dracut -f --regenerate-all      # apply the blacklist from early boot, for every installed kernel
+```
+
+The change takes effect at the reboot at the end of this step; the verification block below checks it.
 
 ### A third source — the relay's vhost-net threads — is handled after the VM starts
 
@@ -188,6 +209,8 @@ cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
 tuned-adm active                      # realtime-virtual-host
 systemctl is-active irqbalance        # inactive (disabled above)
+lsmod | grep -w irdma                 # no output — RDMA driver not bound
+ls /sys/class/infiniband/ 2>/dev/null # no output
 # no process-bus NIC IRQ on an isolated core — effective affinity must be in 0-9:
 for irq in $(grep -E 'ens2f0|ens2f1' /proc/interrupts | awk -F: '{print $1}'); do
   echo "irq$irq -> $(cat /proc/irq/$irq/effective_affinity_list)"

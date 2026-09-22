@@ -23,7 +23,7 @@ Now that the VM is running, its `vhost-net` kernel threads exist. They move the 
 qpid=$(pgrep -f 'guest=ssc600-01,')
 for tid in $(pgrep "vhost-$qpid"); do
   sudo taskset -pc <emulator-cores> "$tid"   # e.g. 10-11
-  sudo chrt -fp 1 "$tid"
+  sudo chrt -rp 1 "$tid"                    # SCHED_RR 1 — the same policy the step-10 hook sets
 done
 ```
 
