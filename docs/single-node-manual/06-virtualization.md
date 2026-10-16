@@ -4,13 +4,32 @@ This step starts libvirt/KVM, applies the real-time tuned profile, and reserves 
 
 ## Enable libvirt
 
-RHEL 9 and 10 run libvirt as modular, socket-activated daemons: `virtqemud` for virtual machines and `virtnetworkd` for networks. Do not enable the monolithic `libvirtd` service; it is deprecated and conflicts with the modular daemons.
+RHEL 9 and 10 run libvirt as modular, socket-activated daemons: `virtqemud` for virtual machines and `virtnetworkd` for networks. This guide uses only those two. Do not enable the monolithic `libvirtd` service: it is deprecated, and it conflicts with the modular daemons (starting one stops the other).
+
+Check whether the host runs the monolithic daemon:
 
 ```bash
-sudo systemctl enable --now virtqemud.socket virtnetworkd.socket
+systemctl is-active libvirtd.service       # inactive on a modular host
+```
+
+If it prints `active`, stop and disable `libvirtd` and its sockets first:
+
+```bash
+sudo systemctl stop libvirtd.service
+sudo systemctl stop libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
+sudo systemctl disable libvirtd.service libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
+```
+
+Enable and start the modular daemons. Enabling each service also enables its sockets, and the enabled `virtqemud.service` starts at boot so that autostart guests start with the host:
+
+```bash
+sudo systemctl enable --now virtqemud.service virtnetworkd.service
 systemctl is-active virtqemud.socket virtnetworkd.socket    # active, active
+systemctl is-active libvirtd.service                        # inactive
 sudo virsh version
 ```
+
+The daemons exit after two minutes without clients and restart on demand through their sockets, so check the sockets rather than the services.
 
 If the station-bus libvirt network was deferred in step 05, define it now:
 
