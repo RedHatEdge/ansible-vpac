@@ -207,11 +207,11 @@ isolate_managed_irq=Y
 EOF
 ```
 
-Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`.
+Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`. Custom profiles go under `/etc/tuned/profiles/`, the directory named in the `profile_dirs` setting of `/etc/tuned/tuned-main.conf`. Older tuned releases use `/etc/tuned/<name>/` instead; check `profile_dirs` on the host if the profile is not found.
 
 ```bash
-sudo mkdir /etc/tuned/vpac-rt-host
-sudo vi /etc/tuned/vpac-rt-host/tuned.conf
+sudo mkdir -p /etc/tuned/profiles/vpac-rt-host
+sudo vi /etc/tuned/profiles/vpac-rt-host/tuned.conf
 ```
 
 Enter this content and save:
@@ -228,6 +228,7 @@ cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8
 Apply the profile and confirm the boot arguments tuned will set:
 
 ```bash
+tuned-adm list | grep vpac-rt-host                # tuned finds the profile
 sudo tuned-adm profile vpac-rt-host
 tuned-adm active                                  # Current active profile: vpac-rt-host
 sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs and hugepages=8 together
@@ -243,10 +244,10 @@ The SSC600SW backs its memory with **1 GiB hugepages**, locked so it does not sw
 
 1 GiB hugepages must be reserved at boot via the kernel command line; runtime allocation of 1 GiB pages is unreliable once memory is fragmented. The `cmdline_vpac` line of the `vpac-rt-host` profile (above) carries the reservation: `default_hugepagesz=1G hugepagesz=1G hugepages=8` reserves eight 1 GiB pages and makes 1 GiB the default huge page size. Do not also add these arguments with `grubby`.
 
-To change the number of pages, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/vpac-rt-host/tuned.conf`, re-apply the profile, and reboot:
+To change the number of pages, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/profiles/vpac-rt-host/tuned.conf`, re-apply the profile, and reboot:
 
 ```bash
-sudo vi /etc/tuned/vpac-rt-host/tuned.conf
+sudo vi /etc/tuned/profiles/vpac-rt-host/tuned.conf
 sudo tuned-adm profile vpac-rt-host
 sudo reboot
 ```

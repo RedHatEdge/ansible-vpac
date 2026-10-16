@@ -63,7 +63,7 @@ cat /proc/cmdline | tr ' ' '\n' | grep hugepages   # default_hugepagesz=1G hugep
 grep Huge /proc/meminfo
 ```
 
-If the count is wrong, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/vpac-rt-host/tuned.conf`, re-apply with `sudo tuned-adm profile vpac-rt-host`, and reboot.
+If the count is wrong, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/profiles/vpac-rt-host/tuned.conf`, re-apply with `sudo tuned-adm profile vpac-rt-host`, and reboot.
 
 ## The VM will not start — `virsh start` errors
 
