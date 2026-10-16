@@ -11,9 +11,10 @@ Two requirements:
 
 ```bash
 sudo ethtool -T ens2f1
+ls /sys/class/net/ens2f1/device/ptp/     # the NIC's PHC device, e.g. ptp2
 ```
 
-Look for `PTP Hardware Clock:` with a non-negative index and `hardware-transmit`/`hardware-receive` timestamping capabilities. If the NIC supports only software timestamping, PTP will run with reduced accuracy; a NIC with a hardware PHC is preferred for the PTP role.
+Look for `hardware-transmit`/`hardware-receive` timestamping capabilities and a PHC: the `ls` prints a `ptpN` device. Older `ethtool` releases also print the index as `PTP Hardware Clock:`; newer releases label it differently, so rely on the `ls`. If the NIC supports only software timestamping, PTP will run with reduced accuracy; a NIC with a hardware PHC is preferred for the PTP role.
 
 ## Option A — timemaster (recommended)
 
@@ -63,7 +64,12 @@ tx_timestamp_timeout 10
 # PTP the only time source; add one only if site policy requires a fallback.
 ```
 
-timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. With no `[ntp_server …]` section defined, chrony has no NTP servers and PTP is the sole time source.
+timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. It also includes `/etc/chrony.conf`: the package default `timemaster.conf` carries an `include /etc/chrony.conf` line under `[chrony.conf]`, and the default `/etc/chrony.conf` defines an NTP `pool`. Left as installed, that pool stays a second time source beside PTP. Comment out every `pool` and `server` line in `/etc/chrony.conf` (prefix them with `#`); keep the rest of the file, which timemaster still uses:
+
+```bash
+sudo vi /etc/chrony.conf
+grep -E '^(pool|server)' /etc/chrony.conf || echo "no NTP sources"
+```
 
 Stop and mask standalone chronyd and disable ptp4l (timemaster manages them), then start timemaster. Masking, rather than only disabling, prevents another package or operator from re-enabling the standalone service later — two daemons disciplining the same clock is a known operational hazard:
 
@@ -154,6 +160,7 @@ sudo pmc -u -b 0 'GET CURRENT_DATA_SET' -i ens2f1
 
 # System clock discipline:
 chronyc tracking      # Option A — Last offset should be small, Leap: Normal
+chronyc sources       # Option A — only the PTP reference clock (a # line); no ^ NTP lines
 # or
 journalctl -u phc2sys -f   # Option B — offset should settle near 0
 ```
