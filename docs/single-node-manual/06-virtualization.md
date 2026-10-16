@@ -15,8 +15,7 @@ systemctl is-active libvirtd.service       # inactive on a modular host
 If it prints `active`, stop and disable `libvirtd` and its sockets first:
 
 ```bash
-sudo systemctl stop libvirtd.service
-sudo systemctl stop libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
+sudo systemctl stop libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket libvirtd.service   # sockets and service together
 sudo systemctl disable libvirtd.service libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
 sudo systemctl reset-failed libvirtd.service      # clears "failed" if the stop needed a forced shutdown
 ```
