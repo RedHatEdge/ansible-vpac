@@ -34,8 +34,8 @@ If timestamping is software-only or the PHC is missing, move PTP to a NIC with a
 
 ```bash
 ip -br addr show station-bus
-sudo nmcli connection modify station-bus ipv4.addresses <host-addr>/24   # NOT the relay's
-sudo nmcli connection up station-bus
+sudo nmcli connection modify br-station-bus ipv4.addresses <host-addr>/24   # NOT the relay's
+sudo nmcli connection up br-station-bus
 ```
 
 ## A bridge enslaved the wrong NICs
@@ -178,7 +178,7 @@ sudo systemctl disable --now dnf-makecache.timer fwupd-refresh.timer
 
 # Host IPv6 OFF on the process-bus parent NICs (no NDP/MLD on the SV LANs).
 # The guide's step 05 already sets this; GUI installs may have it enabled:
-sudo nmcli connection modify <process-bus-con> ipv6.method disabled
+sudo nmcli connection modify eth-process-bus ipv6.method disabled
 
 # Boot to multi-user (GUI only on demand):
 sudo systemctl set-default multi-user.target

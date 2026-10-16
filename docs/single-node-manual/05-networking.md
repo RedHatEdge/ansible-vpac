@@ -11,13 +11,15 @@ Substitute the real interface names (from `ip -br link`) for the examples:
 | Process bus | `ens2f0` | **Reserved, no IP** — the VM takes it by macvtap |
 | PTP (dedicated) | `ens2f1` | A plain IP interface, used only by `ptp4l` |
 
-NetworkManager (`nmcli`) is used throughout — it is the default on RHEL 9 and persists across reboots.
+NetworkManager (`nmcli`) is used throughout — it is the default on RHEL 9 and 10 and persists across reboots.
+
+Each connection profile name in this guide starts with its type: `br-` for a bridge, `eth-` for an Ethernet interface. The output of `nmcli connection show` then identifies each profile's type by its name.
 
 ## Remove auto-created connection profiles
 
 On first boot, NetworkManager creates a DHCP profile named `Wired connection 1`, `Wired connection 2`, and so on, with autoconnect enabled, for each port the installer left unconfigured. These activate on the station-bus, process-bus and PTP NICs and compete with the profiles this step creates: after a reboot, NetworkManager can bring up the DHCP profile instead of the intended one. Remove them before configuring the interfaces.
 
-The installer creates the management profile with the management interface's name (for example `ens1f0`). **Do not delete it**: deleting it drops the SSH session.
+The installer creates the management profile with the management interface's name (for example `ens1f0`). **Do not delete it**: deleting it drops the SSH session. Rename it instead, after the deletions below; renaming does not interrupt the connection.
 
 ```bash
 # List the profiles and the device each one is active on
@@ -26,6 +28,9 @@ nmcli connection show
 # Delete each "Wired connection N" profile listed, one command per profile
 sudo nmcli connection delete "Wired connection 1"
 sudo nmcli connection delete "Wired connection 2"
+
+# Rename the management profile to the guide's naming scheme
+sudo nmcli connection modify ens1f0 connection.id eth-mgmt
 ```
 
 Prevent NetworkManager from creating new default profiles for unconfigured ports:
@@ -37,7 +42,7 @@ no-auto-default=*
 EOF
 sudo systemctl reload NetworkManager
 
-# Only the management profile remains, plus lo where listed
+# Only eth-mgmt remains, plus lo where listed
 # (and virbr0 if libvirt is already running; it is removed below)
 nmcli connection show
 ```
@@ -48,10 +53,10 @@ The SSC600's station-bus NIC is a virtio interface attached to a libvirt network
 
 ```bash
 # Create the bridge
-sudo nmcli connection add type bridge con-name station-bus ifname station-bus
+sudo nmcli connection add type bridge con-name br-station-bus ifname station-bus
 
 # Enslave the physical station-bus NIC to it
-sudo nmcli connection add type ethernet con-name station-bus-port \
+sudo nmcli connection add type ethernet con-name br-station-bus-port \
   ifname ens1f1 master station-bus
 
 # Give the bridge the station-bus gateway address for this segment.
@@ -59,9 +64,9 @@ sudo nmcli connection add type ethernet con-name station-bus-port \
 # address the SSC600SW appliance uses. The relay ships with its own station-bus
 # IP (set later via the web HMI / PCM600). Pick a host address in the same
 # subnet but distinct from the relay's.
-sudo nmcli connection modify station-bus ipv4.addresses 10.1.0.1/24 ipv4.method manual
+sudo nmcli connection modify br-station-bus ipv4.addresses 10.1.0.1/24 ipv4.method manual
 
-sudo nmcli connection up station-bus
+sudo nmcli connection up br-station-bus
 ```
 
 > A bridge is used here rather than macvtap because the station bus carries MMS and the relay's web HMI, which the host and PCM600 must reach through the host network. A bridge allows the host, the VM, and the rest of the segment to communicate. The process bus uses a different mechanism (below).
@@ -104,11 +109,11 @@ The process bus carries GOOSE and Sampled Values: Layer-2 multicast protection s
 The host must not assign an IP to this NIC or bridge it. Bring it up with no addressing:
 
 ```bash
-sudo nmcli connection add type ethernet con-name process-bus ifname ens2f0
-sudo nmcli connection modify process-bus \
+sudo nmcli connection add type ethernet con-name eth-process-bus ifname ens2f0
+sudo nmcli connection modify eth-process-bus \
   ipv4.method disabled ipv6.method disabled \
   connection.autoconnect yes
-sudo nmcli connection up process-bus
+sudo nmcli connection up eth-process-bus
 ```
 
 The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in bridge mode. Once the VM is running, the host hands this NIC to the guest.
@@ -117,15 +122,15 @@ The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in 
 > Reserve a **second** process-bus NIC the same way, and rename for clarity:
 >
 > ```bash
-> # Rename the existing connection to process-bus-a (optional but clearer):
-> sudo nmcli connection modify process-bus connection.id process-bus-a
+> # Rename the existing connection to eth-process-bus-a (optional but clearer):
+> sudo nmcli connection modify eth-process-bus connection.id eth-process-bus-a
 >
 > # Process bus B — reserved, no addressing, same as process bus A:
-> sudo nmcli connection add type ethernet con-name process-bus-b ifname ens2f1
-> sudo nmcli connection modify process-bus-b \
+> sudo nmcli connection add type ethernet con-name eth-process-bus-b ifname ens2f1
+> sudo nmcli connection modify eth-process-bus-b \
 >   ipv4.method disabled ipv6.method disabled \
 >   connection.autoconnect yes
-> sudo nmcli connection up process-bus-b
+> sudo nmcli connection up eth-process-bus-b
 > ```
 >
 > In the 5-NIC PRP layout the port this guide used for PTP (`ens2f1`) becomes process bus B, and **PTP moves to a fifth port** (e.g. `ens3f0`) — substitute accordingly in step 07. Each PRP LAN must be its own physical port on its own switch.
@@ -137,9 +142,9 @@ The PTP NIC runs **only** `ptp4l`: no bridge, no macvtap, no other traffic. If a
 Assign it an address on the PTP/timing segment:
 
 ```bash
-sudo nmcli connection add type ethernet con-name ptp ifname ens2f1
-sudo nmcli connection modify ptp ipv4.addresses 10.2.0.10/24 ipv4.method manual
-sudo nmcli connection up ptp
+sudo nmcli connection add type ethernet con-name eth-ptp ifname ens2f1
+sudo nmcli connection modify eth-ptp ipv4.addresses 10.2.0.10/24 ipv4.method manual
+sudo nmcli connection up eth-ptp
 ```
 
 Do not bridge it or attach a VM macvtap to it. Step 07 directs `ptp4l` to this interface.
@@ -156,8 +161,8 @@ ip -br addr
 #   ens2f1 / ptp              — 10.2.0.10/24
 
 nmcli -f NAME,DEVICE,AUTOCONNECT connection show
-# Expect only: the management profile, station-bus, station-bus-port, process-bus, ptp
-# (process-bus-a / process-bus-b in the PRP variant), plus lo where listed.
+# Expect only: eth-mgmt, br-station-bus, br-station-bus-port, eth-process-bus, eth-ptp
+# (eth-process-bus-a / eth-process-bus-b in the PRP variant), plus lo where listed.
 # No "Wired connection N" and no virbr0.
 
 bridge link show          # ens1f1 should appear under the station-bus bridge
