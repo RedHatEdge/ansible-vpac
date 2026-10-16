@@ -15,7 +15,7 @@ NetworkManager (`nmcli`) is used throughout — it is the default on RHEL 9 and 
 
 Connection profile names in this guide follow `<type>-<role>-<NIC>`: the profile type (`eth-` for Ethernet, `br-` for a bridge), its role, and the physical NIC it binds to, for example `eth-ptp-ens2f1`. A bridge's port profile is named `br-<role>-port-<NIC>`. Virtual devices carry the type prefix in the device name as well: the station-bus bridge device is `br-station`, and the libvirt network on it is `net-station`. The output of `nmcli connection show` then identifies each profile's type, role and NIC by its name.
 
-Each `nmcli` command below is a single line. Enter them one at a time.
+Each `nmcli` command below is a single line. Enter them one at a time. **Every `nmcli connection add` for a physical NIC must include `ifname <NIC>`.** A profile added without it has no interface binding, and NetworkManager can activate it on whichever NIC is available. Each `add` below is followed by a check that the profile is bound to the intended NIC.
 
 ## Remove auto-created connection profiles
 
@@ -145,6 +145,9 @@ The host must not assign an IP to this NIC or bridge it. Bring it up with no add
 sudo nmcli connection add type ethernet con-name eth-process-ens2f0 ifname ens2f0
 sudo nmcli connection modify eth-process-ens2f0 ipv4.method disabled ipv6.method disabled connection.autoconnect yes
 sudo nmcli connection up eth-process-ens2f0
+
+# Confirm the profile is bound to the process-bus NIC
+nmcli -g connection.interface-name connection show eth-process-ens2f0    # ens2f0
 ```
 
 The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in bridge mode. Once the VM is running, the host hands this NIC to the guest.
@@ -160,6 +163,7 @@ The VM's XML (step 10) attaches to this NIC by name with a macvtap interface in 
 > sudo nmcli connection add type ethernet con-name eth-process-b-ens2f1 ifname ens2f1
 > sudo nmcli connection modify eth-process-b-ens2f1 ipv4.method disabled ipv6.method disabled connection.autoconnect yes
 > sudo nmcli connection up eth-process-b-ens2f1
+> nmcli -g connection.interface-name connection show eth-process-b-ens2f1    # ens2f1
 > ```
 >
 > In the 5-NIC PRP layout the port this guide used for PTP (`ens2f1`) becomes process bus B, and **PTP moves to a fifth port** (e.g. `ens3f0`, profile `eth-ptp-ens3f0`) — substitute accordingly below and in step 07. Each PRP LAN must be its own physical port on its own switch.
@@ -174,6 +178,9 @@ Assign it an address on the PTP/timing segment:
 sudo nmcli connection add type ethernet con-name eth-ptp-ens2f1 ifname ens2f1
 sudo nmcli connection modify eth-ptp-ens2f1 ipv4.addresses 10.2.0.10/24 ipv4.method manual
 sudo nmcli connection up eth-ptp-ens2f1
+
+# Confirm the profile is bound to the PTP NIC
+nmcli -g connection.interface-name connection show eth-ptp-ens2f1    # ens2f1
 ```
 
 Do not bridge it or attach a VM macvtap to it. Step 07 directs `ptp4l` to this interface.
@@ -188,6 +195,12 @@ ip -br addr
 #   ens1f1                    — UP, no IP of its own (bridge port)
 #   ens2f0                    — UP, NO IP (process bus)
 #   ens2f1                    — 10.2.0.10/24 (PTP)
+
+nmcli -f DEVICE,STATE,CONNECTION device
+# Each NIC must carry its own profile: ens1f1 -> br-station-port-ens1f1,
+# ens2f0 -> eth-process-ens2f0, ens2f1 -> eth-ptp-ens2f1. A profile whose name
+# ends in one NIC but is shown against another was added without ifname:
+# delete it and add it again with ifname.
 
 nmcli -f NAME,TYPE,DEVICE,AUTOCONNECT connection show
 # Expect only: eth-mgmt-ens1f0, br-station, br-station-port-ens1f1,
