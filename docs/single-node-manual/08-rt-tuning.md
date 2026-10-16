@@ -209,6 +209,7 @@ cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
 tuned-adm active                      # realtime-virtual-host
 getenforce                            # Disabled (step 04)
+sysctl net.ipv4.ip_forward            # 0 (libvirt default network removed in step 05)
 systemctl is-active irqbalance        # inactive (disabled above)
 lsmod | grep -w irdma                 # no output — RDMA driver not bound
 ls /sys/class/infiniband/ 2>/dev/null # no output

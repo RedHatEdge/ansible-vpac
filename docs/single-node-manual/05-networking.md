@@ -13,6 +13,35 @@ Substitute the real interface names (from `ip -br link`) for the examples:
 
 NetworkManager (`nmcli`) is used throughout — it is the default on RHEL 9 and persists across reboots.
 
+## Remove auto-created connection profiles
+
+On first boot, NetworkManager creates a DHCP profile named `Wired connection 1`, `Wired connection 2`, and so on, with autoconnect enabled, for each port the installer left unconfigured. These activate on the station-bus, process-bus and PTP NICs and compete with the profiles this step creates: after a reboot, NetworkManager can bring up the DHCP profile instead of the intended one. Remove them before configuring the interfaces.
+
+The installer creates the management profile with the management interface's name (for example `ens1f0`). **Do not delete it**: deleting it drops the SSH session.
+
+```bash
+# List the profiles and the device each one is active on
+nmcli connection show
+
+# Delete each "Wired connection N" profile listed, one command per profile
+sudo nmcli connection delete "Wired connection 1"
+sudo nmcli connection delete "Wired connection 2"
+```
+
+Prevent NetworkManager from creating new default profiles for unconfigured ports:
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/10-no-auto-default.conf >/dev/null <<'EOF'
+[main]
+no-auto-default=*
+EOF
+sudo systemctl reload NetworkManager
+
+# Only the management profile remains, plus lo where listed
+# (and virbr0 if libvirt is already running; it is removed below)
+nmcli connection show
+```
+
 ## Station bus — a bridge for the VM
 
 The SSC600's station-bus NIC is a virtio interface attached to a libvirt network backed by a host bridge. Create the bridge:
@@ -53,7 +82,20 @@ sudo virsh net-start station-bus
 sudo virsh net-autostart station-bus
 ```
 
-(libvirt must be running for this. If `virsh` errors, do step 06 first, then return for these three commands. The bridge itself does not depend on libvirt.)
+(libvirt must be running for this. If `virsh` errors, do step 06 first, then return for these three commands and the default-network removal below. The bridge itself does not depend on libvirt.)
+
+### Remove the libvirt default network
+
+libvirt defines a `default` NAT network (`virbr0`, 192.168.122.0/24) and starts it with the libvirt network service. While a NAT network runs, libvirt enables IPv4 forwarding on the host. A protection host does not route or NAT for its guests, so remove the network:
+
+```bash
+sudo virsh net-destroy default
+sudo virsh net-autostart default --disable
+sudo virsh net-undefine default
+sudo virsh net-list --all          # station-bus only
+```
+
+Forwarding that libvirt enabled can remain on until the next reboot. Step 08 verifies that it is off.
 
 ## Process bus — reserved, no IP
 
@@ -113,8 +155,13 @@ ip -br addr
 #   ens2f0 / process-bus      — UP, NO IP
 #   ens2f1 / ptp              — 10.2.0.10/24
 
-nmcli connection show
+nmcli -f NAME,DEVICE,AUTOCONNECT connection show
+# Expect only: the management profile, station-bus, station-bus-port, process-bus, ptp
+# (process-bus-a / process-bus-b in the PRP variant), plus lo where listed.
+# No "Wired connection N" and no virbr0.
+
 bridge link show          # ens1f1 should appear under the station-bus bridge
+sudo virsh net-list --all # station-bus only; no default
 ```
 
 If the process-bus NIC shows an IP, or the PTP NIC is enslaved to a bridge, correct it before proceeding. These conditions break protection signaling and time synchronization.
