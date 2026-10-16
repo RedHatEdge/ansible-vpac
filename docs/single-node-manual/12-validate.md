@@ -9,7 +9,7 @@ These are the single-node subset of the checks the `validate` role performs on t
 ```bash
 uname -r                                   # ...rt... kernel
 cat /sys/devices/system/cpu/isolated       # the isolated set, e.g. 10-15
-tuned-adm active                           # realtime-virtual-host
+tuned-adm active                           # vpac-rt-host
 cat /proc/cmdline | tr ' ' '\n' | grep -E 'isolcpus|nohz_full|rcu_nocbs|hugepages'
 cat /sys/kernel/debug/sched/rt_runtime_us 2>/dev/null || sysctl kernel.sched_rt_runtime_us  # -1
 ```

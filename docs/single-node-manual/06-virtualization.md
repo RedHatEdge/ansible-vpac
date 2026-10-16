@@ -4,10 +4,12 @@ This step starts libvirt/KVM, applies the real-time tuned profile, and reserves 
 
 ## Enable libvirt
 
+RHEL 9 and 10 run libvirt as modular, socket-activated daemons: `virtqemud` for virtual machines and `virtnetworkd` for networks. Do not enable the monolithic `libvirtd` service; it is deprecated and conflicts with the modular daemons.
+
 ```bash
-sudo systemctl enable --now libvirtd
-sudo systemctl status libvirtd --no-pager
-virsh version
+sudo systemctl enable --now virtqemud.socket virtnetworkd.socket
+systemctl is-active virtqemud.socket virtnetworkd.socket    # active, active
+sudo virsh version
 ```
 
 If the station-bus libvirt network was deferred in step 05, define it now:
@@ -21,7 +23,7 @@ sudo virsh net-list --all
 
 ## Apply the real-time host tuned profile
 
-`realtime-virtual-host` is the tuned profile for running RT guests on a KVM host. It configures CPU isolation, disables a range of background jitter sources, and prepares the host for `kernel-rt`.
+`realtime-virtual-host` is the tuned profile for running RT guests on a KVM host. It configures CPU isolation, disables a range of background jitter sources, and prepares the host for `kernel-rt`. This guide applies it through a custom profile, `vpac-rt-host`, which includes `realtime-virtual-host` and adds the 1 GiB hugepage reservation. tuned then manages every kernel boot argument the relay depends on in one place.
 
 It is parameterized by a variables file declaring which CPUs to isolate. Isolate the cores the VM will be pinned to plus the emulator cores, and leave the low-numbered cores for the host (housekeeping, interrupts, the OS).
 
@@ -184,9 +186,32 @@ isolated_cores=10-15
 # not land on the guest's cores.
 isolate_managed_irq=Y
 EOF
+```
 
-sudo tuned-adm profile realtime-virtual-host
-tuned-adm active
+Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`.
+
+```bash
+sudo mkdir /etc/tuned/vpac-rt-host
+sudo vi /etc/tuned/vpac-rt-host/tuned.conf
+```
+
+Enter this content and save:
+
+```ini
+[main]
+summary=vPAC RT KVM host: realtime-virtual-host + 1G hugepages
+include=realtime-virtual-host
+
+[bootloader]
+cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8
+```
+
+Apply the profile and confirm the boot arguments tuned will set:
+
+```bash
+sudo tuned-adm profile vpac-rt-host
+tuned-adm active                                  # Current active profile: vpac-rt-host
+sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs and hugepages=8 together
 ```
 
 > Record the `isolated_cores` value. It is reused three times: the VM's `<vcpupin>`/`<emulatorpin>` (step 10), the L3 cache partitioning (step 08), and the validation checks (step 12). All three must agree.
@@ -197,11 +222,14 @@ tuned-adm active
 
 The SSC600SW backs its memory with **1 GiB hugepages**, locked so it does not swap. Reserve enough whole 1 GiB pages for the guest's memory (8 GiB → 8 pages) plus any additional RT VM.
 
-1 GiB hugepages must be reserved at boot via the kernel command line; runtime allocation of 1 GiB pages is unreliable once memory is fragmented. Set the kernel parameters (this also previews step 08, which adds the RT parameters):
+1 GiB hugepages must be reserved at boot via the kernel command line; runtime allocation of 1 GiB pages is unreliable once memory is fragmented. The `cmdline_vpac` line of the `vpac-rt-host` profile (above) carries the reservation: `default_hugepagesz=1G hugepagesz=1G hugepages=8` reserves eight 1 GiB pages and makes 1 GiB the default huge page size. Do not also add these arguments with `grubby`.
+
+To change the number of pages, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/vpac-rt-host/tuned.conf`, re-apply the profile, and reboot:
 
 ```bash
-# Reserve eight 1 GiB hugepages and make 1 GiB the default huge size.
-sudo grubby --update-kernel=ALL --args="default_hugepagesz=1G hugepagesz=1G hugepages=8"
+sudo vi /etc/tuned/vpac-rt-host/tuned.conf
+sudo tuned-adm profile vpac-rt-host
+sudo reboot
 ```
 
 > Verify the memory budget. `hugepages=8` with `hugepagesz=1G` reserves **8 GiB** of RAM at boot; it is not lazily allocated. Ensure the host has that 8 GiB available in addition to its own requirements. Reserving more than is available will prevent the host from booting correctly.

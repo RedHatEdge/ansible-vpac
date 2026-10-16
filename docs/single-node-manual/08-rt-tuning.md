@@ -7,7 +7,7 @@ This step configures the host as a real-time host. It boots the `kernel-rt` kern
 `kernel-rt` was installed in step 04. Make it the default and confirm tuned's RT profile is active:
 
 ```bash
-# realtime-virtual-host (set in step 06) selects kernel-rt automatically on
+# vpac-rt-host (set in step 06) selects kernel-rt automatically on
 # reboot if it's installed; make it explicit and current:
 sudo grubby --info=ALL | grep -E 'kernel|rt' | head
 
@@ -18,19 +18,20 @@ sudo grubby --set-default "$(ls -1 /boot/vmlinuz-*rt* | sort -V | tail -1)"
 
 ## Confirm the kernel command line
 
-The `realtime-virtual-host` profile generates the isolation and scheduling kernel arguments from the `isolated_cores` value set in step 06 — `isolcpus`, `nohz_full`, `rcu_nocbs`, `skew_tick`, `intel_pstate=disable`, and the housekeeping IRQ affinity. tuned applies them to the kernel command line on the reboot at the end of this step.
+The `vpac-rt-host` profile generates the isolation and scheduling kernel arguments, through the `realtime-virtual-host` profile it includes, from the `isolated_cores` value set in step 06 — `isolcpus`, `nohz_full`, `rcu_nocbs`, `skew_tick`, `intel_pstate=disable`, and the housekeeping IRQ affinity. tuned applies them to the kernel command line on the reboot at the end of this step.
 
-Do **not** add these arguments again with `grubby`. A second copy produces a duplicate `isolcpus=` entry that the kernel may resolve unpredictably. To change which cores are isolated, edit `isolated_cores` in `/etc/tuned/realtime-virtual-host-variables.conf` (step 06) and re-apply the profile — not the kernel command line.
+Do **not** add these arguments again with `grubby`. A second copy produces a duplicate `isolcpus=` entry that the kernel may resolve unpredictably. To change which cores are isolated, edit `isolated_cores` in `/etc/tuned/realtime-virtual-host-variables.conf` (step 06) and re-apply the profile (`sudo tuned-adm profile vpac-rt-host`) — not the kernel command line.
 
-The one cmdline item tuned does not manage is the **1 GiB hugepage reservation**, set in step 06. Confirm it is present, and re-apply only if it is missing:
+The same profile carries the **1 GiB hugepage reservation** (its `cmdline_vpac` line, step 06), so tuned manages it too. Confirm the arguments tuned will apply:
 
 ```bash
-# Isolation args (from tuned) and the hugepage reservation (from step 06):
-sudo grubby --info=DEFAULT | tr ' ' '\n' | grep -E 'isolcpus|nohz_full|hugepage' || true
+sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs and hugepages=8
+```
 
-# Re-apply the hugepage reservation only if it is absent (idempotent):
-sudo grubby --update-kernel=ALL \
-  --args="default_hugepagesz=1G hugepagesz=1G hugepages=8"
+A host that already received the hugepage arguments through `grubby` carries a second copy of them. Remove that copy, so tuned's is the only one:
+
+```bash
+sudo grubby --update-kernel=ALL --remove-args="default_hugepagesz hugepagesz hugepages"
 ```
 
 For reference, the arguments the profile applies:
@@ -39,6 +40,7 @@ For reference, the arguments the profile applies:
 - **housekeeping IRQ affinity** — directs device interrupts to the non-isolated cores.
 - **`skew_tick=1`** — desynchronizes per-CPU timer ticks so they do not fire simultaneously and cause a latency spike.
 - **`intel_pstate=disable`** — assigns frequency control to a fixed governor instead of the firmware's P-state driver.
+- **`default_hugepagesz=1G hugepagesz=1G hugepages=8`** — the 1 GiB hugepage reservation for the guest, from the profile's own `cmdline_vpac` line.
 
 Keep `isolated_cores` (step 06), the VM's `<vcpupin>`/`<emulatorpin>` (step 10), and the `cyclictest` range (step 12) in agreement. A mismatch causes a VM that boots but does not meet latency targets.
 
@@ -187,7 +189,7 @@ When RHEL has a GUI installed (e.g. via the default installation), there is an a
 ```bash
 sudo systemctl disable --now tuned-ppd.service
 sudo systemctl mask tuned-ppd.service        # belt-and-suspenders: nothing can re-enable it
-sudo tuned-adm profile realtime-virtual-host # re-pin (sets profile_mode=manual)
+sudo tuned-adm profile vpac-rt-host          # re-pin (sets profile_mode=manual)
 sudo systemctl is-enabled tuned.service      # confirm tuned itself stays enabled
 ```
 
@@ -207,7 +209,7 @@ grep Huge /proc/meminfo               # HugePages_Total: 8, HugePages_Free: 8 (1
 sysctl kernel.sched_rt_runtime_us     # -1
 cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
-tuned-adm active                      # realtime-virtual-host
+tuned-adm active                      # vpac-rt-host
 getenforce                            # Disabled (step 04)
 sysctl net.ipv4.ip_forward            # 0 (libvirt default network removed in step 05)
 systemctl is-active irqbalance        # inactive (disabled above)

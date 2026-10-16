@@ -56,14 +56,14 @@ If the port profile prints nothing for `connection.interface-name`, delete it an
 
 **Cause:** 1 GiB hugepages were reserved at runtime (`sysctl vm.nr_hugepages=...`) instead of on the kernel command line. Runtime reservation of 1 GiB pages does not survive reboot and often cannot satisfy the request once memory is fragmented, so the VM fails to start after a power event.
 
-**Fix:** reserve them on the kernel cmdline (step 06/08) so they exist from boot:
+**Fix:** reserve them on the kernel command line through the `vpac-rt-host` tuned profile (step 06), so they exist from boot:
 
 ```bash
 cat /proc/cmdline | tr ' ' '\n' | grep hugepages   # default_hugepagesz=1G hugepagesz=1G hugepages=N
 grep Huge /proc/meminfo
 ```
 
-If the count is wrong, re-apply with `grubby --update-kernel=ALL --args="..."` and reboot.
+If the count is wrong, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/vpac-rt-host/tuned.conf`, re-apply with `sudo tuned-adm profile vpac-rt-host`, and reboot.
 
 ## The VM will not start — `virsh start` errors
 
