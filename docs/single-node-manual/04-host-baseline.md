@@ -65,7 +65,7 @@ getenforce                                           # Permissive now; Disabled 
 sudo grubby --info=ALL | grep -E '^(kernel|args)='   # every args= line includes selinux=0
 ```
 
-No separate reboot is needed; the reboot in step 08 applies the argument. Kernels installed later inherit it.
+No separate reboot is needed; the reboot in step 08 applies the argument. After any later kernel update, repeat the `grubby --info=ALL` check before rebooting; if a new entry lacks `selinux=0`, run the `grubby --update-kernel=ALL` command again.
 
 To return the host to Enforcing later, boot permissive first, relabel the file system (files created while SELinux was disabled carry no label), review denials, then remove the permissive override:
 
