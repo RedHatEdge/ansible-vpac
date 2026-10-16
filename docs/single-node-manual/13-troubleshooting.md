@@ -33,23 +33,24 @@ If timestamping is software-only or the PHC is missing, move PTP to a NIC with a
 **Fix:** the bridge's host address and the relay's address must be different addresses in the same subnet. Remove the conflicting address from the bridge:
 
 ```bash
-ip -br addr show station-bus
-sudo nmcli connection modify br-station-bus ipv4.addresses <host-addr>/24   # NOT the relay's
-sudo nmcli connection up br-station-bus
+ip -br addr show br-station
+sudo nmcli connection modify br-station ipv4.addresses <host-addr>/24   # NOT the relay's
+sudo nmcli connection up br-station
 ```
 
 ## A bridge enslaved the wrong NICs
 
-**Cause:** a bridge was created enslaving more interfaces than intended, including management or other critical NICs.
+**Cause:** a bridge was created enslaving more interfaces than intended, including management or other critical NICs. A bridge port profile created without `ifname` has no interface binding and can attach whichever NIC is available.
 
 **Fix:** the station-bus bridge must enslave only the station-bus port. Check for and detach any others:
 
 ```bash
-bridge link show
+bridge link show                                                 # look for "master br-station"
+nmcli -g connection.interface-name connection show br-station-port-<nic>   # must print the station-bus NIC
 sudo ip link set <wrong-nic> nomaster      # remove a NIC mistakenly enslaved
 ```
 
-Then reassert the intended membership with `nmcli` (step 05).
+If the port profile prints nothing for `connection.interface-name`, delete it and add it again with `ifname` (step 05).
 
 ## Hugepages disappear after a reboot
 
@@ -70,7 +71,7 @@ Review the error. Common causes:
 
 - **`unable to map backing store ... hugepages`** — insufficient free 1 GiB hugepages. Check `grep Huge /proc/meminfo`; the reservation may be smaller than the VM requests, or another VM took them.
 - **`cpuset ... not a valid CPU`** — a `<vcpupin>` names a core that does not exist or is offline. Match the pins to `lscpu -e`.
-- **`Network not found: station-bus`** — the libvirt network is not defined/started (step 05/06).
+- **`Network not found: net-station`** — the libvirt network is not defined/started (step 05/06).
 - **`unable to access ... ssc600-01.img`** — wrong path or ownership, or, when SELinux is enabled, the SELinux label. Confirm ownership (`qemu:qemu`); if SELinux is enabled, run `sudo restorecon -v` on the image.
 
 ## cyclictest Max latency is too high
@@ -178,7 +179,7 @@ sudo systemctl disable --now dnf-makecache.timer fwupd-refresh.timer
 
 # Host IPv6 OFF on the process-bus parent NICs (no NDP/MLD on the SV LANs).
 # The guide's step 05 already sets this; GUI installs may have it enabled:
-sudo nmcli connection modify eth-process-bus ipv6.method disabled
+sudo nmcli connection modify eth-process-<nic> ipv6.method disabled
 
 # Boot to multi-user (GUI only on demand):
 sudo systemctl set-default multi-user.target

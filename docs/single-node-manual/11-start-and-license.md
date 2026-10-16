@@ -54,7 +54,7 @@ Confirm the guest sees its devices as the XML intended:
 # From the host:
 sudo virsh dominfo ssc600-01
 sudo virsh vcpuinfo ssc600-01      # each vCPU pinned to its core
-sudo virsh domiflist ssc600-01     # two interfaces: station-bus network + macvtap
+sudo virsh domiflist ssc600-01     # two interfaces: net-station network + macvtap
 ```
 
 ## Set the relay's station-bus address

@@ -13,9 +13,9 @@ virsh version
 If the station-bus libvirt network was deferred in step 05, define it now:
 
 ```bash
-sudo virsh net-define /tmp/net-station-bus.xml
-sudo virsh net-start station-bus
-sudo virsh net-autostart station-bus
+sudo virsh net-define /tmp/net-station.xml
+sudo virsh net-start net-station
+sudo virsh net-autostart net-station
 sudo virsh net-list --all
 ```
 

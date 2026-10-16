@@ -17,7 +17,7 @@ This is the **single-node** domain: a **local file-backed disk** (no Ceph RBD), 
 | emulator pin `10-11` | Two isolated housekeeping-adjacent cores | Inside the `isolated_cores` set |
 | `memory` `8` | Guest RAM in GiB | A whole number of 1 GiB hugepages reserved in step 06/08 |
 | disk `source file` | Where the image was placed (step 09) | The actual path |
-| `source network='station-bus'` | The libvirt network name | Step 05 |
+| `source network='net-station'` | The libvirt network name | Step 05 |
 | `source dev='ens2f0'` | The process-bus NIC | Step 05 |
 | `source dir` (virtiofs) | Host PTP-status dir | Step 09 |
 
@@ -151,11 +151,11 @@ Save as `~/ssc600-01.xml`:
       <target dev='vda' bus='virtio'/>
     </disk>
 
-    <!-- NIC 1 — station bus. Attached to the libvirt 'station-bus' network
+    <!-- NIC 1 — station bus. Attached to the libvirt 'net-station' network
          (the bridge from step 05). Carries MMS, engineering tools, and the
          relay's web HMI. virtio model. -->
     <interface type='network'>
-      <source network='station-bus'/>
+      <source network='net-station'/>
       <model type='virtio'/>
     </interface>
 
