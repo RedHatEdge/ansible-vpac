@@ -64,11 +64,11 @@ tx_timestamp_timeout 10
 # PTP the only time source; add one only if site policy requires a fallback.
 ```
 
-timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. It also includes `/etc/chrony.conf`: the package default `timemaster.conf` carries an `include /etc/chrony.conf` line under `[chrony.conf]`, and the default `/etc/chrony.conf` defines an NTP `pool`. Left as installed, that pool stays a second time source beside PTP. Comment out every `pool` and `server` line in `/etc/chrony.conf` (prefix them with `#`); keep the rest of the file, which timemaster still uses:
+timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. It also includes `/etc/chrony.conf`: the package default `timemaster.conf` carries an `include /etc/chrony.conf` line under `[chrony.conf]`, and the default `/etc/chrony.conf` defines an NTP `pool`. Left as installed, that pool stays a second time source beside PTP. The default file also has a `sourcedir /run/chrony-dhcp` line, which loads NTP servers handed out by DHCP on any DHCP-configured interface. Comment out every `pool`, `server`, `peer` and `sourcedir` line in `/etc/chrony.conf` (prefix them with `#`); keep the rest of the file, which timemaster still uses:
 
 ```bash
 sudo vi /etc/chrony.conf
-grep -E '^(pool|server)' /etc/chrony.conf || echo "no NTP sources"
+grep -E '^(pool|server|peer|sourcedir)' /etc/chrony.conf || echo "no NTP sources"
 ```
 
 Stop and mask standalone chronyd and disable ptp4l (timemaster manages them), then start timemaster. Masking, rather than only disabling, prevents another package or operator from re-enabling the standalone service later — two daemons disciplining the same clock is a known operational hazard:
