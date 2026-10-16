@@ -18,6 +18,7 @@ If it prints `active`, stop and disable `libvirtd` and its sockets first:
 sudo systemctl stop libvirtd.service
 sudo systemctl stop libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
 sudo systemctl disable libvirtd.service libvirtd.socket libvirtd-ro.socket libvirtd-admin.socket
+sudo systemctl reset-failed libvirtd.service      # clears "failed" if the stop needed a forced shutdown
 ```
 
 Enable and start the modular daemons. Enabling each service also enables its sockets, and the enabled `virtqemud.service` starts at boot so that autostart guests start with the host:
@@ -207,7 +208,7 @@ isolate_managed_irq=Y
 EOF
 ```
 
-Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`. Custom profiles go under `/etc/tuned/profiles/`, the directory named in the `profile_dirs` setting of `/etc/tuned/tuned-main.conf`. Older tuned releases use `/etc/tuned/<name>/` instead; check `profile_dirs` on the host if the profile is not found.
+Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`. Custom profiles go under `/etc/tuned/profiles/`, one of the directories in tuned's default `profile_dirs` (shown commented out in `/etc/tuned/tuned-main.conf`). Older tuned releases use `/etc/tuned/<name>/` instead; check `profile_dirs` on the host if the profile is not found.
 
 ```bash
 sudo mkdir -p /etc/tuned/profiles/vpac-rt-host
