@@ -13,7 +13,7 @@ Substitute the real interface names (from `ip -br link`) for the examples:
 
 NetworkManager (`nmcli`) is used throughout — it is the default on RHEL 9 and 10 and persists across reboots.
 
-Each connection profile name in this guide starts with its type: `br-` for a bridge, `eth-` for an Ethernet interface. The output of `nmcli connection show` then identifies each profile's type by its name.
+Each connection profile name in this guide starts with its type: `br-` for a bridge, `eth-` for an Ethernet interface. A bridge's port profile takes the bridge's name with a `-port` suffix (`br-station-bus-port`). The output of `nmcli connection show` then identifies each profile's type by its name.
 
 ## Remove auto-created connection profiles
 
