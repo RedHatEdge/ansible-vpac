@@ -19,7 +19,7 @@ Install **RHEL 9.7 or later** — or **RHEL 10.2 or later**, on which this guide
 
 ## Security
 
-- Keep **SELinux in Enforcing** mode. The Virtual Protection pattern runs SELinux in Enforcing mode in production. The subsequent steps are compatible with it.
+- Leave **SELinux** at the installer default. Step 04 disables it.
 - Set a root password and create an admin user with `sudo`.
 
 ## After first boot
@@ -29,9 +29,6 @@ Log in over the management NIC and confirm the basics:
 ```bash
 # RHEL version — must be 9.7+ (or 10.2+)
 cat /etc/redhat-release
-
-# Confirm SELinux is enforcing
-getenforce
 
 # List every network interface and its state — record which physical
 # ports map to management / station / process / PTP for step 05

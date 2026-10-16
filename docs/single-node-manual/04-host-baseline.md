@@ -47,6 +47,41 @@ Purpose of the less obvious packages:
 - **`realtime-tests`** — provides `cyclictest` for validation in step 12 (in AppStream; this is the RHEL 9/10 successor to the older `rt-tests` package, which no longer exists).
 - **`cockpit` / `cockpit-machines`** — provides the RHEL Web Console incl. VM management
 
+## SELinux
+
+This guide runs the host with SELinux disabled. Enforcing mode is the target posture for production protection hosts; the procedure to return to it is at the end of this section.
+
+On RHEL 9 and 10, disable SELinux with the `selinux=0` kernel argument. Do not use `SELINUX=disabled` in `/etc/selinux/config`: with that setting the kernel still boots with SELinux enabled and no policy loaded.
+
+```bash
+# Permissive immediately, for the rest of the build
+sudo setenforce 0
+
+# Disabled from the next boot, on every installed kernel (including kernel-rt, installed above)
+sudo grubby --update-kernel=ALL --args="selinux=0"
+
+# Confirm
+getenforce                                           # Permissive now; Disabled after the reboot in step 08
+sudo grubby --info=ALL | grep -E '^(kernel|args)='   # every args= line includes selinux=0
+```
+
+No separate reboot is needed; the reboot in step 08 applies the argument. Kernels installed later inherit it.
+
+To return the host to Enforcing later, boot permissive first, relabel the file system (files created while SELinux was disabled carry no label), review denials, then remove the permissive override:
+
+```bash
+sudo grubby --update-kernel=ALL --remove-args="selinux"
+sudo grubby --update-kernel=ALL --args="enforcing=0"     # boot permissive
+sudo fixfiles -F onboot                                  # full relabel on the next boot
+sudo reboot
+
+# After the relabel completes and the host is back:
+sudo ausearch -m AVC -ts boot                            # resolve any denials first
+sudo grubby --update-kernel=ALL --remove-args="enforcing"
+sudo reboot
+getenforce                                               # Enforcing
+```
+
 ## Firewall baseline
 
 Keep the firewall enabled. Open only the services the host requires, per interface zone. At minimum, allow SSH on the management interface, then reload so the permanent changes take effect:

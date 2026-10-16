@@ -30,7 +30,7 @@ Move it to the location libvirt will run it from. On single-node this is a local
 ```bash
 sudo mv ssc600_disk.img /var/lib/libvirt/images/ssc600-01.img
 sudo chown qemu:qemu /var/lib/libvirt/images/ssc600-01.img
-sudo restorecon -v /var/lib/libvirt/images/ssc600-01.img   # correct SELinux label
+selinuxenabled && sudo restorecon -v /var/lib/libvirt/images/ssc600-01.img   # SELinux label; skipped while SELinux is disabled
 ```
 
 > Retain a pristine copy of the extracted image before booting and licensing the VM. Licensing and all in-VM configuration are written to this disk; restoring it to the factory image requires repeating license activation (step 11). A clean copy reduces recovery to a file copy rather than a re-extraction.
@@ -63,7 +63,7 @@ systemctl status ptp_status.service --no-pager
 cat /home/libvirt-local/ptp/ptp_status
 ```
 
-> The shipped script reads ptp4l's state over its UNIX socket. If SELinux denials appear for that access (`ausearch -m AVC -ts recent`), build a local policy module from the actual denials (`audit2allow -M`) — do **not** switch SELinux to permissive or disabled on a protection host.
+> The shipped script reads ptp4l's state over its UNIX socket. With SELinux disabled (step 04) no policy work is required. If the host is returned to Enforcing and denials appear for that access (`ausearch -m AVC -ts recent`), build a local policy module from the actual denials (`audit2allow -M`).
 
 The virtiofs `<source dir>` in the domain XML (step 10) must point at the same directory this service writes to. This guide uses the vendor default, `/home/libvirt-local/ptp` — verified from the `PTP_STATUS_FOLDER` environment setting on a licensed ABB-built host (an earlier revision of this guide cited `/var/lib/libvirt/images/ptp`, which does not exist on real vendor hosts). The unit file's `PTP_STATUS_FOLDER` value is authoritative: whatever it says, the virtiofs `<source dir>` must match it.
 

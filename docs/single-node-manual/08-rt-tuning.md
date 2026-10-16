@@ -208,6 +208,7 @@ sysctl kernel.sched_rt_runtime_us     # -1
 cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
 tuned-adm active                      # realtime-virtual-host
+getenforce                            # Disabled (step 04)
 systemctl is-active irqbalance        # inactive (disabled above)
 lsmod | grep -w irdma                 # no output — RDMA driver not bound
 ls /sys/class/infiniband/ 2>/dev/null # no output

@@ -71,7 +71,7 @@ Review the error. Common causes:
 - **`unable to map backing store ... hugepages`** — insufficient free 1 GiB hugepages. Check `grep Huge /proc/meminfo`; the reservation may be smaller than the VM requests, or another VM took them.
 - **`cpuset ... not a valid CPU`** — a `<vcpupin>` names a core that does not exist or is offline. Match the pins to `lscpu -e`.
 - **`Network not found: station-bus`** — the libvirt network is not defined/started (step 05/06).
-- **`unable to access ... ssc600-01.img`** — wrong path, or SELinux label. Run `sudo restorecon -v` on the image and confirm ownership (`qemu:qemu`).
+- **`unable to access ... ssc600-01.img`** — wrong path or ownership, or, when SELinux is enabled, the SELinux label. Confirm ownership (`qemu:qemu`); if SELinux is enabled, run `sudo restorecon -v` on the image.
 
 ## cyclictest Max latency is too high
 
