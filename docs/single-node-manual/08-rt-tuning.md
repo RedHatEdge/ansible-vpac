@@ -46,14 +46,20 @@ Keep `isolated_cores` (step 06), the VM's `<vcpupin>`/`<emulatorpin>` (step 10),
 
 ## Relax the RT scheduling throttle
 
-By default the kernel throttles `SCHED_FIFO`/`SCHED_RR` tasks to 95% of each second (`sched_rt_runtime_us=950000`) as a runaway safeguard. A pinned, isolated RT vCPU requires the entire core. Set the runtime to unlimited:
+By default the kernel throttles `SCHED_FIFO`/`SCHED_RR` tasks to 95% of each second (`sched_rt_runtime_us=950000`) as a runaway safeguard. A pinned, isolated RT vCPU requires the entire core. Set the runtime to unlimited. The same file turns off the NMI watchdog, which fires periodic non-maskable interrupts on every core, including the isolated ones (the `realtime-virtual-host` profile also sets it to 0; the values agree):
 
 ```bash
-sudo tee /etc/sysctl.d/99-vpac-rt.conf >/dev/null <<'EOF'
+sudo vi /etc/sysctl.d/99-vpac-rt.conf
+```
+
+```
 # Let SCHED_FIFO RT threads (the guest vCPUs) use 100% of their isolated cores.
 kernel.sched_rt_runtime_us = -1
-EOF
+# No NMI watchdog interrupts on the isolated cores.
+kernel.nmi_watchdog = 0
+```
 
+```bash
 sudo sysctl --system
 ```
 
@@ -84,7 +90,10 @@ sudo systemctl enable --now cpupower
 The SSC600SW host setup partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. `pqos` has no effect if `/sys/fs/resctrl` is not mounted. Mount it persistently with a systemd mount unit:
 
 ```bash
-sudo tee /etc/systemd/system/sys-fs-resctrl.mount >/dev/null <<'EOF'
+sudo vi /etc/systemd/system/sys-fs-resctrl.mount
+```
+
+```ini
 [Unit]
 Description=Mount resctrl for Intel CAT (pqos)
 DefaultDependencies=no
@@ -97,8 +106,9 @@ Type=resctrl
 
 [Install]
 WantedBy=local-fs.target
-EOF
+```
 
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now sys-fs-resctrl.mount
 mount | grep resctrl     # confirm it's mounted
@@ -117,9 +127,8 @@ Isolating the cores is not enough on its own. Two runtime sources can still land
 `irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory. None are useful here. Disable each one that is present (on a minimal install `ksm`/`ksmtuned` may not exist — disable them individually so a missing unit does not abort the others):
 
 ```bash
-for svc in ksm ksmtuned; do
-  sudo systemctl disable --now "$svc" 2>/dev/null || true
-done
+sudo systemctl disable --now ksm
+sudo systemctl disable --now ksmtuned
 
 # irqbalance is MASKED, not just disabled. RHEL ships it enabled, so a package
 # reinstall or `systemctl preset` puts a merely-disabled unit back. Masking
@@ -168,16 +177,17 @@ chose at probe rather than what was configured. Nothing on a protection host use
 the driver and stop it loading as a dependency:
 
 ```bash
-sudo tee /etc/modprobe.d/vpac-no-rdma.conf >/dev/null <<'EOF'
+sudo vi /etc/modprobe.d/vpac-no-rdma.conf
+```
+
+```
 # RDMA is unused on a protection host. While irdma is bound to an ice/i40e
 # port the port refuses channel changes (ethtool -L, tuned netdev_queue_count).
 blacklist irdma
 install irdma /bin/false
-EOF
-sudo dracut -f --regenerate-all      # apply the blacklist from early boot, for every installed kernel
 ```
 
-The change takes effect at the reboot at the end of this step; the verification block below checks it.
+The initramfs rebuild before the reboot (below) carries the blacklist into early boot. The change takes effect at the reboot at the end of this step; the verification block below checks it.
 
 ### A third source — the relay's vhost-net threads — is handled after the VM starts
 
@@ -204,12 +214,6 @@ options kvm_intel nested=1 enable_apicv=n ple_gap=0 ple_window=0
 options vhost_net experimental_zcopytx=1
 ```
 
-Rebuild the initramfs so its copy of `/etc/modprobe.d` matches:
-
-```bash
-sudo dracut -f --regenerate-all
-```
-
 The `kvm_intel` options take effect at the reboot at the end of this step; the verification block below checks them. `vhost_net` loads when the VM starts, so step 12 checks its option. The `realtime-virtual-host` profile also writes `/etc/modprobe.d/kvm.rt.tuned.conf`, which sets `ple_gap=0` as well; the two files agree.
 
 ## Mask desktop powerslider service
@@ -220,6 +224,14 @@ sudo systemctl disable --now tuned-ppd.service
 sudo systemctl mask tuned-ppd.service        # belt-and-suspenders: nothing can re-enable it
 sudo tuned-adm profile vpac-rt-host          # re-pin (sets profile_mode=manual)
 sudo systemctl is-enabled tuned.service      # confirm tuned itself stays enabled
+```
+
+## Rebuild the initramfs
+
+Rebuild the initramfs for every installed kernel, so it carries both modprobe drop-ins from this step (`vpac-no-rdma.conf` and `vpac-kvm.conf`):
+
+```bash
+sudo dracut -f --regenerate-all
 ```
 
 ## Reboot into the tuned kernel
@@ -236,6 +248,7 @@ cat /proc/cmdline                     # isolcpus / nohz_full / hugepages present
 cat /sys/devices/system/cpu/isolated  # the isolated set, e.g. 10-15
 grep Huge /proc/meminfo               # HugePages_Total: 8, HugePages_Free: 8 (1 GiB each)
 sysctl kernel.sched_rt_runtime_us     # -1
+sysctl kernel.nmi_watchdog            # 0
 cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
 tuned-adm active                      # vpac-rt-host
