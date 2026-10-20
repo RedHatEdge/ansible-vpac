@@ -7,6 +7,16 @@ Two requirements:
 1. **PTP runs on the dedicated NIC only** (`ens2f1` from step 05). No other traffic uses that NIC.
 2. **When PTP is the authoritative source, NTP must not compete with it.** Either configure chrony to discipline from the PHC and remove its internet/LAN NTP servers, or run PTP standalone. Two time authorities disciplining the clock simultaneously produce unstable timekeeping.
 
+## The PTP network
+
+The host configuration in this step follows the IEC 61850-9-3 power-utility profile. Confirm the network provides it before configuring the host:
+
+- **Grandmaster:** IEC 61850-9-3 profile — PTP over Ethernet (L2), peer-to-peer delay, domain 0. Domain 0 matches `[ptp_domain 0]` in the timemaster configuration below.
+- **Switches:** every switch between the grandmaster and the host's PTP NIC operates as a peer-to-peer transparent clock for that profile. Peer-delay messages go to the link-local multicast address `01-80-C2-00-00-0E`, which a switch that is not PTP-aware does not forward, so the host cannot measure the path delay through it.
+- **Switch ports:** the PTP ports are untagged (native VLAN). The host runs `ptp4l` directly on the physical PTP NIC with no VLAN interface, so PTP frames must reach it untagged.
+
+If the site's grandmaster runs a different profile (for example UDPv4 with end-to-end delay), the host settings change with it; see the transport note in Option A.
+
 ## Confirm the NIC has a PTP hardware clock
 
 ```bash
