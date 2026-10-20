@@ -94,6 +94,16 @@ sudo nmcli connection modify br-station ipv4.addresses 10.1.0.1/24 ipv4.method m
 sudo nmcli connection up br-station
 ```
 
+The relay starts with its station-bus (rear) port at its factory address, **192.168.2.10/24** (ABB SSC600 Engineering Manual 1.5, "Setting up IP addresses"). Give the bridge a temporary second address in that subnet now, so the host can reach the relay for its first re-addressing in step 11. Step 11 removes it afterwards:
+
+```bash
+sudo nmcli connection modify br-station +ipv4.addresses 192.168.2.100/24
+sudo nmcli device reapply br-station
+ip -br addr show br-station      # the site address and 192.168.2.100/24
+```
+
+If the site's station-bus subnet is itself 192.168.2.0/24, skip this: the bridge's host address already reaches the relay.
+
 > A bridge is used here rather than macvtap because the station bus carries MMS and the relay's web HMI, which the host and PCM600 must reach through the host network. A bridge allows the host, the VM, and the rest of the segment to communicate. The process bus uses a different mechanism (below).
 
 Define a **libvirt network** on the bridge. The VM XML references the network by name (`net-station`), which decouples it from the bridge device name. Create the network definition with an editor:

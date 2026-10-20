@@ -59,11 +59,30 @@ sudo virsh domiflist ssc600-01     # two interfaces: net-station network + macvt
 
 ## Set the relay's station-bus address
 
-The SSC600 ships with a default station-bus IP. Set the site's address through the relay's own interface, via its web HMI, not from RHEL. The host does not configure the guest's IP.
+The SSC600 starts with its station-bus port at its factory address, **192.168.2.10/24** (ABB SSC600 Engineering Manual 1.5, "Setting up IP addresses"); the default credentials are in ABB's documentation. Set the site's address through the relay's own web HMI, not from RHEL. The host does not configure the guest's IP.
 
-1. From the PCM600 workstation (or a browser) on the station bus, reach the relay at its current address. The SSC600 ships with a factory-default station-bus address and default credentials, documented in ABB's SSC600 documentation — consult it for the default values. To reach the relay the first time, temporarily place the PCM600 workstation (or the station-bus bridge address) in the relay's default subnet.
-2. In the SSC600 **web HMI**, set the station-bus (and any service/rear-port) addresses for the site.
+1. Reach the relay at the factory address. With the temporary bridge address from step 05 in place, the host reaches it directly:
+
+   ```bash
+   ping -c3 192.168.2.10
+   ```
+
+   The web HMI is served over HTTPS only. From a workstation that can SSH to the host, forward a local port through the host, then browse to `https://localhost:8443`:
+
+   ```bash
+   ssh -L 8443:192.168.2.10:443 <user>@<host-management-ip>
+   ```
+
+   Alternatively, give the PCM600 workstation a second address in 192.168.2.0/24 on its station-bus NIC.
+2. In the SSC600 **web HMI**, set the station-bus address for the site (and the service port's address, if it is used).
 3. The chosen address must be in the **same subnet as the station-bus bridge** (step 05) but **distinct from the bridge's host address**; the host and the relay must not use the same IP (see step 13).
+4. Remove the temporary bridge address from step 05:
+
+   ```bash
+   sudo nmcli connection modify br-station -ipv4.addresses 192.168.2.100/24
+   sudo nmcli device reapply br-station
+   ip -br addr show br-station      # the site address only
+   ```
 
 Confirm reachability from the host once set:
 
