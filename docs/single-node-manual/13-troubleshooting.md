@@ -145,7 +145,7 @@ free-runs on chrony's last estimate. Service-level checks stay green throughout,
 **Diagnose:**
 
 ```bash
-sudo pmc -u -b 0 'GET PORT_DATA_SET' -i ens2f1 | grep portState   # must be SLAVE
+sudo pmc -u -b 0 -s /var/run/timemaster/ptp4l.0.socket 'GET PORT_DATA_SET' | grep portState   # must be SLAVE (Option B: omit -s)
 chronyc tracking                                                  # Reference ID should be the PTP source
 cat /home/libvirt-local/ptp/ptp_status                            # what the relay is being told
 ```

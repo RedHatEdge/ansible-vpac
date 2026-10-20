@@ -98,7 +98,8 @@ vmstat 1 3        # si and so columns should stay 0
 
 ```bash
 # PTP offset from the grandmaster on the dedicated NIC:
-sudo pmc -u -b 0 'GET CURRENT_DATA_SET' -i ens2f1 | grep offsetFromMaster
+sudo pmc -u -b 0 -s /var/run/timemaster/ptp4l.0.socket 'GET CURRENT_DATA_SET' | grep offsetFromMaster
+# (Option B, ptp4l service: omit -s and its path.)
 # Should be below one microsecond and stable.
 
 # Disciplined system clock (timemaster/chrony path):
