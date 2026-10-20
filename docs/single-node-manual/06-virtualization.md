@@ -218,12 +218,20 @@ Enter this content and save:
 
 ```ini
 [main]
-summary=vPAC RT KVM host: realtime-virtual-host + 1G hugepages
+summary=vPAC RT KVM host: realtime-virtual-host + 1G hugepages + RT sysctls
 include=realtime-virtual-host
 
 [bootloader]
 cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8
+
+[sysctl]
+# Let SCHED_FIFO RT threads (the guest vCPUs) use 100% of their isolated cores.
+kernel.sched_rt_runtime_us = -1
+# No NMI watchdog interrupts on the isolated cores.
+kernel.nmi_watchdog = 0
 ```
+
+Step 08 explains the `[sysctl]` values.
 
 Apply the profile and confirm the boot arguments tuned will set:
 

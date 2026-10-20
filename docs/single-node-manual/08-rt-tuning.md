@@ -46,22 +46,17 @@ Keep `isolated_cores` (step 06), the VM's `<vcpupin>`/`<emulatorpin>` (step 10),
 
 ## Relax the RT scheduling throttle
 
-By default the kernel throttles `SCHED_FIFO`/`SCHED_RR` tasks to 95% of each second (`sched_rt_runtime_us=950000`) as a runaway safeguard. A pinned, isolated RT vCPU requires the entire core. Set the runtime to unlimited. The same file turns off the NMI watchdog, which fires periodic non-maskable interrupts on every core, including the isolated ones (the `realtime-virtual-host` profile also sets it to 0; the values agree):
+By default the kernel throttles `SCHED_FIFO`/`SCHED_RR` tasks to 95% of each second (`sched_rt_runtime_us=950000`) as a runaway safeguard. A pinned, isolated RT vCPU requires the entire core, so the runtime is set to unlimited (`kernel.sched_rt_runtime_us = -1`). The NMI watchdog is turned off as well (`kernel.nmi_watchdog = 0`); it fires periodic non-maskable interrupts on every core, including the isolated ones.
+
+Both values are in the `[sysctl]` section of the `vpac-rt-host` profile (step 06) and agree with what `realtime-virtual-host` already sets. Re-apply the profile and confirm:
 
 ```bash
-sudo vi /etc/sysctl.d/99-vpac-rt.conf
+sudo tuned-adm profile vpac-rt-host
+sysctl kernel.sched_rt_runtime_us     # -1
+sysctl kernel.nmi_watchdog            # 0
 ```
 
-```
-# Let SCHED_FIFO RT threads (the guest vCPUs) use 100% of their isolated cores.
-kernel.sched_rt_runtime_us = -1
-# No NMI watchdog interrupts on the isolated cores.
-kernel.nmi_watchdog = 0
-```
-
-```bash
-sudo sysctl --system
-```
+These values follow the profile: `tuned-adm off` or a switch to another profile reverts them, as it does the isolation arguments. Keep them in the profile only; a second copy in `/etc/sysctl.d/` is applied as well and can drift from it.
 
 ## Pin the CPU frequency governor
 
