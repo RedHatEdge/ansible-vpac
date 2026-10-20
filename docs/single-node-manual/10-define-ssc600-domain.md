@@ -268,6 +268,17 @@ sudo virsh list --all      # ssc600-01 should appear as "shut off"
 
 If `virsh define` rejects the XML, review the error. Common causes are a pin to a nonexistent core, a hugepage size with no matching reservation, or a referenced network or NIC that is not present. Correct the value — which will trace back to an earlier step — and define again.
 
+**Keep the domain's identity from here on.** The XML above has no `<uuid>` and no `<mac address>`; libvirt generates them at this first define. The relay's license (step 11) is requested from the running guest, and ABB's documentation does not list which VM identifiers it binds to. Keep every identifier the guest can see unchanged once the license is requested:
+- Make later changes (pinning, scheduling, memory) with `sudo virsh edit ssc600-01`, which keeps the UUID and MAC addresses.
+- Do not undefine the domain and define it again from `~/ssc600-01.xml`: a fresh define generates a new UUID and new MAC addresses.
+
+Save the defined XML, with its generated identifiers, as the reference copy:
+
+```bash
+sudo virsh dumpxml ssc600-01 > ~/ssc600-01.defined.xml
+grep -E '<uuid>|<mac address' ~/ssc600-01.defined.xml
+```
+
 
 ## Create the Qemu-hook for emulator-pins on isolated cores
 

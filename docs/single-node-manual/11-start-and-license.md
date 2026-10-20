@@ -98,6 +98,8 @@ SSC600 licensing is **per-VM** and is activated **after** the VM is running, usi
 2. Activate the license for this instance per ABB's procedure (the relay's serial/instance identity is what the license binds to).
 3. Complete the protection configuration — settings, SCADA bindings, GOOSE/SV datasets — in PCM600 and the web HMI. This engineering is ABB-specific and customer-specific, and is out of scope for this host-build guide.
 
+Once the license is requested, change the domain only with `sudo virsh edit ssc600-01`, so its UUID and MAC addresses stay as they were (step 10, "Keep the domain's identity").
+
 > The license is stored on the disk. Activation and all in-VM configuration are written into `ssc600-01.img`. Restoring the pristine factory image from step 09 requires repeating activation and configuration. Keep a post-licensing backup of the disk once the relay is configured:
 > ```bash
 > sudo virsh shutdown ssc600-01           # graceful stop (qemu-guest-agent)
