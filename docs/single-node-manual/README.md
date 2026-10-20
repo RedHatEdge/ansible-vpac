@@ -46,7 +46,7 @@ From host tuning onward the procedure is identical on both paths; only how packa
 | # | Step | Purpose |
 |---|------|---------|
 | 01 | [Prerequisites](01-prerequisites.md) | Hardware, BIOS, the four-NIC layout, the ABB bundle, licensing tools |
-| 02 | [Install RHEL](02-install-rhel.md) | Base RHEL 9 install and first boot |
+| 02 | [Install RHEL](02-install-rhel.md) | Base RHEL 9 or 10 install, release differences, first boot |
 | 03 | [Register and enable repos](03-register-and-repos.md) | Subscription, repositories (connected + air-gapped) |
 | 04 | [Host baseline](04-host-baseline.md) | Hostname, packages, SELinux, firewall, base time sync |
 | 05 | [Networking](05-networking.md) | Auto-profile cleanup, station-bus bridge, process-bus reservation, dedicated PTP NIC, libvirt default network removed |

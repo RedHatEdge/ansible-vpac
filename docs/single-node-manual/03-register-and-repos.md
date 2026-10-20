@@ -9,7 +9,7 @@ The host requires four package repositories. Single-node deployments do not requ
 | `rhel-9-for-x86_64-nfv-rpms` | `kernel-rt` — the real-time kernel |
 | `codeready-builder-for-rhel-9-x86_64-rpms` | Supporting build/runtime packages |
 
-> **RHEL 10:** the same four repositories exist for RHEL 10 — substitute `10` for `9` in each label (`rhel-10-for-x86_64-baseos-rpms`, `rhel-10-for-x86_64-appstream-rpms`, `rhel-10-for-x86_64-nfv-rpms`, `codeready-builder-for-rhel-10-x86_64-rpms`), in every command below, and in the air-gapped repo-file `baseurl` paths. This is the only difference between the major versions in this guide.
+> **RHEL 10:** the same four repositories exist for RHEL 10 — substitute `10` for `9` in each label (`rhel-10-for-x86_64-baseos-rpms`, `rhel-10-for-x86_64-appstream-rpms`, `rhel-10-for-x86_64-nfv-rpms`, `codeready-builder-for-rhel-10-x86_64-rpms`), in every command below, and in the air-gapped repo-file `baseurl` paths. The other differences between the major versions are listed in step 02.
 
 ## Before you begin (connected sites)
 

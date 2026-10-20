@@ -207,11 +207,18 @@ isolate_managed_irq=Y
 EOF
 ```
 
-Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`. Custom profiles go under `/etc/tuned/profiles/`, one of the directories in tuned's default `profile_dirs` (shown commented out in `/etc/tuned/tuned-main.conf`). Older tuned releases use `/etc/tuned/<name>/` instead; check `profile_dirs` on the host if the profile is not found.
+Create the `vpac-rt-host` profile. It reads `isolated_cores` from the variables file above, through `realtime-virtual-host`. The directory for custom profiles depends on the tuned release, which follows the RHEL major version: RHEL 10 uses `/etc/tuned/profiles/<name>/`, RHEL 9 uses `/etc/tuned/<name>/`. If tuned does not find the profile, check `profile_dirs` (shown commented out in `/etc/tuned/tuned-main.conf`).
 
 ```bash
+# RHEL 10:
 sudo mkdir -p /etc/tuned/profiles/vpac-rt-host
 sudo vi /etc/tuned/profiles/vpac-rt-host/tuned.conf
+```
+
+```bash
+# RHEL 9:
+sudo mkdir -p /etc/tuned/vpac-rt-host
+sudo vi /etc/tuned/vpac-rt-host/tuned.conf
 ```
 
 Enter this content and save:
@@ -252,10 +259,10 @@ The SSC600SW backs its memory with **1 GiB hugepages**, locked so it does not sw
 
 1 GiB hugepages must be reserved at boot via the kernel command line; runtime allocation of 1 GiB pages is unreliable once memory is fragmented. The `cmdline_vpac` line of the `vpac-rt-host` profile (above) carries the reservation: `default_hugepagesz=1G hugepagesz=1G hugepages=8` reserves eight 1 GiB pages and makes 1 GiB the default huge page size. Do not also add these arguments with `grubby`.
 
-To change the number of pages, edit `hugepages=` on the `cmdline_vpac` line in `/etc/tuned/profiles/vpac-rt-host/tuned.conf`, re-apply the profile, and reboot:
+To change the number of pages, edit `hugepages=` on the `cmdline_vpac` line in the profile's `tuned.conf`, re-apply the profile, and reboot:
 
 ```bash
-sudo vi /etc/tuned/profiles/vpac-rt-host/tuned.conf
+sudo vi /etc/tuned/profiles/vpac-rt-host/tuned.conf   # RHEL 9: /etc/tuned/vpac-rt-host/tuned.conf
 sudo tuned-adm profile vpac-rt-host
 sudo reboot
 ```

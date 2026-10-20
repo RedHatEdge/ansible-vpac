@@ -60,25 +60,22 @@ These values follow the profile: `tuned-adm off` or a switch to another profile 
 
 ## Pin the CPU frequency governor
 
-In case CPU throtteling via the OS is disabled on BIOS-level, you may skip this part. Check via:
-```bash
-cpupower frequency-info --governors
-```
-
-If the command does not show any available options, throtteling is disabled and you may continue with the next step.
-
-The `realtime-virtual-host` profile sets the governor to `performance` on each boot. To set and persist it explicitly as well, configure the `cpupower` service. Enabling the service alone applies whatever is in `/etc/sysconfig/cpupower`, whose default is not `performance`, so set it there first:
+If the BIOS controls CPU frequency, the OS has no governor to set and this section does not apply. Check:
 
 ```bash
 sudo dnf -y install kernel-tools     # provides cpupower, if not already present
-
-# Apply immediately:
-sudo cpupower frequency-set -g performance
-
-# Persist across reboots via the cpupower service:
-echo 'GOVERNOR=performance' | sudo tee /etc/sysconfig/cpupower
-sudo systemctl enable --now cpupower
+cpupower frequency-info --governors
 ```
+
+If the command lists no governors, the BIOS owns frequency control; continue with the next section.
+
+The `vpac-rt-host` profile sets the governor to `performance` at every boot, on RHEL 9 and RHEL 10 (inherited from `latency-performance` through `realtime-virtual-host`). Confirm it:
+
+```bash
+cpupower frequency-info | grep -i governor   # The governor "performance"
+```
+
+> **RHEL 9 vs RHEL 10.** RHEL 9's `kernel-tools` also ships a `cpupower.service`; its default `/etc/sysconfig/cpupower` already selects `performance` (`CPUPOWER_START_OPTS="frequency-set -g performance"`). RHEL 10's `kernel-tools` has no such service, and no RHEL 10 package provides one. The tuned profile is the persistence on both releases, so this guide does not use the service. If you enable it on RHEL 9 anyway, leave `/etc/sysconfig/cpupower` at its default: the service reads only `CPUPOWER_START_OPTS`.
 
 ## Mount the cache controller (resctrl)
 
@@ -119,11 +116,15 @@ Isolating the cores is not enough on its own. Two runtime sources can still land
 
 ### Disable services that periodically wake every CPU
 
-`irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory. None are useful here. Disable each one that is present (on a minimal install `ksm`/`ksmtuned` may not exist — disable them individually so a missing unit does not abort the others):
+`irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory to merge identical pages. None are useful here.
+
+`ksm`/`ksmtuned` exist only if the optional `ksmtuned` package is installed; it is not installed by default on RHEL 9 or RHEL 10. The tuned profile stops KSM either way (`/sys/kernel/mm/ksm/run` reads `2`). If the units are present, disable them:
 
 ```bash
+systemctl list-unit-files ksm.service ksmtuned.service   # "0 unit files listed": skip the next two commands
 sudo systemctl disable --now ksm
 sudo systemctl disable --now ksmtuned
+cat /sys/kernel/mm/ksm/run            # 2
 
 # irqbalance is MASKED, not just disabled. RHEL ships it enabled, so a package
 # reinstall or `systemctl preset` puts a merely-disabled unit back. Masking

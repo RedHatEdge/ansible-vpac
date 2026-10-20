@@ -1,6 +1,22 @@
 # 02 — Install RHEL
 
-Install **RHEL 9.7 or later** — or **RHEL 10.2 or later**, on which this guide has been verified end-to-end in the field. Any installation method works — interactive ISO, kickstart, or PXE. The procedure is identical on both major versions; only the repository labels differ (step 03 carries the substitution). Host tuning occurs in the later steps; a few installation choices simplify them.
+Install **RHEL 9.7 or later** — or **RHEL 10.2 or later**, on which this guide has been verified end-to-end in the field. Any installation method works — interactive ISO, kickstart, or PXE. The procedure is the same on both major versions except in the places listed below. Host tuning occurs in the later steps; a few installation choices simplify them.
+
+## RHEL 9 and RHEL 10
+
+The procedure differs between the major versions only in these places; each step repeats its own note:
+
+| Where | RHEL 9 | RHEL 10 |
+|---|---|---|
+| Step 03 — repository labels | `rhel-9-for-x86_64-*`, `codeready-builder-for-rhel-9-*` | `rhel-10-for-x86_64-*`, `codeready-builder-for-rhel-10-*` |
+| Step 06 — custom tuned profile directory | `/etc/tuned/vpac-rt-host/` | `/etc/tuned/profiles/vpac-rt-host/` |
+| Step 08 — `cpupower.service` | shipped in `kernel-tools`; not used by this guide | not shipped |
+
+These are the same on both releases and need no per-release handling:
+- SELinux is disabled with the `selinux=0` kernel argument (step 04).
+- libvirt runs as modular daemons (step 06).
+- `linuxptp` is 4.x, which sends PTP v2.1 by default, hence `ptp_minor_version 0` (step 07).
+- `ksm`/`ksmtuned` come only from the optional `ksmtuned` package (step 08).
 
 ## Base environment
 
