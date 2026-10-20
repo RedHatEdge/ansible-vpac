@@ -30,8 +30,13 @@ Edit `/etc/timemaster.conf`. Point the PTP domain at the dedicated NIC and defin
 [ptp_domain 0]
 interfaces ens2f1
 
+# use_vclocks 0 — run ptp4l on the NIC's physical hardware clock. timemaster
+#   can otherwise run ptp4l on a virtual clock layered over the PHC; the
+#   physical PHC is then not disciplined, and the process-bus PHC sync
+#   below would copy from an undisciplined clock.
 [timemaster]
 ntp_program chronyd
+use_vclocks 0
 
 # ptp4l options for the host clock.
 # clientOnly       — discipline from the grandmaster, never act as a server.
@@ -50,6 +55,11 @@ ntp_program chronyd
 # tx_timestamp_timeout 10 — wait up to 10 ms for the NIC's transmit
 #   timestamp. Intel NICs (i40e/ice) can exceed the 1 ms default under
 #   load, which faults the PTP port.
+# ptp_minor_version 0 — send PTP v2.0. linuxptp 4.x sends v2.1 by default,
+#   and some NICs (Intel X710/i40e among them) do not hardware-timestamp
+#   received v2.1 frames. With peer-to-peer delay the transparent clock
+#   answers in the version the host sent, so the delay measurement fails
+#   and ptp4l logs "received PDELAY_RESP without timestamp" (see step 13).
 [ptp4l.conf]
 clientOnly 1
 network_transport L2
@@ -59,12 +69,13 @@ logSyncInterval 0
 logMinPdelayReqInterval 0
 step_threshold 0.1
 tx_timestamp_timeout 10
+ptp_minor_version 0
 
 # Do NOT add any [ntp_server <address>] sections. Their absence is what makes
 # PTP the only time source; add one only if site policy requires a fallback.
 ```
 
-timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. It also includes `/etc/chrony.conf`: the package default `timemaster.conf` carries an `include /etc/chrony.conf` line under `[chrony.conf]`, and the default `/etc/chrony.conf` defines an NTP `pool`. Left as installed, that pool stays a second time source beside PTP. The default file also has a `sourcedir /run/chrony-dhcp` line, which loads NTP servers handed out by DHCP on any DHCP-configured interface. Comment out every `pool`, `server`, `peer` and `sourcedir` line in `/etc/chrony.conf` (prefix them with `#`); keep the rest of the file, which timemaster still uses:
+timemaster generates chrony's configuration from these sections, using the PTP domain as the reference clock. It also includes `/etc/chrony.conf`: the package default `timemaster.conf` carries an `include /etc/chrony.conf` line under `[chrony.conf]`. The default `/etc/chrony.conf` on RHEL has two source lines. `pool 2.rhel.pool.ntp.org iburst` defines an NTP pool; left as installed, that pool stays a second time source beside PTP. `sourcedir /run/chrony-dhcp` loads NTP servers handed out by DHCP on any DHCP-configured interface. Comment out every `pool`, `server`, `peer` and `sourcedir` line in `/etc/chrony.conf` (prefix them with `#`); keep the rest of the file, which timemaster still uses:
 
 ```bash
 sudo vi /etc/chrony.conf
@@ -119,7 +130,7 @@ EOF
 sudo systemctl enable --now phc2sys
 ```
 
-With this option, put the same settings in the `[global]` section of `/etc/ptp4l.conf`: `network_transport L2`, `delay_mechanism P2P`, `logAnnounceInterval 0`, `logSyncInterval 0`, `logMinPdelayReqInterval 0`, `step_threshold 0.1`, `tx_timestamp_timeout 10` — or the UDPv4/E2E branch, per the grandmaster (see Option A).
+With this option, put the same settings in the `[global]` section of `/etc/ptp4l.conf`: `network_transport L2`, `delay_mechanism P2P`, `logAnnounceInterval 0`, `logSyncInterval 0`, `logMinPdelayReqInterval 0`, `step_threshold 0.1`, `tx_timestamp_timeout 10`, `ptp_minor_version 0` — or the UDPv4/E2E branch, per the grandmaster (see Option A).
 
 Remove NTP sources from chrony so it does not pull against `phc2sys`. Either stop chronyd entirely, or comment out every `server`/`pool` line in `/etc/chrony.conf` and leave chrony only as a local clock holder.
 
@@ -154,8 +165,10 @@ This applies to both Option A and Option B. With two process-bus ports (the PRP 
 Wait approximately one minute, then check the offset to the grandmaster:
 
 ```bash
-# With timemaster/ptp4l running:
-sudo pmc -u -b 0 'GET CURRENT_DATA_SET' -i ens2f1
+# Option A — timemaster's ptp4l listens on its own socket:
+sudo pmc -u -b 0 -s /var/run/timemaster/ptp4l.0.socket 'GET CURRENT_DATA_SET'
+# Option B — the ptp4l service uses the default socket:
+sudo pmc -u -b 0 'GET CURRENT_DATA_SET'
 # Look at offsetFromMaster — should converge toward 0 (nanoseconds)
 
 # System clock discipline:

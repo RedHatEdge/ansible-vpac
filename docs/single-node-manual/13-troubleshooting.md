@@ -26,6 +26,17 @@ sudo ethtool ens2f1        # Link detected: yes
 
 If timestamping is software-only or the PHC is missing, move PTP to a NIC with a hardware PHC. If the link is down or on the wrong segment, correct the cabling/VLAN.
 
+## ptp4l logs `received PDELAY_RESP without timestamp` and never locks
+
+**Cause:** a PTP version mismatch on the peer-delay exchange. linuxptp 4.x sends PTP v2.1 by default. With peer-to-peer delay the transparent clock answers in the version the host sent, and some NICs (Intel X710/i40e among them) do not hardware-timestamp received v2.1 frames. ptp4l cannot measure the path delay, and chrony's PTP source stays unreachable (`Reach 0` in `chronyc sources`).
+
+**Fix:** send PTP v2.0. Add `ptp_minor_version 0` to the `[ptp4l.conf]` section of `/etc/timemaster.conf` (Option B: the `[global]` section of `/etc/ptp4l.conf`), then restart:
+
+```bash
+sudo systemctl restart timemaster     # or ptp4l on the Option B path
+chronyc sources                       # Option A — the PTP source selected: #*
+```
+
 ## The host and relay share an IP address
 
 **Cause:** the station-bus bridge was assigned the same IP as the SSC600 appliance. The host answers ARP for the relay's address, and the relay becomes unreachable.
