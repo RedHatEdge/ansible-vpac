@@ -52,7 +52,7 @@ From host tuning onward the procedure is identical on both paths; only how packa
 | 05 | [Networking](05-networking.md) | Auto-profile cleanup, station-bus bridge, process-bus reservation, dedicated PTP NIC, libvirt default network removed |
 | 06 | [Virtualization](06-virtualization.md) | libvirt/KVM, `vpac-rt-host` TuneD profile (real-time + 1 GiB hugepages), isolated CPUs |
 | 07 | [Time synchronization (PTP)](07-time-sync-ptp.md) | ptp4l on the dedicated NIC, phc2sys, drop NTP |
-| 08 | [Real-time tuning](08-rt-tuning.md) | Kernel cmdline, scheduler, governor, L3 cache, disable jitter services, pin NIC IRQs |
+| 08 | [Real-time tuning](08-rt-tuning.md) | Kernel cmdline, scheduler, governor, L3 cache, disable jitter services, pin NIC IRQs, KVM module options |
 | 09 | [Prepare the SSC600 bundle](09-prepare-ssc600-bundle.md) | Extract the disk image, host setup script, PTP share |
 | 10 | [Define the SSC600 domain](10-define-ssc600-domain.md) | The annotated libvirt XML |
 | 11 | [Start and license](11-start-and-license.md) | Boot the VM, pin vhost-net threads, autostart, web HMI, PCM600 activation |

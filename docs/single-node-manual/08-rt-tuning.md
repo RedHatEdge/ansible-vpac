@@ -183,6 +183,35 @@ The change takes effect at the reboot at the end of this step; the verification 
 
 The relay's `vhost-net` kernel threads (which move network traffic between host and guest) only exist once the VM is running, and left alone they run at `SCHED_OTHER` on whatever core is free, stealing jitter even though the vCPUs are pinned. Pinning them to the emulator cores is part of bringing the VM up — see [11 — Start and license](11-start-and-license.md).
 
+## Set the KVM and vhost-net module options
+
+These are the module options the `virtualization` role applies on Intel hosts:
+
+- `ple_gap=0 ple_window=0` turn off Pause-Loop Exiting. PLE makes a vCPU that spin-waits exit to the host so another vCPU can run. Each RT vCPU has a dedicated core, so the exit only adds latency. Both values must be 0.
+- `enable_apicv=n` turns off APIC virtualization.
+- `nested=1` allows nested virtualization.
+- `experimental_zcopytx=1` enables zero-copy transmit in `vhost-net`.
+
+Create the drop-in:
+
+```bash
+sudo vi /etc/modprobe.d/vpac-kvm.conf
+```
+
+```
+# KVM and vhost-net options for the relay VM (Intel hosts).
+options kvm_intel nested=1 enable_apicv=n ple_gap=0 ple_window=0
+options vhost_net experimental_zcopytx=1
+```
+
+Rebuild the initramfs so its copy of `/etc/modprobe.d` matches:
+
+```bash
+sudo dracut -f --regenerate-all
+```
+
+The `kvm_intel` options take effect at the reboot at the end of this step; the verification block below checks them. `vhost_net` loads when the VM starts, so step 12 checks its option. The `realtime-virtual-host` profile also writes `/etc/modprobe.d/kvm.rt.tuned.conf`, which sets `ple_gap=0` as well; the two files agree.
+
 ## Mask desktop powerslider service
 
 When RHEL has a GUI installed (e.g. via the default installation), there is an additional desktop power-slider service which interferes with tuneD. Disable it as follows in case a GUI package is installed:
@@ -215,6 +244,7 @@ sysctl net.ipv4.ip_forward            # 0 (libvirt default network removed in st
 systemctl is-active irqbalance        # inactive (disabled above)
 lsmod | grep -w irdma                 # no output — RDMA driver not bound
 ls /sys/class/infiniband/ 2>/dev/null # no output
+grep -H . /sys/module/kvm_intel/parameters/{nested,enable_apicv,ple_gap,ple_window}   # Y, N, 0, 0
 # no process-bus NIC IRQ on an isolated core — effective affinity must be in 0-9:
 for irq in $(grep -E 'ens2f0|ens2f1' /proc/interrupts | awk -F: '{print $1}'); do
   echo "irq$irq -> $(cat /proc/irq/$irq/effective_affinity_list)"

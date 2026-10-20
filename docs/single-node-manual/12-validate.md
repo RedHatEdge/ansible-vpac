@@ -12,6 +12,8 @@ cat /sys/devices/system/cpu/isolated       # the isolated set, e.g. 10-15
 tuned-adm active                           # vpac-rt-host
 cat /proc/cmdline | tr ' ' '\n' | grep -E 'isolcpus|nohz_full|rcu_nocbs|hugepages'
 cat /sys/kernel/debug/sched/rt_runtime_us 2>/dev/null || sysctl kernel.sched_rt_runtime_us  # -1
+grep -H . /sys/module/kvm_intel/parameters/{nested,enable_apicv,ple_gap,ple_window}   # Y, N, 0, 0 (step 08)
+cat /sys/module/vhost_net/parameters/experimental_zcopytx                            # 1 (step 08)
 ```
 
 All six isolated cores (`10-15` in the example) should be absent from the general scheduler.
