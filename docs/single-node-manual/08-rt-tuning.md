@@ -25,7 +25,7 @@ Do **not** add these arguments again with `grubby`. A second copy produces a dup
 The same profile carries the **1 GiB hugepage reservation** (its `cmdline_vpac` line, step 06), so tuned manages it too. Confirm the arguments tuned will apply:
 
 ```bash
-sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs, hugepages=8 and rdt=
+sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs, hugepages=8 and rdt=l3cat
 ```
 
 A host that already received the hugepage arguments through `grubby` carries a second copy of them. Remove that copy, so tuned's is the only one:
@@ -41,7 +41,7 @@ For reference, the arguments the profile applies:
 - **`skew_tick=1`** — desynchronizes per-CPU timer ticks so they do not fire simultaneously and cause a latency spike.
 - **`intel_pstate=disable`** — assigns frequency control to a fixed governor instead of the firmware's P-state driver.
 - **`default_hugepagesz=1G hugepagesz=1G hugepages=8`** — the 1 GiB hugepage reservation for the guest, from the profile's own `cmdline_vpac` line.
-- **`rdt=cmt,l3cat,l3cdp,mba`** — turns on the kernel's cache-allocation features, so ABB's setup service (step 09) can give the relay its own L3 partition. Also from `cmdline_vpac`.
+- **`rdt=l3cat`** — turns on L3 cache allocation, which the kernel leaves off by default on Skylake-SP and Cascade Lake Xeons (family 6, model 85), so ABB's setup service (step 09) can give the relay its own L3 partition. Also from `cmdline_vpac`.
 
 Keep `isolated_cores` (step 06), the VM's `<vcpupin>`/`<emulatorpin>` (step 10), and the `cyclictest` range (step 12) in agreement. A mismatch causes a VM that boots but does not meet latency targets.
 
@@ -80,7 +80,7 @@ cpupower frequency-info | grep -i governor   # The governor "performance"
 
 ## Mount the cache controller (resctrl)
 
-ABB's host setup service (step 09) partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. It needs `/sys/fs/resctrl` mounted and L3 cache allocation turned on in the kernel (`rdt=`, step 06). Mount it persistently with a systemd mount unit:
+ABB's host setup service (step 09) partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. It needs `/sys/fs/resctrl` mounted and L3 cache allocation turned on in the kernel (`rdt=l3cat`, step 06). Mount it persistently with a systemd mount unit:
 
 ```bash
 sudo vi /etc/systemd/system/sys-fs-resctrl.mount
@@ -234,7 +234,8 @@ sysctl kernel.sched_rt_runtime_us     # -1
 sysctl kernel.nmi_watchdog            # 0
 cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
-ls /sys/fs/resctrl/info/              # includes L3 — L3 cache allocation is on (rdt=, step 06)
+ls /sys/fs/resctrl/info/              # includes L3 — L3 cache allocation is on (rdt=l3cat, step 06);
+                                      # mounted without L3 means allocation is still off
 cat /sys/fs/resctrl/info/L3/cbm_mask  # the L3 ways, for the step 09 cache masks
 tuned-adm active                      # vpac-rt-host
 getenforce                            # Disabled (step 04)

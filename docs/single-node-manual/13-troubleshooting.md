@@ -164,7 +164,7 @@ driver, including kernel and firmware updates.
 ABB's setup script stops at the first error from the cache partition onwards, so one cause leaves both the cache partition and the process-bus IRQ placement undone.
 
 **Causes, in order of likelihood:**
-1. **L3 cache allocation is off in the kernel.** `/sys/fs/resctrl/info/` has no `L3` directory, even though the CPU flags include `cat_l3`. The `rdt=` argument is missing from the kernel command line (step 06 profile, step 08 check).
+1. **L3 cache allocation is off in the kernel.** `/sys/fs/resctrl/info/` has no `L3` directory, even though the CPU flags include `cat_l3`, and `pqos -d` lists only memory bandwidth allocation. The kernel turns L3 cache allocation off by default on Skylake-SP and Cascade Lake Xeons (family 6, model 85); `rdt=l3cat` is missing from the kernel command line (step 06 profile, step 08 check).
 2. **A cache mask does not fit the CPU.** `RT_CACHE` or `NON_RT_CACHE` sets a bit outside `/sys/fs/resctrl/info/L3/cbm_mask`.
 3. **`/sys/fs/resctrl` is not mounted**, or the drop-in's `Requires=sys-fs-resctrl.mount` is missing (step 09).
 

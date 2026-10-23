@@ -229,9 +229,9 @@ summary=vPAC RT KVM host: realtime-virtual-host + 1G hugepages + RT sysctls
 include=realtime-virtual-host
 
 [bootloader]
-# 1 GiB hugepages for the relay's memory, and the kernel's cache-allocation
-# features for the relay's L3 partition (step 09).
-cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8 rdt=cmt,l3cat,l3cdp,mba
+# 1 GiB hugepages for the relay's memory, and L3 cache allocation for the
+# relay's cache partition (step 09).
+cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8 rdt=l3cat
 
 [sysctl]
 # Let SCHED_FIFO RT threads (the guest vCPUs) use 100% of their isolated cores.
@@ -240,7 +240,16 @@ kernel.sched_rt_runtime_us = -1
 kernel.nmi_watchdog = 0
 ```
 
-Step 08 explains the `[sysctl]` values. `rdt=` turns on the kernel's cache-allocation features. The kernel can leave L3 cache allocation off unless `rdt=` requests it, even on a CPU that supports it, and ABB's setup service (step 09) cannot partition the cache without it. Step 08 checks the result after the reboot.
+Step 08 explains the `[sysctl]` values.
+
+`rdt=l3cat` turns on L3 cache allocation, which ABB's setup service (step 09) needs to partition the cache. On Intel Xeon Scalable CPUs of family 6, model 85 (Skylake-SP and Cascade Lake), the kernel turns L3 cache allocation off by default even though the CPU supports it, and `rdt=l3cat` turns it back on. On other CPUs the argument changes nothing, so keep it in the profile on every host. To see which CPU you have:
+
+```bash
+lscpu | grep -E '^(CPU family|Model):'     # CPU family: 6 and Model: 85 = Skylake-SP / Cascade Lake
+grep -o -w -m1 cat_l3 /proc/cpuinfo        # cat_l3: the CPU supports L3 cache allocation
+```
+
+Step 08 checks the result after the reboot.
 
 Apply the profile and confirm the boot arguments tuned will set:
 
@@ -248,7 +257,7 @@ Apply the profile and confirm the boot arguments tuned will set:
 tuned-adm list | grep vpac-rt-host                # tuned finds the profile
 sudo tuned-adm profile vpac-rt-host
 tuned-adm active                                  # Current active profile: vpac-rt-host
-sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs, hugepages=8 and rdt= together
+sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs, hugepages=8 and rdt=l3cat together
 ```
 
 > Record the `isolated_cores` value. It is reused three times: the VM's `<vcpupin>`/`<emulatorpin>` (step 10), the L3 cache partitioning (step 09), and the validation checks (step 12). All three must agree.
