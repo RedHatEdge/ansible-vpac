@@ -147,7 +147,7 @@ free-runs on chrony's last estimate. Service-level checks stay green throughout,
 ```bash
 sudo pmc -u -b 0 -s /var/run/timemaster/ptp4l.0.socket 'GET PORT_DATA_SET' | grep portState   # must be SLAVE (Option B: omit -s)
 chronyc tracking                                                  # Reference ID should be the PTP source
-cat /home/libvirt-local/ptp/ptp_status                            # what the relay is being told
+cat /var/lib/libvirt/images/ptp/ptp_status                        # what the relay is being told (PTP_STATUS_FOLDER, step 09)
 ```
 
 **Fix:** restart the PTP stack and re-verify lock (step 07, "Verify lock"):
@@ -159,20 +159,28 @@ sudo systemctl restart timemaster      # or ptp4l + phc2sys on the Option B path
 Add the `portState` check to the routine after **any** maintenance that touches the PTP NIC or its
 driver, including kernel and firmware updates.
 
-## `pqos` reports nothing / cache partition has no effect
+## `ssc600-startup.service` failed / no cache partition / process-bus IRQs not placed
 
-**Cause:** `/sys/fs/resctrl` is not mounted. `pqos -e`/`-a` have no effect without it.
+ABB's setup script stops at the first error from the cache partition onwards, so one cause leaves both the cache partition and the process-bus IRQ placement undone.
 
-**Fix:** confirm the mount and the setup service:
+**Causes, in order of likelihood:**
+1. **L3 cache allocation is off in the kernel.** `/sys/fs/resctrl/info/` has no `L3` directory, even though the CPU flags include `cat_l3`. The `rdt=` argument is missing from the kernel command line (step 06 profile, step 08 check).
+2. **A cache mask does not fit the CPU.** `RT_CACHE` or `NON_RT_CACHE` sets a bit outside `/sys/fs/resctrl/info/L3/cbm_mask`.
+3. **`/sys/fs/resctrl` is not mounted**, or the drop-in's `Requires=sys-fs-resctrl.mount` is missing (step 09).
+
+**Diagnose:**
 
 ```bash
+systemctl status ssc600-startup.service --no-pager
+journalctl -u ssc600-startup.service -b --no-pager | tail -40   # the last command run is the one that failed
 mount | grep resctrl                        # must be mounted (step 08)
-sudo systemctl status sys-fs-resctrl.mount
-sudo systemctl status vpac-ssc600-setup.service
-sudo pqos -s                                # the RT cache class should be present
+ls /sys/fs/resctrl/info/                    # must include L3
+cat /sys/fs/resctrl/info/L3/cbm_mask        # both cache masks must fit inside this
+grep -o -w cat_l3 /proc/cpuinfo | head -1   # the CPU supports L3 cache allocation
+systemctl cat ssc600-startup.service        # the drop-in values in effect
 ```
 
-On CPUs without Intel CAT, this is expected: cache partitioning is unavailable and the relay shares L3. This is acceptable and not a failure.
+**Fix:** correct the cause, then `sudo systemctl restart ssc600-startup.service` (no reboot needed, except for a kernel command-line change). A CPU without `cat_l3` cannot run ABB's cache partition.
 
 ## Random spikes / stray multicast on a host installed "Server with GUI"
 

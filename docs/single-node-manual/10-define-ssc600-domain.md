@@ -18,8 +18,8 @@ This is the **single-node** domain: a **local file-backed disk** (no Ceph RBD), 
 | `memory` `8` | Guest RAM in GiB | A whole number of 1 GiB hugepages reserved in step 06/08 |
 | disk `source file` | Where the image was placed (step 09) | The actual path |
 | `source network='net-station'` | The libvirt network name | Step 05 |
-| `source dev='ens2f0'` | The process-bus NIC | Step 05 |
-| `source dir` (virtiofs) | Host PTP-status dir | Step 09 |
+| `source dev='ens2f0'` | The process-bus NIC's **interface name**, as `ip -br link` shows it — not the NetworkManager connection name (`eth-process-…`) from step 05. Interface names are at most 15 characters; a longer name fails at `virsh start` with `invalid interface name`. | Step 05 |
+| `source dir` (virtiofs) | Host PTP-status dir (`PTP_STATUS_FOLDER`) | Step 09 |
 
 ## The XML
 
@@ -208,13 +208,14 @@ Save as `~/ssc600-01.xml`:
       <backend model='random'>/dev/urandom</backend>
     </rng>
 
-    <!-- virtiofs PTP-status share. The vendor's ptp_status service (step 09)
-         writes the relay's status file into /home/libvirt-local/ptp; the
-         guest mounts it via the 'ptp' tag and reads host time status.
+    <!-- virtiofs PTP-status share. ABB's ptp_status service (step 09)
+         writes the relay's status file into its PTP_STATUS_FOLDER
+         (/var/lib/libvirt/images/ptp in SSC600 SW 1.5.1); the guest mounts
+         it via the 'ptp' tag and reads host time status.
          Requires the <access mode='shared'/> set in memoryBacking above. -->
     <filesystem type='mount' accessmode='passthrough'>
       <driver type='virtiofs'/>
-      <source dir='/home/libvirt-local/ptp'/>
+      <source dir='/var/lib/libvirt/images/ptp'/>
       <target dir='ptp'/>
     </filesystem>
 
@@ -243,7 +244,7 @@ diagnose which counter first — it points at the cause — then work down the m
 
 1. **Use `mode='bridge'`, not `mode='vepa'`.** VEPA forces all guest frames out to the adjacent switch and depends on it doing reflective relay (802.1Qbg hairpin); most switches don't, which drops frames. The XML above already specifies bridge mode.
 2. **Keep NIC IRQs and vhost-net threads off the isolated cores.** If either lands on an isolated core you get RX drops and RT jitter from the same cause — verify per step 12.
-3. **Raise the NIC ring buffers** on the host: `sudo ethtool -G <nic> rx 4096`. (A ring/queue change re-spreads the NIC's managed IRQs — re-run the IRQ pinning afterward; see steps 08/09.)
+3. **Raise the NIC ring buffers** on the host: `sudo ethtool -G <nic> rx 4096`. (A ring/queue change re-spreads the NIC's IRQs — re-apply the placement afterwards with `sudo systemctl restart ssc600-startup.service`; see step 09.)
 4. **Virtio multiqueue** — `<driver name='vhost' queues='N'/>` on the interface (N up to the vCPU count) — only if the guest supports it: inside the VM, `ethtool -l` on the process-bus interface must show a `Combined` maximum above 1, or the host-side change does nothing. Applying it costs a relay restart, so confirm the guest's capability first. Each extra queue adds a vhost thread that must fit on the emulator cores (step 11).
 
 Diagnose which counter is incrementing first — it points at the cause:
@@ -280,12 +281,13 @@ grep -E '<uuid>|<mac address' ~/ssc600-01.defined.xml
 ```
 
 
-## Create the Qemu-hook for emulator-pins on isolated cores
+## Install ABB's qemu hook
 
-libvirt executes only the single script at `/etc/libvirt/hooks/qemu`, so writing this file replaces
-anything already at that path. If the host already carries a hook supplied with the workload, that
-hook may set the CPU affinity or scheduling policy its guest depends on. Check before overwriting,
-and reproduce any such behaviour in the script below.
+ABB's `qemu.hook` (step 09) runs when the relay VM starts. It acts only on domains whose name contains `ssc600`. It waits for the VM's QEMU process, then moves the VM's vhost-net threads and its `kvm-pit` thread onto the cores of the QEMU process (the `<emulatorpin>` set) at real-time priority 1.
+
+libvirt executes only the single script at `/etc/libvirt/hooks/qemu`, so installing this file replaces
+anything already at that path. If the host already carries a hook supplied with another workload, that
+hook may set the CPU affinity or scheduling policy its guest depends on. Check before overwriting.
 
 First, detect any hook already at that path and preserve it. Run this on its own before continuing.
 
@@ -305,89 +307,31 @@ If that printed nothing, no hook is present, or the one present does no scheduli
 Continue.
 
 If it printed any lines, a hook is already installed and it sets CPU affinity or scheduling policy
-for a guest. Reproduce that behaviour in the script below before continuing — libvirt runs only this
-one file, so writing it removes what is there now. There are two exceptions: a hook carrying the
-`#libvirt qemu hook script for ssc600` header used below is this step from an earlier run, and one
-carrying `# Managed by ansible-vpac` was written by the `virtualization` role. Replacing either is
-expected.
+for a guest. Merge that behaviour into the installed hook before continuing — libvirt runs only this
+one file. There are two exceptions: a hook carrying the `#libvirt qemu hook script for ssc600`
+header is ABB's hook from an earlier run of this step, and one carrying `# Managed by ansible-vpac`
+was written by the `virtualization` role. Replacing either is expected.
 
-Then write the hook.
+Install ABB's hook with one change, `pidof -w`:
 
 ```bash
-sudo tee /etc/libvirt/hooks/qemu >/dev/null <<'EOF'
-#!/bin/env bash
-#libvirt qemu hook script for ssc600
-set -e
-set -x
-
-vm_name=$1
-vm_action=$2
-
-echo "qemu hook: name=${vm_name} action=${vm_action}"
-
-if ! [[ $vm_name == *ssc600* ]]; then
-    exit 0
-fi
-
-count=0
-
-case $vm_action in
-    started)
-        # A VM start (re)creates the macvtap and can re-spread the NIC's
-        # kernel-managed IRQs across all CPUs (see step 08). Re-assert the
-        # cache partition + NIC IRQ affinity before pinning the VM threads:
-        systemctl restart vpac-ssc600-setup.service || true
-
-        while [ -z "$qemu_pid" ]
-        do
-            sleep 1
-            qemu_pid=$(ps axo pid,command | grep [q]emu- | grep $vm_name | awk '{print $1}')
-            count=$((count+1))
-            if [ $count -gt 10 ]; then
-                echo "No qemu process found"
-                exit 1
-            fi
-        done
-        count=0
-        if [ -n "$qemu_pid" ]; then
-            while [ -z "$vnet_pids" ]
-            do
-                sleep 1
-                vnet_pids=$(pidof -w vhost-$qemu_pid || echo "")
-                count=$((count+1))
-                if [ $count -gt 10 ]; then
-                    echo "no vhost-$qemu_pid processes found"
-                    exit 1
-                fi
-            done
-            echo "qemu $qemu_pid, vhost $vnet_pids"
-            affinity=$(taskset -p $qemu_pid | cut -d':' -f2)
-            #cut out leading blank space
-            affinity=${affinity:1}
-            for pid in $vnet_pids
-            do
-                taskset -p $affinity $pid
-                chrt -p 1 $pid
-            done
-            if [ -n "$(pgrep kvm-pit/$qemu_pid)" ]; then
-                kppid=$(pgrep kvm-pit/$qemu_pid)
-                taskset -p $affinity $kppid
-                chrt -p 1 $kppid
-            fi
-        fi
-        ;;
-    default)
-        ;;
-esac
-
-exit 0
-EOF
-# fix permissions
+sudo cp ~/ssc600-stage/virtual_products/qemu.hook /etc/libvirt/hooks/qemu
 sudo chmod +x /etc/libvirt/hooks/qemu
 
+# Find the vhost threads with pidof -w:
+sudo sed -i 's/pidof vhost-/pidof -w vhost-/' /etc/libvirt/hooks/qemu
+grep -n 'pidof' /etc/libvirt/hooks/qemu       # pidof -w vhost-$qemu_pid
+
+# libvirt detects a newly added hook script when its daemon starts:
+sudo systemctl restart virtqemud
 ```
 
-> The `systemctl restart vpac-ssc600-setup.service` line is this guide's addition to the vendor hook: a VM start (re)creates the macvtap and can re-spread the NIC's managed IRQs onto isolated cores, so the affinity from step 09 is re-asserted on every start. The rest of the hook is the vendor's as shipped.
+> **Why `-w`.** vhost-net worker threads have no command line, and `pidof` skips such processes
+> unless given `-w`. Without it the hook finds no vhost threads, exits with an error after about
+> 10 seconds, and libvirt aborts the start: `Hook script execution failed ... unexpected exit
+> status 1`, with `no vhost-<pid> processes found` in the hook's output. On a running VM,
+> `pidof vhost-<qemu-pid>` prints nothing and `pidof -w vhost-<qemu-pid>` prints the threads.
+> This is the only change this guide makes to ABB's files.
 >
 > `chrt -p 1` with no policy flag sets **SCHED_RR** at priority 1 — `chrt`'s default policy — so the
 > vhost and `kvm-pit` threads run RR 1, not FIFO. Step 11's manual fallback and step 12's check

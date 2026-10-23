@@ -60,15 +60,14 @@ These are the runtime sources that pass every static check above and still produ
 # 1. irqbalance must be inactive (it re-spreads IRQs onto isolated cores):
 systemctl is-active irqbalance        # inactive
 
-# 2. No process-bus NIC IRQ may sit on an isolated core. isolate_managed_irq=Y
-#    only holds at probe time; a queue/ring change (step 08) can re-spread them.
-#    Each line's affinity must be a HOUSEKEEPING core, never an isolated one:
-for nic in ens2f0 ens2f1; do          # process-bus (and PTP) NICs
-  for irq in /sys/class/net/$nic/device/msi_irqs/*; do
-    i=$(basename "$irq")
-    echo "$nic irq$i -> $(cat /proc/irq/$i/effective_affinity_list)"
-  done
+# 2. The process-bus NIC IRQs must be on the process-bus IRQ core(s) — ABB's
+#    setup service places them at boot (step 09, CPUMASK); a queue/ring change
+#    can re-spread them. Each line's affinity must be a CPUMASK core, never an
+#    emulator or vCPU core:
+for irq in $(grep -E 'ens2f0|ens2f1' /proc/interrupts | cut -d: -f1); do   # your NICS
+  echo "irq$irq -> $(cat /proc/irq/$irq/effective_affinity_list)"
 done
+systemctl is-active ssc600-startup.service   # active
 
 # 3. The relay's vhost-net threads must be pinned (step 11), not on a vCPU core:
 qpid=$(pgrep -f 'guest=ssc600-01,')
@@ -82,7 +81,7 @@ done
 lsmod | grep -w irdma                 # no output
 ```
 
-Cross-check the IRQ affinities against `cat /sys/devices/system/cpu/isolated`: any device IRQ whose effective affinity falls inside the isolated set will inject jitter into the relay and must be re-pinned to a housekeeping core (step 08).
+Cross-check the IRQ affinities against the step 06 layout: a process-bus IRQ off its `CPUMASK` core, or any device IRQ on an emulator or vCPU core, injects jitter into the relay. Re-apply the placement with `sudo systemctl restart ssc600-startup.service` (step 09).
 
 ## Memory
 
@@ -112,7 +111,7 @@ The PTP port should be in `SLAVE` state and should not alternate to `UNCALIBRATE
 Confirm the relay can see host PTP health through the share:
 
 ```bash
-cat /home/libvirt-local/ptp/ptp_status   # written by the vendor's ptp_status service, refreshed continuously
+cat /var/lib/libvirt/images/ptp/ptp_status   # <PTP_STATUS_FOLDER>/ptp_status (step 09), refreshed every second
 ```
 
 ## The VM itself

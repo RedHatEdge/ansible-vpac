@@ -136,10 +136,10 @@ Worked on two different parts, to show the indices are *not* portable:
 > for a busy NIC queue. Confirm the intended arrangement with the relay vendor before departing
 > from the default.
 
-> **With two process-bus NICs (PRP), give each its own housekeeping core.** Both LANs carry Sampled
-> Values at the same time, so a single shared interrupt core makes them contend under exactly the
-> load that matters. Two cores at the top of the housekeeping range cost nothing that the host
-> needs elsewhere.
+> **With two process-bus NICs (PRP), reserve two cores.** Both LANs carry Sampled Values at the
+> same time, so a single interrupt core makes them contend under exactly the load that matters.
+> ABB's setup script (step 09) applies one `CPUMASK` to every process-bus NIC, so that mask holds
+> both cores.
 
 ### 4. Derive the values that follow from it
 
@@ -152,12 +152,13 @@ VCPUS="12 13 14 15"       # step 10 <vcpupin>
 EMULATOR="10-11"          # step 10 <emulatorpin>
 RT_CORES="13-15"          # step 09 cache class (vCPUs minus vCPU 0)
 IRQ_CORE=9                # step 09 process-bus IRQ core — HOUSEKEEPING, outside ISOLATED
-                          # for PRP use two: e.g. IRQ_CORE_A=8 IRQ_CORE_B=9
+HK_LAST=9                 # highest housekeeping core (housekeeping = 0-HK_LAST)
 
-# CPUMASK for step 09 is a HEX BITMASK, not a core number:
-printf 'CPUMASK="%x"\n' $((1 << IRQ_CORE))       # core 9  -> 200
+# CPUMASK and NON_RT_CORES for step 09 are HEX BITMASKS, not core numbers:
+printf 'CPUMASK=%x\n' $((1 << IRQ_CORE))          # core 9  -> 200
                                                   # core 12 -> 1000
-                                                  # core 17 -> 20000
+                                                  # PRP, cores 8 and 9: $(( (1<<8) | (1<<9) )) -> 300
+printf 'NON_RT_CORES=%x\n' $(( (1 << (HK_LAST + 1)) - 1 ))   # 0-9 -> 3ff
 
 # L3 cache ways, for the step 09 pqos masks:
 lscpu | grep -i '^L3'                             # total L3, e.g. 22 MiB
@@ -187,9 +188,8 @@ Fill this in and keep it beside you for steps 08, 09, 10 and 12 — all four mus
   emulator    ____ - ____         non-RT mask      0x______
   vCPUs 0-3   ____________
 
-  process-bus NIC 1  ____ on core ____  -> mask ______
-  process-bus NIC 2  ____ on core ____  -> mask ______     (PRP only)
-        both cores must be in the HOUSEKEEPING range above
+  housekeeping mask  NON_RT_CORES = ______
+  process-bus NIC(s) ________ ________ (PRP)  on core(s) ____  -> CPUMASK = ______
 ```
 
 Set the isolated set in the tuned variables file (replace the range with the chosen cores):
@@ -229,7 +229,9 @@ summary=vPAC RT KVM host: realtime-virtual-host + 1G hugepages + RT sysctls
 include=realtime-virtual-host
 
 [bootloader]
-cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8
+# 1 GiB hugepages for the relay's memory, and the kernel's cache-allocation
+# features for the relay's L3 partition (step 09).
+cmdline_vpac=+default_hugepagesz=1G hugepagesz=1G hugepages=8 rdt=cmt,l3cat,l3cdp,mba
 
 [sysctl]
 # Let SCHED_FIFO RT threads (the guest vCPUs) use 100% of their isolated cores.
@@ -238,7 +240,7 @@ kernel.sched_rt_runtime_us = -1
 kernel.nmi_watchdog = 0
 ```
 
-Step 08 explains the `[sysctl]` values.
+Step 08 explains the `[sysctl]` values. `rdt=` turns on the kernel's cache-allocation features. The kernel can leave L3 cache allocation off unless `rdt=` requests it, even on a CPU that supports it, and ABB's setup service (step 09) cannot partition the cache without it. Step 08 checks the result after the reboot.
 
 Apply the profile and confirm the boot arguments tuned will set:
 
@@ -246,12 +248,12 @@ Apply the profile and confirm the boot arguments tuned will set:
 tuned-adm list | grep vpac-rt-host                # tuned finds the profile
 sudo tuned-adm profile vpac-rt-host
 tuned-adm active                                  # Current active profile: vpac-rt-host
-sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs and hugepages=8 together
+sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs, hugepages=8 and rdt= together
 ```
 
-> Record the `isolated_cores` value. It is reused three times: the VM's `<vcpupin>`/`<emulatorpin>` (step 10), the L3 cache partitioning (step 08), and the validation checks (step 12). All three must agree.
+> Record the `isolated_cores` value. It is reused three times: the VM's `<vcpupin>`/`<emulatorpin>` (step 10), the L3 cache partitioning (step 09), and the validation checks (step 12). All three must agree.
 
-> `isolate_managed_irq=Y` keeps kernel-managed IRQs off the isolated cores, but **only at device probe time**. A later change to a NIC's queues or rings re-spreads those IRQs across all CPUs again, so step 08 adds an explicit re-pin of the process-bus NIC IRQs to the housekeeping cores. This setting is necessary but not sufficient on its own.
+> `isolate_managed_irq=Y` keeps kernel-managed IRQs off the isolated cores, but **only at device probe time**. A later change to a NIC's queues or rings re-spreads those IRQs across all CPUs again. ABB's setup service (step 09) places the process-bus NIC IRQs at every boot, and is re-run after such a change. This setting is necessary but not sufficient on its own.
 
 ## Reserve 1 GiB hugepages
 

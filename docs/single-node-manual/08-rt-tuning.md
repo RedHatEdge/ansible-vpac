@@ -25,7 +25,7 @@ Do **not** add these arguments again with `grubby`. A second copy produces a dup
 The same profile carries the **1 GiB hugepage reservation** (its `cmdline_vpac` line, step 06), so tuned manages it too. Confirm the arguments tuned will apply:
 
 ```bash
-sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs and hugepages=8
+sudo grub2-editenv list | grep tuned_params       # isolcpus, nohz_full, rcu_nocbs, hugepages=8 and rdt=
 ```
 
 A host that already received the hugepage arguments through `grubby` carries a second copy of them. Remove that copy, so tuned's is the only one:
@@ -41,6 +41,7 @@ For reference, the arguments the profile applies:
 - **`skew_tick=1`** — desynchronizes per-CPU timer ticks so they do not fire simultaneously and cause a latency spike.
 - **`intel_pstate=disable`** — assigns frequency control to a fixed governor instead of the firmware's P-state driver.
 - **`default_hugepagesz=1G hugepagesz=1G hugepages=8`** — the 1 GiB hugepage reservation for the guest, from the profile's own `cmdline_vpac` line.
+- **`rdt=cmt,l3cat,l3cdp,mba`** — turns on the kernel's cache-allocation features, so ABB's setup service (step 09) can give the relay its own L3 partition. Also from `cmdline_vpac`.
 
 Keep `isolated_cores` (step 06), the VM's `<vcpupin>`/`<emulatorpin>` (step 10), and the `cyclictest` range (step 12) in agreement. A mismatch causes a VM that boots but does not meet latency targets.
 
@@ -79,7 +80,7 @@ cpupower frequency-info | grep -i governor   # The governor "performance"
 
 ## Mount the cache controller (resctrl)
 
-The SSC600SW host setup partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. `pqos` has no effect if `/sys/fs/resctrl` is not mounted. Mount it persistently with a systemd mount unit:
+ABB's host setup service (step 09) partitions the L3 cache with Intel CAT (`pqos`) so the relay's cores receive a protected slice. It needs `/sys/fs/resctrl` mounted and L3 cache allocation turned on in the kernel (`rdt=`, step 06). Mount it persistently with a systemd mount unit:
 
 ```bash
 sudo vi /etc/systemd/system/sys-fs-resctrl.mount
@@ -106,9 +107,9 @@ sudo systemctl enable --now sys-fs-resctrl.mount
 mount | grep resctrl     # confirm it's mounted
 ```
 
-(On non-Intel hardware or CPUs without CAT, this mount may be unavailable. In that case, skip cache partitioning; the relay runs but shares L3.)
+The verification block after the reboot confirms L3 cache allocation is on (`/sys/fs/resctrl/info/L3` exists). A CPU without it (no `cat_l3` in `/proc/cpuinfo`) cannot run ABB's cache partition.
 
-> Mounting `resctrl` enables cache partitioning; it does not *create* a partition. Until a control group exists under `/sys/fs/resctrl/` with the relay's cores and an L3 mask, the relay shares the last-level cache with the rest of the host and a busy non-RT core can evict the relay's working set. The SSC600SW host setup's `pqos` service creates this group at relay start; confirm it is enabled and that `ls /sys/fs/resctrl/` shows a group after the VM is running. To partition by hand instead, create a group, assign the relay's cores, and give it a dedicated cache-bit mask (the exact mask is hardware-specific — see `man resctrl`).
+> Mounting `resctrl` enables cache partitioning; it does not *create* a partition. Until a class exists with the relay's cores and an L3 mask, the relay shares the last-level cache with the rest of the host and a busy non-RT core can evict the relay's working set. ABB's setup service (step 09) creates it at every boot.
 
 ## Keep device IRQs and helper threads off the isolated cores
 
@@ -118,13 +119,13 @@ Isolating the cores is not enough on its own. Two runtime sources can still land
 
 `irqbalance` re-spreads device IRQs across all CPUs and silently fights the isolation; `ksm`/`ksmtuned` scan memory to merge identical pages. None are useful here.
 
-`ksm`/`ksmtuned` exist only if the optional `ksmtuned` package is installed; it is not installed by default on RHEL 9 or RHEL 10. The tuned profile stops KSM either way (`/sys/kernel/mm/ksm/run` reads `2`). If the units are present, disable them:
+`ksm`/`ksmtuned` exist only if the optional `ksmtuned` package is installed; it is not installed by default on RHEL 9 or RHEL 10. The tuned profile stops KSM either way (`/sys/kernel/mm/ksm/run` reads `2`; once ABB's setup service from step 09 runs, it reads `0` — both mean stopped). If the units are present, disable them:
 
 ```bash
 systemctl list-unit-files ksm.service ksmtuned.service   # "0 unit files listed": skip the next two commands
 sudo systemctl disable --now ksm
 sudo systemctl disable --now ksmtuned
-cat /sys/kernel/mm/ksm/run            # 2
+cat /sys/kernel/mm/ksm/run            # 2 (0 after step 09)
 
 # irqbalance is MASKED, not just disabled. RHEL ships it enabled, so a package
 # reinstall or `systemctl preset` puts a merely-disabled unit back. Masking
@@ -137,36 +138,22 @@ systemctl is-active  irqbalance    # expect: inactive
 systemctl is-enabled irqbalance    # expect: masked
 ```
 
-### Pin the process-bus NIC IRQs to the housekeeping cores
+### Process-bus NIC IRQs: placed by ABB's setup service
 
-`isolate_managed_irq=Y` (step 06) keeps kernel-managed IRQs off the isolated cores **at device probe time only**. Any later change to a NIC's queues or rings — an `ethtool -L`/`-G`, an interface down/up, or tuned's own `netdev_queue_count` — tears the queues down and recreates them, re-spreading the managed IRQs across *all* CPUs. That can drop a process-bus NIC's busy RX queue, and its softirq load, onto an isolated core carrying the relay. High-rate GOOSE/Sampled-Value multicast makes this a real latency source.
+The housekeeping IRQ affinity and `isolate_managed_irq=Y` (step 06) keep device interrupts off the isolated cores at boot. ABB's setup service (step 09) then moves each process-bus NIC's interrupts to the process-bus IRQ core(s) from step 06, at every boot. There is nothing to run for them in this step.
 
-Pin the process-bus interfaces' IRQs back onto the housekeeping cores (the non-isolated set — e.g. `0-9` when isolated is `10-15`). Substitute the real interface names:
-
-> This pins to the whole housekeeping range, which is enough to get the interrupts out of the
-> isolated block. [Step 09](09-prepare-ssc600-bundle.md) then narrows each process-bus NIC to a
-> **specific** housekeeping core — one per NIC — so that under PRP the two LANs do not contend
-> for the same CPU. Run both: this is the coarse guarantee, step 09 is the placement.
-
-```bash
-HK=0-9                       # housekeeping cores = all cores minus the isolated set
-for nic in ens2f0 ens2f1; do # the process-bus (and any other RT-path) NICs
-  for irq in /sys/class/net/$nic/device/msi_irqs/*; do
-    echo "$HK" | sudo tee /proc/irq/$(basename "$irq")/smp_affinity_list >/dev/null
-  done
-done
-
-# verify nothing for these NICs is on an isolated core:
-grep -E 'ens2f0|ens2f1' /proc/interrupts | awk '{print $1}'   # note the IRQ numbers
-cat /proc/irq/<irq>/effective_affinity_list                   # must be within 0-9
-```
-
-Persistence comes from step 09: `vpac-ssc600-setup.service` re-applies the per-NIC placement at every boot and, through the step-10 hook, on every VM start. The loop above is the immediate one-time application — do not write a second unit for it.
+`isolate_managed_irq=Y` holds **at device probe time only**. Any later change to a NIC's queues or rings — an `ethtool -L`/`-G`, an interface down/up, or tuned's own `netdev_queue_count` — tears the queues down and recreates them, and can spread their interrupts across *all* CPUs, isolated ones included. After such a change, re-apply the placement with `sudo systemctl restart ssc600-startup.service`.
 
 ### Keep the RDMA driver off the NICs
 
-Intel `ice` (E810) and `i40e` (X710) ports register an RDMA auxiliary device at probe, and RHEL
-autoloads `irdma` onto it. While `irdma` is bound, the port **refuses every channel change** — tuned's
+Some Intel ports (`ice` on E810, `i40e` on X722) register an RDMA auxiliary device at probe, and RHEL
+autoloads `irdma` onto it. Check first:
+
+```bash
+lsmod | grep -w irdma       # no output: the driver is not bound — skip the rest of this section
+```
+
+While `irdma` is bound, the port **refuses every channel change** — tuned's
 `netdev_queue_count`, and any `ethtool -L` — logging only `Cannot change channels when RDMA is
 active` in `dmesg`. Nothing else reports the refusal, so the queue layout is whatever the driver
 chose at probe rather than what was configured. Nothing on a protection host uses RDMA. Blacklist
@@ -224,7 +211,7 @@ sudo systemctl is-enabled tuned.service      # confirm tuned itself stays enable
 
 ## Rebuild the initramfs
 
-Rebuild the initramfs for every installed kernel, so it carries both modprobe drop-ins from this step (`vpac-no-rdma.conf` and `vpac-kvm.conf`):
+Rebuild the initramfs for every installed kernel, so it carries the modprobe drop-ins from this step (`vpac-kvm.conf`, and `vpac-no-rdma.conf` if you created it):
 
 ```bash
 sudo dracut -f --regenerate-all
@@ -247,10 +234,12 @@ sysctl kernel.sched_rt_runtime_us     # -1
 sysctl kernel.nmi_watchdog            # 0
 cpupower frequency-info | grep -i governor   # performance
 mount | grep resctrl                  # mounted
+ls /sys/fs/resctrl/info/              # includes L3 — L3 cache allocation is on (rdt=, step 06)
+cat /sys/fs/resctrl/info/L3/cbm_mask  # the L3 ways, for the step 09 cache masks
 tuned-adm active                      # vpac-rt-host
 getenforce                            # Disabled (step 04)
 sysctl net.ipv4.ip_forward            # 0 (libvirt default network removed in step 05)
-systemctl is-active irqbalance        # inactive (disabled above)
+systemctl is-active irqbalance        # inactive (masked above)
 lsmod | grep -w irdma                 # no output — RDMA driver not bound
 ls /sys/class/infiniband/ 2>/dev/null # no output
 grep -H . /sys/module/kvm_intel/parameters/{nested,enable_apicv,ple_gap,ple_window}   # Y, N, 0, 0
